@@ -202,5 +202,90 @@ describe("normalizeOpenAIMessages", () => {
       },
     ]);
   });
+
+  it("prunes older historical images when multiple images accumulate across turns", () => {
+    const input = [
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: "data:image/png;base64,old1" } },
+        ],
+      },
+      {
+        role: "assistant",
+        content: "I see screenshot 1.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: "data:image/png;base64,old2" } },
+        ],
+      },
+      {
+        role: "assistant",
+        content: "I see screenshot 2.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Look at latest screenshot" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,latest" } },
+        ],
+      },
+    ];
+
+    const result = normalizeOpenAIMessages(input);
+    // The first image should be pruned and replaced with text placeholder
+    expect(result[0]).toEqual({
+      role: "user",
+      content: "[Previous screenshot omitted to prevent multimodal timeout]",
+    });
+    // The second and third images should be preserved (MAX_IMAGES_TO_KEEP = 2)
+    expect(result[2]).toEqual({
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,old2" } },
+      ],
+    });
+    expect(result[4]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Look at latest screenshot" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,latest" } },
+      ],
+    });
+  });
+
+  it("converts Anthropic image blocks into OpenAI image_url format", () => {
+    const input = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/jpeg",
+              data: "jpegdata123",
+            },
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeOpenAIMessages(input)).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: {
+              url: "data:image/jpeg;base64,jpegdata123",
+            },
+          },
+        ],
+      },
+    ]);
+  });
 });
 

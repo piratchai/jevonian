@@ -268,6 +268,32 @@ export function normalizeOpenAIMessages(
   messages: Array<Record<string, unknown>> | unknown[],
 ): Array<Record<string, unknown>> {
   if (!Array.isArray(messages)) return [];
+
+  // Count total multimodal image items across the conversation history.
+  let totalImages = 0;
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object") continue;
+    const msg = raw as Record<string, unknown>;
+    if (!Array.isArray(msg.content)) continue;
+    for (const item of msg.content) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as Record<string, unknown>;
+      if (
+        rec.type === "image_url" ||
+        (rec.type === "image" && rec.source && typeof rec.source === "object")
+      ) {
+        totalImages++;
+      }
+    }
+  }
+
+  // Keep at most the 2 most recent images across the conversation to prevent
+  // multimodal gateway timeouts (e.g. Alibaba DashScope 60s timeout: "Download multimodal file timed out")
+  // and payload bloat on long multi-turn sessions with accumulated screenshots.
+  const MAX_IMAGES_TO_KEEP = 2;
+  const pruneThreshold = totalImages - MAX_IMAGES_TO_KEEP;
+  let currentImageIdx = 0;
+
   const out: Array<Record<string, unknown>> = [];
 
   for (const raw of messages) {
@@ -300,7 +326,32 @@ export function normalizeOpenAIMessages(
       const type = rec.type;
       if (type === "text") {
         if (typeof rec.text === "string") textParts.push(rec.text);
-      } else if (type === "image_url" || type === "input_audio") {
+      } else if (
+        type === "image_url" ||
+        (type === "image" && rec.source && typeof rec.source === "object")
+      ) {
+        currentImageIdx++;
+        if (totalImages > MAX_IMAGES_TO_KEEP && currentImageIdx <= pruneThreshold) {
+          textParts.push("[Previous screenshot omitted to prevent multimodal timeout]");
+        } else {
+          if (type === "image_url") {
+            imageParts.push(rec);
+          } else {
+            const source = rec.source as Record<string, unknown>;
+            if (source.type === "base64" && typeof source.data === "string") {
+              const mediaType = typeof source.media_type === "string" ? source.media_type : "image/png";
+              imageParts.push({
+                type: "image_url",
+                image_url: {
+                  url: `data:${mediaType};base64,${source.data}`,
+                },
+              });
+            } else {
+              imageParts.push(rec);
+            }
+          }
+        }
+      } else if (type === "input_audio") {
         imageParts.push(rec);
       } else if (type === "tool_use") {
         let args = "{}";
