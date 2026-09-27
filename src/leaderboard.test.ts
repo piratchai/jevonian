@@ -137,13 +137,49 @@ describe("lookup / leaderboardViewFor", () => {
     expect(findCatalogBenchmarkModel("openai/gpt-5.5")?.entry.benchmarks[0]?.score).toBe(58.6);
 
     const view = leaderboardViewFor("claude-opus-5");
-    const byBoard = view?.by_board as Record<string, Record<string, unknown>>;
-    expect(byBoard["swe-bench-verified"]?.score).toBe(96);
-    // Headline prefers the higher Terminal-Bench score (xhigh variant).
-    expect(byBoard["terminal-bench"]?.score).toBe(84.1);
+    // Scores only: board id -> headline score. Headline prefers the higher Terminal-Bench
+    // score (xhigh variant).
+    expect(view).toEqual({ by_board: { "swe-bench-verified": 96, "terminal-bench": 84.1 } });
     expect(view?.best_board).toBeUndefined();
-    const byEffort = view?.by_effort as Record<string, Record<string, Record<string, unknown>>>;
-    expect(byEffort.xhigh?.["terminal-bench"]?.score).toBe(84.1);
+  });
+
+  it("keeps the brain view to scores and drops per-effort rows that repeat the headline", () => {
+    const snapshot = seedSnapshot();
+    snapshot.models["anthropic/claude-opus-5"]!.benchmarks.push(
+      {
+        boardId: "swe-bench-verified",
+        name: "SWE-Bench Verified",
+        score: 91.25,
+        higherIsBetter: true,
+        effort: "high",
+        variant: "high effort",
+        source: "https://example.com/long/source/url",
+        date: "2026-09-01",
+        version: "4.0",
+      },
+      {
+        boardId: "swe-bench-verified",
+        name: "SWE-Bench Verified",
+        score: 88,
+        higherIsBetter: true,
+        effort: "high",
+      },
+    );
+    saveLeaderboardSnapshot(snapshot);
+
+    const view = leaderboardViewFor("claude-opus-5");
+    expect(view).toEqual({
+      by_board: { "swe-bench-verified": 96, "terminal-bench": 84.1 },
+      // swe-bench-verified's best `high` row differs from its headline, so it is informative;
+      // terminal-bench's lone xhigh row is the headline itself and is not repeated.
+      by_effort: { high: { "swe-bench-verified": 91.25 } },
+    });
+    const serialized = JSON.stringify(view);
+    for (const noise of ["source", "date", "version", "variant", "higher_is_better", "name"]) {
+      expect(serialized).not.toContain(noise);
+    }
+    // A soft match is flagged so the brain knows the scores may belong to a sibling model.
+    expect(leaderboardViewFor("glm-5.1")).toMatchObject({ match: "soft" });
   });
 
   it("soft-matches after dropping quant noise tokens", () => {

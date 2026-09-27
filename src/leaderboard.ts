@@ -378,25 +378,18 @@ function pickHeadline(records: BenchmarkRecord[]): BenchmarkRecord {
   return sorted[0]!;
 }
 
-function recordView(record: BenchmarkRecord): Record<string, unknown> {
-  return {
-    name: record.name,
-    score: Number(record.score.toFixed(4)),
-    higher_is_better: record.higherIsBetter,
-    ...(record.metric ? { metric: record.metric } : {}),
-    ...(record.effort ? { effort: record.effort } : {}),
-    ...(record.variant ? { variant: record.variant } : {}),
-    ...(record.harness ? { harness: record.harness } : {}),
-    ...(record.version ? { version: record.version } : {}),
-    ...(record.dataset ? { dataset: record.dataset } : {}),
-    ...(record.source ? { source: record.source } : {}),
-    ...(record.date ? { date: record.date } : {}),
-  };
+function scoreOf(record: BenchmarkRecord): number {
+  return Number(record.score.toFixed(2));
 }
 
 /**
- * Compact evidence for the brain. Scores only — models.dev does not publish ranks.
- * No cross-board `best_*` (different metrics are not comparable).
+ * Compact evidence for the brain: board id → score, higher is better. models.dev publishes no
+ * ranks, and scores are never comparable across boards, so no cross-board `best_*` either.
+ *
+ * This rides along on every routing call, so it carries scores only. Source URLs, dates,
+ * versions, and variant prose do not change a routing decision; sending them used to make
+ * benchmarks ~70% of each Jev request. `by_effort` lists only tiers whose best score on a board
+ * differs from the `by_board` headline, since a repeated number adds nothing.
  */
 export function leaderboardViewFor(model: string): Record<string, unknown> | undefined {
   const hit = findCatalogBenchmarkModel(model);
@@ -409,26 +402,28 @@ export function leaderboardViewFor(model: string): Record<string, unknown> | und
     byName.set(record.boardId, list);
   }
 
-  const byBoard: Record<string, Record<string, unknown>> = {};
-  const byEffort: Record<string, Record<string, Record<string, unknown>>> = {};
+  const byBoard: Record<string, number> = {};
+  const byEffort: Record<string, Record<string, number>> = {};
 
   for (const [boardId, records] of byName) {
-    const headline = pickHeadline(records);
-    byBoard[boardId] = recordView(headline);
+    const headline = scoreOf(pickHeadline(records));
+    byBoard[boardId] = headline;
+    const bestByEffort = new Map<string, number>();
     for (const record of records) {
       if (!record.effort) continue;
-      const bucket = (byEffort[record.effort] ??= {});
-      const existing = bucket[boardId];
-      if (!existing || (typeof existing.score === "number" && record.score > existing.score)) {
-        bucket[boardId] = recordView(record);
-      }
+      const score = scoreOf(record);
+      const existing = bestByEffort.get(record.effort);
+      if (existing === undefined || score > existing) bestByEffort.set(record.effort, score);
     }
+    // A single effort tier that matches the headline is the headline itself.
+    const informative =
+      bestByEffort.size > 1 || [...bestByEffort.values()].some((score) => score !== headline);
+    if (!informative) continue;
+    for (const [effort, score] of bestByEffort) (byEffort[effort] ??= {})[boardId] = score;
   }
 
   return {
-    label: hit.entry.normalizedName,
-    model_id: hit.entry.id,
-    match: hit.match,
+    ...(hit.match === "exact" ? {} : { match: hit.match }),
     by_board: byBoard,
     ...(Object.keys(byEffort).length > 0 ? { by_effort: byEffort } : {}),
   };
