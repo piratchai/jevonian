@@ -1180,26 +1180,8 @@ export function RoutingPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {expanded ? (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => void commitEditing(null)}
-                            disabled={busy}
-                          >
-                            {busy ? "Saving…" : routingDirty(routing.id) ? "Save" : "Done"}
-                          </Button>
-                          <button
-                            type="button"
-                            className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-                            disabled={busy}
-                            onClick={() => cancelEditing(null)}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
+                    {!expanded ? (
+                      <div className="flex shrink-0 flex-col items-end gap-1">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1211,18 +1193,8 @@ export function RoutingPage() {
                         >
                           Customize
                         </Button>
-                      )}
-                      {!builtin && expanded ? (
-                        <button
-                          type="button"
-                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => void removeRouting(routing.id)}
-                        >
-                          Delete routing
-                        </button>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-1.5">
@@ -1326,6 +1298,36 @@ export function RoutingPage() {
                           Unsaved — Save or Cancel to switch cards.
                         </span>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {expanded ? (
+                    <div className="flex items-center justify-between gap-2 border-t pt-3">
+                      {!builtin ? (
+                        <button
+                          type="button"
+                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => void removeRouting(routing.id)}
+                        >
+                          Delete routing
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => cancelEditing(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={() => void commitEditing(null)} disabled={busy}>
+                          {busy ? "Saving…" : routingDirty(routing.id) ? "Save" : "Done"}
+                        </Button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
