@@ -810,6 +810,60 @@ describe("quota headers", () => {
     });
   });
 
+  it.each([0, 0.5, 1, 2, 89, 100])(
+    "keeps Claude live utilization %s in percentage units",
+    async (usedPercent) => {
+      const config = claudeConfig();
+      vi.stubGlobal(
+        "fetch",
+        async () =>
+          new Response(
+            JSON.stringify({
+              five_hour: { utilization: usedPercent },
+              seven_day: { utilization: usedPercent },
+            }),
+          ),
+      );
+
+      const quotas = await providerQuotas(config, { refresh: true });
+      expect(quotas[0]?.windows.map((window) => window.usedPercent)).toEqual([
+        usedPercent,
+        usedPercent,
+      ]);
+      expect(providerQuotaHealth(config.providers[0]!).status).toBe(
+        usedPercent === 100 ? "exhausted" : "ok",
+      );
+    },
+  );
+
+  it.each([0, 0.5, 1, 100])(
+    "keeps Claude model-scoped percent %s in percentage units",
+    async (usedPercent) => {
+      const config = claudeConfig();
+      vi.stubGlobal(
+        "fetch",
+        async () =>
+          new Response(
+            JSON.stringify({
+              limits: [
+                {
+                  kind: "weekly_scoped",
+                  percent: usedPercent,
+                  scope: { model: { display_name: "Fable" } },
+                },
+              ],
+            }),
+          ),
+      );
+
+      const quotas = await providerQuotas(config, { refresh: true });
+      expect(quotas[0]?.windows[0]).toMatchObject({
+        label: "Fable",
+        usedPercent,
+      });
+    },
+  );
+
   it("does not mark a provider exhausted from a spent model-scoped window", async () => {
     const config = claudeConfig();
     vi.stubGlobal(

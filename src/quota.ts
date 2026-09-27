@@ -108,10 +108,11 @@ function percent(value: unknown): number | undefined {
 }
 
 /**
- * Already-scaled 0-100 usage (OpenCode Go `percent`, Codex `used_percent`).
+ * Already-scaled 0-100 usage (OpenCode Go `percent`, Codex `used_percent`,
+ * Claude live `utilization` and scoped `percent`).
  *
  * A raw value of `1` means "1% used", not 100%. Running it through {@link percent}
- * treats `<= 1` as a 0-1 fraction, so an almost-idle Codex weekly window becomes
+ * treats `<= 1` as a 0-1 fraction, so an almost-idle subscription window becomes
  * fully spent and drops the provider from routing.
  */
 function percentPoints(value: unknown): number | undefined {
@@ -909,7 +910,7 @@ async function claudeUsage(
   const json = asRecord(await response.json());
   const windows: QuotaWindow[] = [];
   const fiveHour = asRecord(json.five_hour);
-  const usedFiveHour = percent(fiveHour.utilization);
+  const usedFiveHour = percentPoints(fiveHour.utilization);
   if (usedFiveHour !== undefined) {
     const resetsAt = toIso(fiveHour.resets_at);
     windows.push({
@@ -920,7 +921,7 @@ async function claudeUsage(
     });
   }
   const sevenDay = asRecord(json.seven_day);
-  const usedSevenDay = percent(sevenDay.utilization);
+  const usedSevenDay = percentPoints(sevenDay.utilization);
   if (usedSevenDay !== undefined) {
     const resetsAt = toIso(sevenDay.resets_at);
     windows.push({
