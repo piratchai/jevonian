@@ -411,7 +411,7 @@ export function KeysPage() {
           </Table>
           <p className="mt-3 text-xs text-muted-foreground">
             Usage is estimated from ledger records attributed to each key. See{" "}
-            <Link to="/activity" className="underline hover:text-foreground">
+            <Link to="/#activity" className="underline hover:text-foreground">
               Activity
             </Link>{" "}
             for per-model and time-series breakdowns.

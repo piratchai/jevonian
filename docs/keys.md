@@ -26,9 +26,9 @@ a snapshot of its `name`. Local desktop clients that authenticate without a Jevo
 key are tagged `local`; unauthenticated first-run traffic is tagged `unauthenticated`.
 Per-key usage and credit limits only count records that carry a `keyId`.
 
-## Activity page
+## Activity on Overview
 
-The **Activity** dashboard (`/activity`) aggregates the ledger like a usage console:
+The **Activity** section on **Overview** (`/#activity`) aggregates the ledger like a usage console. Existing `/activity` links redirect there:
 
 | Control / panel    | Meaning                                                        |
 | ------------------ | -------------------------------------------------------------- |

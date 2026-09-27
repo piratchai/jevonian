@@ -1,4 +1,6 @@
+import { ArrowUpRight, Gauge, Layers3, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 
 import { OverviewSkeleton } from "@/components/page-skeletons";
 import { QuotaGrid } from "@/components/quota-card";
@@ -24,17 +26,22 @@ import {
   type UpdateResponse,
 } from "@/lib/api";
 import { money, percent } from "@/lib/utils";
+import { ActivitySection } from "@/pages/activity";
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
+    <Card className="flex min-h-36 min-w-0 flex-col justify-between">
+      <CardHeader className="gap-3">
+        <CardDescription className="text-[11px] font-medium tracking-[0.12em] uppercase">
+          {label}
+        </CardDescription>
+        <CardTitle className="break-all text-[clamp(1.2rem,2vw,1.85rem)] font-semibold tracking-[-0.04em] tabular-nums">
+          {value}
+        </CardTitle>
       </CardHeader>
       {hint ? (
         <CardContent>
-          <p className="text-xs text-muted-foreground">{hint}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
         </CardContent>
       ) : null}
     </Card>
@@ -51,8 +58,8 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <details className="rounded-lg border bg-card p-4">
-      <summary className="cursor-pointer text-sm font-semibold">
+    <details className="rounded-xl border bg-card p-5">
+      <summary className="cursor-pointer text-sm font-semibold tracking-tight">
         {title} <span className="font-normal text-muted-foreground">· {summary}</span>
       </summary>
       <div className="mt-3 flex flex-col gap-3">{children}</div>
@@ -206,14 +213,69 @@ export function OverviewPage() {
       : "no pay-per-token calls logged yet";
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">Overview</h1>
-        <p className="text-sm text-muted-foreground">
-          Point any agent at the endpoint below with an API key from the Keys page.
-        </p>
+    <div className="flex flex-col gap-8">
+      <section className="relative overflow-hidden rounded-2xl border bg-card px-6 py-8 sm:px-10 sm:py-10">
+        <div className="pointer-events-none absolute -top-28 -right-20 size-72 rounded-full border border-border" />
+        <div className="pointer-events-none absolute -top-12 -right-4 size-48 rounded-full border border-border" />
+        <div className="relative max-w-2xl">
+          <p className="mb-4 flex items-center gap-2 text-[11px] font-semibold tracking-[0.18em] text-primary uppercase">
+            <span className="size-1.5 rounded-full bg-primary" />
+            Your local model router
+          </p>
+          <h1 className="text-3xl font-semibold tracking-[-0.045em] text-foreground sm:text-4xl">
+            The right model for every turn.
+          </h1>
+          <p className="mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
+            One endpoint for your agents. See how each request was routed, where it ran, and what it
+            cost — without switching models by hand.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Button size="sm" render={<Link to="/routing" />}>
+              <Layers3 className="size-3.5" /> Explore routing <ArrowUpRight className="size-3.5" />
+            </Button>
+            <Button variant="outline" size="sm" render={<Link to="/logs" />}>
+              View request logs
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-primary uppercase">
+            At a glance
+          </p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Your workspace</h2>
+        </div>
+        <span className="hidden text-xs text-muted-foreground sm:block">
+          Local ledger · all time
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <Stat label="Requests" value={String(stats.requests)} hint={`${stats.sessions} sessions`} />
+        <Stat label="Spend · API estimate" value={money(stats.apiUsd)} hint={apiSpendHint} />
+        <Stat
+          label="Spend · subscription value"
+          value={money(stats.subscriptionUsd)}
+          hint={
+            stats.subscriptionRequests > 0
+              ? `${stats.subscriptionRequests} calls on subscription plans · equivalent pay-per-token value, not billed`
+              : "no subscription calls logged yet"
+          }
+        />
+        <Stat
+          label="Cached input"
+          value={percent(stats.cacheHitRate)}
+          hint="share of prompt tokens served from cache"
+        />
       </div>
 
+      <ActivitySection />
+
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="size-4 text-primary" />
+        <h2 className="text-xl font-semibold tracking-tight">Connect your agents</h2>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Agent endpoints</CardTitle>
@@ -321,28 +383,13 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Requests" value={String(stats.requests)} hint={`${stats.sessions} sessions`} />
-        <Stat label="Spend · API estimate" value={money(stats.apiUsd)} hint={apiSpendHint} />
-        <Stat
-          label="Spend · subscription value"
-          value={money(stats.subscriptionUsd)}
-          hint={
-            stats.subscriptionRequests > 0
-              ? `${stats.subscriptionRequests} calls on subscription plans · equivalent pay-per-token value, not billed`
-              : "no subscription calls logged yet"
-          }
-        />
-        <Stat
-          label="Cached input"
-          value={percent(stats.cacheHitRate)}
-          hint="share of prompt tokens served from cache"
-        />
+      <div className="flex items-center gap-2">
+        <Gauge className="size-4 text-primary" />
+        <h2 className="text-xl font-semibold tracking-tight">Usage &amp; limits</h2>
       </div>
-
       <Card>
         <CardHeader>
-          <CardTitle>Usage & limits</CardTitle>
+          <CardTitle>Provider availability</CardTitle>
           <CardDescription>
             Remaining quota and reset time per provider. Open a provider for source, note, and
             window-by-window detail.
@@ -389,6 +436,10 @@ export function OverviewPage() {
         </CardContent>
       </Card>
 
+      <div className="flex items-center gap-2">
+        <span className="size-1.5 rounded-full bg-primary" />
+        <h2 className="text-xl font-semibold tracking-tight">Settings &amp; maintenance</h2>
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Jevonian updates</CardTitle>

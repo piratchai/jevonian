@@ -1,42 +1,57 @@
 # Jevonian
 
-**One local endpoint. The right model for every turn — enforced in code, not prompts.**
+### The right model for every turn. One local endpoint.
 
-Coding agents burn budget when tool loops run on frontier models, and they break when cheap models attempt architecture. Jevonian sits locally between your agent and your providers: it routes each turn to the most cost-effective capable model, manages quota and cache economics, and logs every decision to a local ledger.
+Keep the coding agent you already use. Jevonian sits between your agent and your providers, chooses a capable model for each turn, respects quota and cache economics, and records the decision locally. No manual model switching between planning, implementation, and smaller tasks.
 
-Keep your agent. Stop switching models by hand.
+**[Get started](#quickstart) · [Connect an agent](#connect-your-agent) · [See how routing works](#how-it-works)**
 
 ```text
-Your agent (Claude Code / Cursor / Codex)
-      ↓   point it at http://127.0.0.1:8787/v1
-   Jevonian — local runtime
-      ├─ plan      "design the auth migration"     → openai/gpt-6-astra           effort: high
-      ├─ execute   "run the tests, fix failures"   → deepseek/deepseek-v4.1-flash
-      ├─ utility   "summarize this diff"           → google/gemini-3.8-flash
-      └─ chat      "thanks, that works"            → google/gemini-3.8-flash
-      ↓
-Every turn recorded: provider, actual tokens, cache affinity, estimated cost, and why.
+Claude Code / Cursor / Codex
+              │
+              ▼
+    Jevonian · 127.0.0.1:8787/v1
+              │
+       ┌──────┼──────┐
+       ▼      ▼      ▼
+     plan  execute  utility / chat
+       │      │      │
+       └──────┼──────┘
+              ▼
+    Your configured providers
+              │
+              ▼
+    Local ledger: model · tokens · cost · reason
 ```
+
+> **What it is:** A local model router and protocol gateway. **What it is not:** An agent, a task manager, or a promise of local inference. Your agent owns the workflow; your selected provider runs the model.
+
+**Start in two commands** (Node 22+):
+
+```bash
+npm install --global jevonian
+jevonian
+```
+
+Open `http://127.0.0.1:8787`, add a provider and a routing brain, then connect your agent with a Jevonian API key and `jevonian/auto`. The [quickstart](#quickstart) walks through each step.
+
+**Explore:** [Why Jevonian](#why-jevonian) · [How it works](#how-it-works) · [Quickstart](#quickstart) · [Connect your agent](#connect-your-agent) · [Clients and providers](#clients-and-providers) · [Control and visibility](#control-and-visibility) · [Privacy and limitations](#privacy-and-limitations) · [Documentation](#documentation) · [Development](#development)
 
 Status: **v0.** Transparent pass-through, phase-based automatic routing, a local cost ledger, and subscription providers (API keys or OAuth sign-ins) with live quota meters.
 
-- [Why Jevonian](#why-jevonian)
-- [How it works](#how-it-works)
-- [Quickstart](#quickstart)
-- [Connect your agent](#connect-your-agent)
-- [Clients and providers](#clients-and-providers)
-- [Control and visibility](#control-and-visibility)
-- [Privacy and limitations](#privacy-and-limitations)
-- [Documentation](#documentation)
-- [Development](#development)
-
 ## Why Jevonian
 
-**Less manual switching.** Planning, implementation, background calls and small talk want different models. Jevonian decides per turn, so you stop changing the model picker between a design discussion and a failing test.
+### One endpoint, several jobs
 
-**Use the capacity you already have.** API keys and subscriptions — Claude Pro/Max, ChatGPT Codex, OpenCode Go, Command Code — sit behind one endpoint. Routing accounts for remaining quota, so a spent window moves work instead of failing the turn.
+Planning, implementation, background calls, and small talk need different levels of capability. `jevonian/auto` picks a route for each turn; explicit routes and pinned models remain available when you want control.
 
-**See what actually happened.** Every request reports the model and provider that served it, the reason for the choice, the thinking level actually sent, real token usage, cache reads, and an estimated cost. Nothing is inferred from task counts.
+### Your providers, one place
+
+API keys and subscriptions — Claude Pro/Max, ChatGPT Codex, OpenCode Go, Command Code — sit behind the same local endpoint. Quota-aware routing avoids exhausted providers before sending a request.
+
+### The decision is visible
+
+Each request reports the model and provider that served it, the routing reason, the thinking level actually sent, token usage, cache reads, and an estimated cost. The local ledger lets you inspect what happened instead of guessing from task counts.
 
 Jevonian routes requests. It does not decompose tasks, manage worktrees, or accept code on your behalf — your agent owns its workflow.
 
@@ -62,7 +77,7 @@ The request path is decided by precedence, not by guesswork:
 | a real model ID                                  | pinned to that model, never routed               |
 | `routing.mode: "off"`                            | pure pass-through; virtual models are rejected   |
 
-Automatic routing needs a brain. With none configured, `jevonian/auto` returns an error rather than guessing, and if every configured brain is unreachable the request fails with `502`.
+Automatic routing needs a brain. With none configured, `jevonian/auto` returns an error rather than guessing. If every configured brain remains unreachable after retries, the turn falls back to heuristic phase classification.
 
 ### The brain: TypeSafe Jev
 
@@ -100,7 +115,7 @@ Then:
 3. **Generate a Jevonian API key** on the **Keys** page (`sk-jev-…`, shown once, stored hashed). Optionally set a **credit limit** so estimated pay-as-you-go spend cannot exceed a total USD ceiling; see [keys.md](docs/keys.md).
 4. **Point an agent at** `http://127.0.0.1:8787/v1` using that key, with the model `jevonian/auto`.
 
-Confirm the first turn in **Logs**: it should show the phase, the model and provider that actually served it, and the routing reason. A running server is not proof the agent is connected. Use **Activity** for spend / token / request charts per key.
+Confirm the first turn in **Logs**: it should show the phase, the model and provider that actually served it, and the routing reason. A running server is not proof the agent is connected. Use the **Activity** section on **Overview** for spend / token / request charts per key.
 
 `--no-open` (or `JEVONIAN_NO_OPEN=1`) skips launching the browser. For a CLI-first path, `jevonian init` and `jevonian add` do the same setup without the dashboard:
 

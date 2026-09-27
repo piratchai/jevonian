@@ -209,6 +209,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.3.0)
+      '@fontsource-variable/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(typescript@5.9.3)(yaml@2.9.1))
@@ -526,6 +529,9 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@fontsource-variable/inter@5.3.0':
+    resolution: {integrity: sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==}
 
   '@henrygd/queue@1.2.0':
     resolution: {integrity: sha512-jW/BLSTpcvExDhqJGxtIPgGr2O0IFF8XUNDwEbfCfhrXT8a4xztQ9Lv6U/vbYzYC0xVWn+3zv6YnLUh3bEFUKA==}
@@ -2072,6 +2078,8 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
 
   '@floating-ui/utils@0.2.12': {}
+
+  '@fontsource-variable/inter@5.3.0': {}
 
   '@henrygd/queue@1.2.0': {}
 

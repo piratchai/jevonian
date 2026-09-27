@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-09-27
+
+### Changed
+
+- The dashboard has a refreshed layout with grouped navigation, Base Luma styling, neutral light and dark themes, and Inter typography; routing and provider behavior are unchanged.
+- Activity now lives on Overview with its filters, charts, and model/key breakdowns. Existing `/activity` links redirect to that section.
+- The README now leads with the local gateway, quickstart, and clearer explanations of routing and provider support.
+
 ## [0.1.9] - 2026-09-27
 
 ### Fixed

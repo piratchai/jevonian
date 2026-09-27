@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { RequestsChart, SpendChart, TokensChart } from "@/components/activity-charts";
 import { ActivitySkeleton } from "@/components/page-skeletons";
@@ -35,7 +35,8 @@ function formatCompactNumber(n: number): string {
   return n.toLocaleString();
 }
 
-export function ActivityPage() {
+export function ActivitySection() {
+  const { hash } = useLocation();
   const [range, setRange] = useState<ActivityTimeRangeView>("30d");
   const [keyId, setKeyId] = useState<string>("all");
   const [keysList, setKeysList] = useState<KeyView[]>([]);
@@ -65,16 +66,30 @@ export function ActivityPage() {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (hash !== "#activity" || !report) return;
+    // The section mounts after its first report is loaded on legacy /activity visits.
+    document.getElementById("activity")?.scrollIntoView();
+  }, [hash, Boolean(report)]);
+
   if (loading && !report) {
     return <ActivitySkeleton />;
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Top Header */}
+    <section
+      id="activity"
+      aria-labelledby="activity-heading"
+      className="flex flex-col gap-6 scroll-mt-20"
+    >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Activity</h1>
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-primary uppercase">
+            Usage trends
+          </p>
+          <h2 id="activity-heading" className="mt-1 text-xl font-semibold tracking-tight">
+            Activity
+          </h2>
           <p className="text-sm text-muted-foreground">
             Spend, token usage, and request volume trends across your API keys.
           </p>
@@ -124,9 +139,9 @@ export function ActivityPage() {
         </div>
       ) : null}
 
-      {/* Stat Cards */}
+      {/* Totals for the selected time range and API key, distinct from the all-time overview. */}
       {report ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription className="text-xs uppercase tracking-wider">
@@ -328,7 +343,7 @@ export function ActivityPage() {
           <CardTitle>Model breakdown</CardTitle>
           <CardDescription>Tokens and cost by model for the selected period</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {report && report.models.length > 0 ? (
             <Table>
               <TableHeader>
@@ -399,7 +414,7 @@ export function ActivityPage() {
             <CardTitle>Key breakdown</CardTitle>
             <CardDescription>Spend and activity attributed to each API key</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -440,6 +455,6 @@ export function ActivityPage() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </section>
   );
 }

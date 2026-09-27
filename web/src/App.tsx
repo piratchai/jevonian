@@ -1,7 +1,6 @@
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 
 import { Layout } from "@/components/layout";
-import { ActivityPage } from "@/pages/activity";
 import { ClientsPage } from "@/pages/clients";
 import { KeysPage } from "@/pages/keys";
 import { LogDetailPage } from "@/pages/log-detail";
@@ -20,7 +19,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="routing" element={<RoutingPage />} />
           <Route path="keys" element={<KeysPage />} />
-          <Route path="activity" element={<ActivityPage />} />
+          <Route path="activity" element={<Navigate to="/#activity" replace />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="logs/:id" element={<LogDetailPage />} />
         </Route>

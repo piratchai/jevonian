@@ -1,5 +1,4 @@
 import {
-  ActivityIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
   MonitorSmartphoneIcon,
@@ -8,7 +7,7 @@ import {
   ServerIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 import { ErrorBoundary } from "@/components/error-boundary";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -39,17 +38,39 @@ function GitHubIcon({ className }: { className?: string }) {
   );
 }
 
-const links = [
-  { to: "/", label: "Overview", icon: LayoutDashboardIcon, end: true },
-  { to: "/providers", label: "Providers", icon: ServerIcon },
-  { to: "/routing", label: "Routing", icon: RouteIcon },
-  { to: "/keys", label: "API keys", icon: KeyRoundIcon },
-  { to: "/activity", label: "Activity", icon: ActivityIcon },
-  { to: "/clients", label: "Clients", icon: MonitorSmartphoneIcon },
-  { to: "/logs", label: "Logs", icon: ScrollTextIcon },
+const linkGroups = [
+  {
+    label: "Workspace",
+    links: [
+      { to: "/", label: "Overview", icon: LayoutDashboardIcon, end: true },
+      { to: "/logs", label: "Logs", icon: ScrollTextIcon },
+    ],
+  },
+  {
+    label: "Configuration",
+    links: [
+      { to: "/providers", label: "Providers", icon: ServerIcon },
+      { to: "/routing", label: "Routing", icon: RouteIcon },
+      { to: "/clients", label: "Clients", icon: MonitorSmartphoneIcon },
+      { to: "/keys", label: "API keys", icon: KeyRoundIcon },
+    ],
+  },
 ];
 
+const pageNames: Record<string, string> = {
+  "/": "Overview",
+  "/providers": "Providers",
+  "/routing": "Routing",
+  "/keys": "API keys",
+  "/clients": "Clients",
+  "/logs": "Logs",
+};
+
 export function Layout() {
+  const { pathname } = useLocation();
+  const pageName = pathname.startsWith("/logs/")
+    ? "Log detail"
+    : (pageNames[pathname] ?? "Overview");
   // Prefer the running process version from the API. Baked web assets can drift
   // ahead when the package on disk was updated without restarting the server.
   const [version, setVersion] = useState(__JEVONIAN_VERSION__);
@@ -64,44 +85,49 @@ export function Layout() {
 
   return (
     <SidebarProvider>
-      <Sidebar collapsible="icon">
-        <SidebarHeader className="border-b border-sidebar-border">
+      <Sidebar collapsible="icon" className="border-sidebar-border">
+        <SidebarHeader className="border-b border-sidebar-border px-2 py-3">
           <NavLink
             to="/"
-            className="flex items-center gap-3 rounded-lg px-2 py-2.5 outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0"
+            className="flex items-center gap-3 rounded-xl px-2 py-2.5 outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-0"
           >
             <span className="relative flex size-8 shrink-0 overflow-hidden rounded-xl bg-background shadow-[0_0_0_1px_var(--sidebar-border)]">
               <img src="/jevonian-logo.png" alt="" className="size-full object-cover" />
             </span>
             <span className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
-              <span className="truncate text-sm font-semibold tracking-tight">Jevonian</span>
-              <span className="truncate text-[11px] text-muted-foreground">v{version}</span>
+              <span className="truncate text-base font-semibold tracking-tight">jevonian</span>
+              <span className="truncate text-[11px] text-muted-foreground">Local model router</span>
             </span>
           </NavLink>
         </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {links.map((link) => (
-                  <SidebarMenuItem key={link.to}>
-                    <SidebarMenuButton
-                      tooltip={link.label}
-                      className="[&.active]:bg-sidebar-accent [&.active]:font-medium [&.active]:text-sidebar-accent-foreground"
-                      render={
-                        <NavLink to={link.to} end={link.end}>
-                          <link.icon />
-                          <span>{link.label}</span>
-                        </NavLink>
-                      }
-                    />
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+        <SidebarContent className="gap-5 px-2 py-5">
+          {linkGroups.map((group) => (
+            <SidebarGroup key={group.label} className="gap-2 p-0">
+              <p className="px-3 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground uppercase group-data-[collapsible=icon]:hidden">
+                {group.label}
+              </p>
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-1">
+                  {group.links.map((link) => (
+                    <SidebarMenuItem key={link.to}>
+                      <SidebarMenuButton
+                        tooltip={link.label}
+                        className="h-9 rounded-lg px-3 text-[13px] text-sidebar-foreground/70 transition-colors hover:text-sidebar-foreground [&.active]:bg-sidebar-accent [&.active]:font-semibold [&.active]:text-sidebar-accent-foreground"
+                        render={
+                          <NavLink to={link.to} end={link.end}>
+                            <link.icon />
+                            <span>{link.label}</span>
+                          </NavLink>
+                        }
+                      />
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
         </SidebarContent>
-        <SidebarFooter className="border-t border-sidebar-border">
+        <SidebarFooter className="border-t border-sidebar-border px-3 py-3">
           <div className="flex items-center gap-1 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-stretch">
             <SidebarMenu className="min-w-0 flex-1">
               <SidebarMenuItem>
@@ -119,18 +145,34 @@ export function Layout() {
             </SidebarMenu>
             <ModeToggle className="group-data-[collapsible=icon]:w-full" />
           </div>
+          <span className="px-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+            Version {version} · running locally
+          </span>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
-      <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4 md:hidden">
-          <SidebarTrigger />
+      <SidebarInset className="min-w-0 bg-background">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background/90 px-5 backdrop-blur-sm md:px-10">
+          <div className="flex min-w-0 items-center gap-3">
+            <SidebarTrigger className="md:hidden" />
+            <span className="text-[11px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
+              Workspace
+            </span>
+            <span className="text-muted-foreground/50">/</span>
+            <span className="truncate text-xs font-semibold">{pageName}</span>
+          </div>
+          <span className="hidden items-center gap-2 text-[11px] text-muted-foreground sm:flex">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            Local dashboard
+          </span>
         </header>
-        <div className="min-w-0 flex-1 p-6">
-          <ErrorBoundary>
-            <Outlet />
-          </ErrorBoundary>
-        </div>
+        <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-10">
+          <div className="mx-auto max-w-6xl">
+            <ErrorBoundary>
+              <Outlet />
+            </ErrorBoundary>
+          </div>
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

@@ -9,18 +9,20 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(f
   return (
     <div
       ref={ref}
-      className={cn("rounded-lg border bg-card text-card-foreground", className)}
+      className={cn("rounded-xl border bg-card text-card-foreground shadow-xs", className)}
       {...props}
     />
   );
 });
 
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col gap-1 p-5 pb-3", className)} {...props} />;
+  return <div className={cn("flex flex-col gap-1.5 p-6 pb-4", className)} {...props} />;
 }
 
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h3 className={cn("text-sm font-semibold leading-none", className)} {...props} />;
+  return (
+    <h3 className={cn("text-sm font-semibold leading-snug tracking-tight", className)} {...props} />
+  );
 }
 
 export function CardDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
@@ -28,5 +30,5 @@ export function CardDescription({ className, ...props }: HTMLAttributes<HTMLPara
 }
 
 export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-5 pt-0", className)} {...props} />;
+  return <div className={cn("p-6 pt-0", className)} {...props} />;
 }

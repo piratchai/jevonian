@@ -66,7 +66,7 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
           {remainingLabel(window) ? ` · ${remainingLabel(window)}` : ""}
         </span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
         <div
           className={cn("h-full rounded-full transition-all", tone)}
           style={{ width: `${width}%` }}
@@ -93,7 +93,7 @@ export function ProviderQuotaCard({
   const spend = quota.spend;
   const payPerToken = quota.billing === "api" && quota.windows.length === 0;
   return (
-    <div className="flex flex-col gap-3 rounded-md border p-4">
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-xs">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">
