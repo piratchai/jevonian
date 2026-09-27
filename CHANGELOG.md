@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.1] - 2026-09-27
+
+### Changed
+
+- Routing-brain requests are about two-thirds smaller. Benchmark evidence sent to Jev on every routing call now carries only board scores — no source URLs, dates, versions, variant descriptions, or per-effort rows that repeat the headline score. Benchmarks had been ~70% of each request; a typical call drops from ~9.5k to ~3k input tokens, cutting TypeSafe / OpenRouter brain spend accordingly. Routing decisions use the same scores as before.
+
 ## [0.3.0] - 2026-09-27
 
 ### Added
