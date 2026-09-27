@@ -9,7 +9,7 @@ import {
   type ModelCapabilities,
   type ReasoningEffort,
 } from "./capabilities";
-import { estimateTokens as compactionTokens } from "./compaction";
+import { BASE64_IMAGE_DATA, estimateTokens as compactionTokens } from "./compaction";
 import {
   BUILTIN_ROUTING_IDS,
   isBuiltinRoutingId,
@@ -632,17 +632,18 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function stringifyContent(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value.replace(BASE64_IMAGE_DATA, "[image]");
   if (Array.isArray(value)) {
     return value
       .map((block) => {
         const record = asRecord(block);
-        if (typeof record.text === "string") return record.text;
-        return JSON.stringify(record);
+        if (typeof record.text === "string") return record.text.replace(BASE64_IMAGE_DATA, "[image]");
+        if (record.type === "image_url" || record.type === "image") return "[image]";
+        return JSON.stringify(record).replace(BASE64_IMAGE_DATA, "[image]");
       })
       .join("\n");
   }
-  return value === undefined ? "" : JSON.stringify(value);
+  return value === undefined ? "" : JSON.stringify(value).replace(BASE64_IMAGE_DATA, "[image]");
 }
 
 export function classifyPhase(body: Record<string, unknown>, kind: RequestKind): PhaseSignals {
