@@ -433,27 +433,44 @@ function encodeTurn(turn: DevinTurn): Uint8Array {
   return concat(parts);
 }
 
-function encodeTools(raw: unknown): Uint8Array[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((entry) => {
+/** Devin rejects some client tool-description annotations in its MCP validator. Keep the
+ * parameter names and schema constraints, but move prose into the system prompt instead. */
+function stripSchemaDescriptions(value: unknown, propertyMap = false): unknown {
+  if (Array.isArray(value)) return value.map((item) => stripSchemaDescriptions(item));
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => propertyMap || key !== "description")
+      .map(([key, item]) => [key, stripSchemaDescriptions(item, key === "properties")]),
+  );
+}
+
+function encodeTools(raw: unknown): { definitions: Uint8Array[]; descriptions: string[] } {
+  if (!Array.isArray(raw)) return { definitions: [], descriptions: [] };
+  const definitions: Uint8Array[] = [];
+  const descriptions: string[] = [];
+  for (const entry of raw) {
     const tool = asRecord(entry);
-    if (tool.type !== undefined && tool.type !== "function") return [];
+    if (tool.type !== undefined && tool.type !== "function") continue;
     const fn = asRecord(tool.function);
     const name = asString(fn.name);
-    if (name.length === 0) return [];
+    if (name.length === 0) continue;
+    const description = asString(fn.description);
+    if (description.length > 0) descriptions.push(`${name}: ${description}`);
     const parameters =
       fn.parameters === undefined ? { type: "object", properties: {} } : fn.parameters;
-    return [
+    definitions.push(
       bytesField(
         10,
         concat([
           bytesField(1, name),
-          bytesField(2, asString(fn.description)),
-          bytesField(3, JSON.stringify(parameters)),
+          bytesField(2, name),
+          bytesField(3, JSON.stringify(stripSchemaDescriptions(parameters))),
         ]),
       ),
-    ];
-  });
+    );
+  }
+  return { definitions, descriptions };
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -484,7 +501,14 @@ export function buildDevinChatRequest(
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const { system: joinedSystem, turns } = toTurns(messages);
   const tools = encodeTools(body.tools);
-  const system = joinedSystem.length === 0 && tools.length > 0 ? TOOLS_SYSTEM_PROMPT : joinedSystem;
+  const system = [
+    joinedSystem || (tools.definitions.length > 0 ? TOOLS_SYSTEM_PROMPT : ""),
+    tools.descriptions.length > 0
+      ? `Available tools and when to use them:\n${tools.descriptions.join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const maxTokens =
     positiveInt(body.max_completion_tokens) ??
     positiveInt(body.max_tokens) ??
@@ -511,7 +535,7 @@ export function buildDevinChatRequest(
     ...turns.map((turn) => bytesField(3, encodeTurn(turn))),
     varintField(7, 5),
     bytesField(8, completionConfig),
-    ...tools,
+    ...tools.definitions,
     bytesField(15, concat([bytesField(1, session), varintField(3, 4), varintField(4, 14)])),
     bytesField(16, session),
     varintField(20, 1),

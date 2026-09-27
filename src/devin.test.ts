@@ -221,7 +221,8 @@ describe("Devin request wire", () => {
         maxOutput: 500,
       }),
     );
-    expect(str(request, 2)).toBe("Be concise\n\nNo markup");
+    expect(str(request, 2)).toContain("Be concise\n\nNo markup");
+    expect(str(request, 2)).toContain("weather: Look up weather");
     const turns = fields(request, 3).map((f) => f.value as Uint8Array);
     expect(turns.map((turn) => num(turn, 2))).toEqual([1, 1, 2, 4]);
     expect(str(turns[0] as Uint8Array, 3)).toBe("First\n\nSecond\n\nThird");
@@ -240,7 +241,7 @@ describe("Devin request wire", () => {
     const tool = sub(request, 10);
     expect([str(tool, 1), str(tool, 2), JSON.parse(str(tool, 3))]).toEqual([
       "weather",
-      "Look up weather",
+      "weather",
       { type: "object" },
     ]);
     expect(num(sub(request, 8), 2)).toBe(128);
@@ -260,6 +261,56 @@ describe("Devin request wire", () => {
     ).toBe(session);
   });
 
+  it("keeps tool descriptions as context but strips description annotations from the wire schema", () => {
+    const request = unframe(
+      buildDevinChatRequest(
+        "secret",
+        {
+          messages: [
+            { role: "system", content: "Keep existing instructions" },
+            { role: "user", content: "hi" },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "Shell",
+                description: "Run a shell command safely",
+                parameters: {
+                  type: "object",
+                  description: "Top-level instructions",
+                  properties: {
+                    command: { type: "string", description: "The command to run" },
+                    description: {
+                      type: "string",
+                      description: "A parameter literally named description",
+                    },
+                  },
+                  required: ["command"],
+                },
+              },
+            },
+          ],
+        },
+        "swe-2-max",
+      ),
+    );
+    const system = str(request, 2);
+    expect(system).toContain("Keep existing instructions");
+    expect(system).toContain("Shell: Run a shell command safely");
+    const tool = sub(request, 10);
+    expect(str(tool, 1)).toBe("Shell");
+    expect(str(tool, 2)).toBe("Shell");
+    expect(JSON.parse(str(tool, 3))).toEqual({
+      type: "object",
+      properties: {
+        command: { type: "string" },
+        description: { type: "string" },
+      },
+      required: ["command"],
+    });
+  });
+
   it("injects a system prompt when tools are present and none was supplied", () => {
     const request = unframe(
       buildDevinChatRequest(
@@ -272,7 +323,7 @@ describe("Devin request wire", () => {
         { maxOutput: 1000 },
       ),
     );
-    expect(str(request, 2)).toBe(
+    expect(str(request, 2)).toContain(
       "You are a helpful assistant. Use the available tools when appropriate.",
     );
     expect(num(sub(request, 8), 2)).toBe(1000);
