@@ -1761,7 +1761,8 @@ export async function decideRoute(
   if (chosenCandidate?.cache.state === "hot") reason = `${reason}:cache-hot`;
   if (chosenCandidate?.cache.state === "stale") reason = `${reason}:cache-stale`;
 
-  const wanted = brainPicksEffort ? brainEffort(best?.verdict.effort) : undefined;
+  const tierEffort = routings.find((entry) => entry.id === phase)?.effort;
+  const wanted = tierEffort ?? (brainPicksEffort ? brainEffort(best?.verdict.effort) : undefined);
   const appliedEffort = clampEffort(
     wanted ?? requestedEffort ?? defaultEffort,
     effectiveCapabilities(chosen.model, config.routing.capacities?.[chosen.model]).efforts,
@@ -1769,9 +1770,11 @@ export async function decideRoute(
   const effortNote =
     wanted && appliedEffort && wanted !== appliedEffort
       ? `clamped "${wanted}" to "${appliedEffort}"`
-      : requestedEffort && appliedEffort && requestedEffort !== appliedEffort
-        ? `requested "${requestedEffort}", model supports "${appliedEffort}"`
-        : undefined;
+      : tierEffort && appliedEffort
+        ? `tier set "${tierEffort}"`
+        : requestedEffort && appliedEffort && requestedEffort !== appliedEffort
+          ? `requested "${requestedEffort}", model supports "${appliedEffort}"`
+          : undefined;
   if (effortNote) reason = `${reason}:effort-clamped`;
 
   store.set(session, {

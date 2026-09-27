@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-import { isReasoningEffort } from "./capabilities";
+import { isReasoningEffort, type ReasoningEffort } from "./capabilities";
 import { getCredential } from "./credentials";
 import type { OAuthSource } from "./oauth";
 import { hasOAuthCredential } from "./oauth";
@@ -182,6 +182,7 @@ export interface RoutingEntry {
    * the last provider look like it did nothing.
    */
   providers?: Record<string, string[]>;
+  effort?: ReasoningEffort;
 }
 
 /** @deprecated Prefer `RoutingEntry[]`. Kept for migration and a few call sites that still want the four builtins as a record. */
@@ -703,12 +704,17 @@ function parseRoutingEntry(raw: unknown, index: number): RoutingEntry {
     models,
     parseProviderOrder(value.providers ?? value.providerOrder),
   );
+  const effort =
+    typeof value.effort === "string" && isReasoningEffort(value.effort)
+      ? value.effort
+      : undefined;
   return {
     id,
     label: label.trim(),
     description,
     models,
     ...(providers ? { providers } : {}),
+    ...(effort ? { effort } : {}),
   };
 }
 

@@ -106,7 +106,7 @@ import {
 } from "./routing";
 import type { AppEnv } from "./server";
 import { streamWithKeepalive } from "./stream-keepalive";
-import { planUpstreamWire, upstreamUrlFor } from "./wire";
+import { normalizeOpenAIMessages, planUpstreamWire, upstreamUrlFor } from "./wire";
 
 interface RequestMeta {
   id: string;
@@ -783,6 +783,28 @@ export function clientEffortOf(
 function applyClaudeCodeSystem(body: Record<string, unknown>): Record<string, unknown> {
   const next = { ...body };
   injectClaudeCodeSystem(next);
+
+  const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
+  const support = anthropicThinkingSupport(model);
+
+  if (!support.adaptive) {
+    delete next.context_management;
+    delete next.thinking;
+    delete next.output_config;
+
+    if (Array.isArray(next.messages)) {
+      next.messages = next.messages.map((m: unknown) => {
+        if (typeof m === "object" && m !== null && (m as Record<string, unknown>).role === "system") {
+          return {
+            ...(m as Record<string, unknown>),
+            role: "user",
+          };
+        }
+        return m;
+      });
+    }
+  }
+
   return next;
 }
 
@@ -1434,7 +1456,12 @@ async function forward(
             ? responsesToChatRequest(body, decision.model)
             : clientKind === "anthropic"
               ? anthropicToChatRequest(body, decision.model)
-              : body;
+              : {
+                  ...body,
+                  messages: normalizeOpenAIMessages(
+                    (Array.isArray(body.messages) ? body.messages : []) as Record<string, unknown>[],
+                  ),
+                };
         return {
           project: auth.project ?? "default-cli-project",
           model: decision.model,
@@ -1514,6 +1541,16 @@ async function forward(
     // bridge) sees the rewritten text. The Devin wire applies its built-ins again while
     // encoding; both passes are idempotent.
     upstreamBody = rewritePromptBodies(upstreamBody, config.promptPolicy);
+
+    // OpenAI Chat Completions sanitizer: normalize Anthropic-style blocks (tool_use / tool_result)
+    // inside `content` array into standard OpenAI tool_calls and tool messages.
+    // Also sanitizes invalid array items that cause strict backends (e.g. Alibaba Cloud Model Studio)
+    // to fail with "if content is list. item must be dict and key[type] should in dict".
+    if (upstreamKind === "openai" && Array.isArray(upstreamBody.messages)) {
+      upstreamBody.messages = normalizeOpenAIMessages(
+        upstreamBody.messages as Record<string, unknown>[],
+      );
+    }
     // DeepSeek / Kimi thinking mode: clients often drop `reasoning_content` after
     // tool calls. Restore it from the previous upstream response before egress.
     const passbackReasoning =

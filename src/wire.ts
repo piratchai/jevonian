@@ -254,3 +254,149 @@ export function upstreamUrlFor(provider: Provider, wire: UpstreamWire): string {
   }
   return `${base}${endpointFor(provider.type, wire)}`;
 }
+
+/**
+ * Sanitize and normalize chat messages for OpenAI-compatible wire.
+ *
+ * Translates Anthropic-style blocks (tool_use / tool_result) embedded inside
+ * `content` arrays into standard OpenAI `tool_calls` and `role: "tool"` messages.
+ * Also combines plain text array items into single strings so strict OpenAI-compatible
+ * backends (such as Alibaba Cloud Model Studio) never fail with
+ * "if content is list. item must be dict and key[type] should in dict".
+ */
+export function normalizeOpenAIMessages(
+  messages: Array<Record<string, unknown>> | unknown[],
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(messages)) return [];
+  const out: Array<Record<string, unknown>> = [];
+
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object") continue;
+    const msg = { ...(raw as Record<string, unknown>) };
+    const role = msg.role;
+
+    if (!Array.isArray(msg.content)) {
+      out.push(msg);
+      continue;
+    }
+
+    const textParts: string[] = [];
+    const imageParts: Array<Record<string, unknown>> = [];
+    const toolCalls: Array<Record<string, unknown>> = [];
+    const toolResults: Array<Record<string, unknown>> = [];
+
+    for (const item of msg.content) {
+      if (!item) continue;
+      if (typeof item === "string") {
+        textParts.push(item);
+        continue;
+      }
+      if (typeof item !== "object") {
+        textParts.push(String(item));
+        continue;
+      }
+
+      const rec = item as Record<string, unknown>;
+      const type = rec.type;
+      if (type === "text") {
+        if (typeof rec.text === "string") textParts.push(rec.text);
+      } else if (type === "image_url" || type === "input_audio") {
+        imageParts.push(rec);
+      } else if (type === "tool_use") {
+        let args = "{}";
+        if (typeof rec.input === "string") {
+          args = rec.input;
+        } else if (rec.input !== undefined && rec.input !== null) {
+          args = JSON.stringify(rec.input);
+        }
+        toolCalls.push({
+          id: rec.id || `call_${Math.random().toString(36).slice(2, 10)}`,
+          type: "function",
+          function: {
+            name: rec.name || "",
+            arguments: args,
+          },
+        });
+      } else if (type === "tool_result") {
+        let contentStr = "";
+        if (typeof rec.content === "string") {
+          contentStr = rec.content;
+        } else if (Array.isArray(rec.content)) {
+          contentStr = rec.content
+            .map((c) =>
+              typeof c === "string"
+                ? c
+                : (c as Record<string, unknown>).text || JSON.stringify(c),
+            )
+            .join("\n");
+        } else if (rec.content !== undefined && rec.content !== null) {
+          contentStr = JSON.stringify(rec.content);
+        }
+        toolResults.push({
+          role: "tool",
+          tool_call_id: rec.tool_use_id || rec.id || "",
+          content: contentStr,
+        });
+      } else if (typeof rec.text === "string") {
+        textParts.push(rec.text);
+      } else {
+        textParts.push(JSON.stringify(rec));
+      }
+    }
+
+    if (role === "assistant") {
+      const assistantMsg: Record<string, unknown> = {
+        ...msg,
+        role: "assistant",
+        content:
+          textParts.length > 0
+            ? textParts.join("\n")
+            : imageParts.length > 0
+              ? imageParts
+              : toolCalls.length > 0 || msg.tool_calls
+                ? null
+                : "",
+      };
+      if (toolCalls.length > 0) {
+        const existing = Array.isArray(msg.tool_calls) ? (msg.tool_calls as unknown[]) : [];
+        assistantMsg.tool_calls = [...existing, ...toolCalls];
+      }
+      out.push(assistantMsg);
+    } else if (role === "user") {
+      if (textParts.length > 0 || imageParts.length > 0) {
+        if (imageParts.length > 0) {
+          out.push({
+            ...msg,
+            role: "user",
+            content: [
+              ...textParts.map((t) => ({ type: "text", text: t })),
+              ...imageParts,
+            ],
+          });
+        } else {
+          out.push({
+            ...msg,
+            role: "user",
+            content: textParts.join("\n"),
+          });
+        }
+      }
+      for (const tr of toolResults) {
+        out.push(tr);
+      }
+    } else {
+      out.push({
+        ...msg,
+        content:
+          textParts.length > 0
+            ? textParts.join("\n")
+            : imageParts.length > 0
+              ? imageParts
+              : "",
+      });
+    }
+  }
+
+  return out;
+}
+
