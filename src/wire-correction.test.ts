@@ -287,5 +287,36 @@ describe("normalizeOpenAIMessages", () => {
       },
     ]);
   });
+
+  it("converts Anthropic URL image blocks into OpenAI image_url format", () => {
+    const input = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: {
+              type: "url",
+              url: "https://example.com/screenshot.png",
+            },
+          },
+        ],
+      },
+    ];
+
+    expect(normalizeOpenAIMessages(input)).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: {
+              url: "https://example.com/screenshot.png",
+            },
+          },
+        ],
+      },
+    ]);
+  });
 });
 

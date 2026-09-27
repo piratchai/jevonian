@@ -346,6 +346,13 @@ export function normalizeOpenAIMessages(
                   url: `data:${mediaType};base64,${source.data}`,
                 },
               });
+            } else if (source.type === "url" && typeof source.url === "string") {
+              imageParts.push({
+                type: "image_url",
+                image_url: {
+                  url: source.url,
+                },
+              });
             } else {
               imageParts.push(rec);
             }
