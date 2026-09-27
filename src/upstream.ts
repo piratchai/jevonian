@@ -74,6 +74,7 @@ import {
   type RetryFailure,
 } from "./retry";
 import {
+  compactionEstimate,
   decideRoute,
   isDesktopRoutedModel,
   phaseOfModel,
@@ -457,6 +458,14 @@ type CompactOutcome =
   | { ok: true; body: Record<string, unknown>; stats: CompactResult["stats"] }
   | { ok: false; error: string };
 
+/** A provider's hard context rejection is actionable; other 400s must never rewrite history. */
+export function isContextOverflowResponse(status: number, text: string): boolean {
+  if (status !== 400 && status !== 413 && status !== 422) return false;
+  return /context_length_exceeded|context window|prompt is too long|maximum context length|too many (input )?tokens|input is too long|input tokens exceed/i.test(
+    text,
+  );
+}
+
 /**
  * Shrinks a request body that no model's context window could hold. Compaction drops tool calls
  * and results Jev judges stale and keeps every word of prose verbatim; if the reduction is not
@@ -466,8 +475,8 @@ async function compactForOverflow(
   config: Config,
   body: Record<string, unknown>,
 ): Promise<CompactOutcome> {
-  const brain = config.routing.brains[0];
-  if (!brain) return { ok: false, error: "no Jev brain is configured" };
+  const brains = config.routing.brains;
+  if (brains.length === 0) return { ok: false, error: "no Jev brain is configured" };
   const messages = normalizeTranscript(body);
   if (messages.length === 0) return { ok: false, error: "the request has no messages to compact" };
 
@@ -475,24 +484,36 @@ async function compactForOverflow(
   // router's model-choice verdict.
   const asker: JevAsker = {
     ask: async (state, questions) => {
-      const { answers } = await askJevRaw(
-        brain,
-        state as unknown as Record<string, unknown>,
-        questions,
-      );
-      return { answers: answers as JevResponse["answers"] };
+      let lastError = "no Jev brain answered";
+      for (const brain of brains) {
+        try {
+          const { answers } = await askJevRaw(
+            brain,
+            state as unknown as Record<string, unknown>,
+            questions,
+          );
+          return { answers: answers as JevResponse["answers"] };
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      throw new Error(lastError);
     },
   };
 
   try {
     const result = await compact(messages, asker, { preserveRecentMessages: 4 });
-    if (reductionRatio(result) < 0.25) {
+    if (reductionRatio(result) < 0.05) {
       return {
         ok: false,
         error: `compaction only reduced the history by ${(reductionRatio(result) * 100).toFixed(0)}%`,
       };
     }
-    return { ok: true, body: reencodeMessages(body, result.messages), stats: result.stats };
+    const rewritten = reencodeMessages(body, result.messages);
+    if (compactionEstimate(rewritten) > compactionEstimate(body) * 0.9) {
+      return { ok: false, error: "compaction did not sufficiently reduce the outgoing request" };
+    }
+    return { ok: true, body: rewritten, stats: result.stats };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -861,17 +882,15 @@ async function forward(
     decision = initial;
   }
 
-  // Every model was too small for this conversation. Rather than let the upstream reject the
-  // turn, compaction rewrites the message list — dropping tool calls and results Jev judges
-  // stale, keeping all prose verbatim — and routing runs again on the smaller history.
-  let compacted: CompactOutcome | undefined;
-  if (decision.contextOverflow) {
-    compacted = await compactForOverflow(config, body);
+  // A conservative token estimate can be a false positive. Try to compact proactively,
+  // but if Jev is unavailable or there are no stale tool results, let the provider make the
+  // final call instead of rejecting a request that might fit its actual context window.
+  if (decision.contextOverflow && !isRemoteCompactionV2(body)) {
+    const compacted = await compactForOverflow(config, body);
     if (compacted.ok) {
-      const retryBody = { ...body, ...compacted.body };
       const retry = await decideRoute({
         config,
-        body: retryBody,
+        body: compacted.body,
         headers: incomingHeaders,
         store,
         kind: clientKind,
@@ -879,28 +898,15 @@ async function forward(
         keyId,
         keyName,
       });
-      if ("error" in retry) {
-        return c.json(
-          { error: { message: retry.error, type: "jevonian_error" } },
-          (retry.status ?? 400) as 400,
-        );
+      if (!("error" in retry)) {
+        body = compacted.body;
+        decision = retry;
       }
-      body = retryBody;
-      decision = retry;
-    } else {
-      return c.json(
-        {
-          error: {
-            message: `Context too large for every configured model, and compaction failed: ${compacted.error}`,
-            type: "context_length_exceeded",
-          },
-        },
-        400 as const,
-      );
     }
   }
 
   let quotaFailovers = 0;
+  let overflowRetries = 0;
   while (true) {
     const meta = decisionMeta(decision, endpoint, clientStream, started, requestId, keyId, keyName);
     const provider: Provider | undefined = findProviderByName(config, decision.provider);
@@ -1156,6 +1162,31 @@ async function forward(
       // Read during the attempt, not here: a body left unread would hold the pooled socket
       // that the next retry needs, and the last attempt's text is what gets reported.
       const text = failureText;
+      if (
+        overflowRetries === 0 &&
+        !isRemoteCompactionV2(body) &&
+        isContextOverflowResponse(upstream.status, text)
+      ) {
+        overflowRetries += 1;
+        const shrunk = await compactForOverflow(config, body);
+        if (shrunk.ok) {
+          body = shrunk.body;
+          const retry = await decideRoute({
+            config,
+            body,
+            headers: incomingHeaders,
+            store,
+            kind: clientKind,
+            requestId,
+            keyId,
+            keyName,
+          });
+          if (!("error" in retry)) {
+            decision = { ...retry, reason: `${retry.reason}:context-retry` };
+            continue;
+          }
+        }
+      }
       // Structured spend tokens (usage_limit_reached, GoUsageLimitError, …) mark the
       // provider exhausted. Claude subscription 429s usually only emit
       // `type: rate_limit_error` — not in that allow-list — but the unified rate-limit

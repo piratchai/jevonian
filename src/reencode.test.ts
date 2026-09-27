@@ -29,7 +29,7 @@ describe("reencodeMessages", () => {
     expect(out.stream).toBe(true);
     expect(out.tools).toEqual(body.tools);
     expect(out.messages).toHaveLength(3);
-    expect((out.messages as Array<Record<string, unknown>>)[2]).toMatchObject({ role: "user" });
+    expect((out.messages as Array<Record<string, unknown>>)[2]).toEqual(body.messages[2]);
   });
 
   it("round-trips an Anthropic body into content blocks", () => {
@@ -99,14 +99,92 @@ describe("reencodeMessages", () => {
       300,
     );
     const out = reencodeMessages(body, kept);
-    const encoded = out.messages as Array<{ content: Array<{ type: string }> }>;
-    // The assistant message lost its only block and the tool result is gone with it.
+    const encoded = out.messages as Array<{ role: string; content: string }>;
+    // The assistant message lost its only call and the tool result is gone with it.
     expect(encoded).toHaveLength(1);
-    expect(encoded[0]?.content[0]).toMatchObject({ type: "text" });
+    expect(encoded[0]).toEqual({ role: "user", content: "go" });
   });
 });
 
 describe("compaction over a re-encoded body", () => {
+  it("preserves OpenAI and Anthropic multimodal blocks while changing only tool results", () => {
+    const chat = {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Read the image" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+          ],
+        },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "c1", function: { name: "Read", arguments: "{}" } }],
+        },
+        { role: "tool", tool_call_id: "c1", content: "large result" },
+      ],
+    };
+    const chatMessages = normalizeTranscript(chat);
+    const changed = chatMessages.map((message) =>
+      message.toolResults?.length
+        ? { ...message, toolResults: [{ ...message.toolResults[0]!, text: "short" }] }
+        : message,
+    );
+    const out = reencodeMessages(chat, changed);
+    expect((out.messages as unknown[])[0]).toEqual(chat.messages[0]);
+    expect((out.messages as unknown[])[1]).toEqual(chat.messages[1]);
+    expect((out.messages as unknown[])[2]).toEqual({ ...chat.messages[2], content: "short" });
+
+    const anthropic = {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "private" },
+            { type: "tool_use", id: "a", name: "Read", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "a", content: "large result" },
+            { type: "image", source: { type: "base64", data: "abc" } },
+          ],
+        },
+      ],
+    };
+    const edited = normalizeTranscript(anthropic).map((message) =>
+      message.toolResults?.length
+        ? { ...message, toolResults: [{ ...message.toolResults[0]!, text: "short" }] }
+        : message,
+    );
+    const anthropicOut = reencodeMessages(anthropic, edited);
+    expect((anthropicOut.messages as unknown[])[0]).toEqual(anthropic.messages[0]);
+    const dropped = applyDecisions(
+      normalizeTranscript(anthropic),
+      [
+        {
+          id: "t1",
+          tool: "Read",
+          keepCall: 0.05,
+          keepResult: 0.05,
+          action: "drop_call",
+          reason: "call_dropped",
+        },
+      ],
+      collectToolCalls(normalizeTranscript(anthropic), 0),
+      300,
+    );
+    const droppedBody = reencodeMessages(anthropic, dropped);
+    expect((droppedBody.messages as Array<{ content: unknown[] }>)[1]?.content).toEqual([
+      { type: "image", source: { type: "base64", data: "abc" } },
+    ]);
+    expect((anthropicOut.messages as Array<{ content: unknown[] }>)[1]?.content).toEqual([
+      { type: "tool_result", tool_use_id: "a", content: "short" },
+      { type: "image", source: { type: "base64", data: "abc" } },
+    ]);
+  });
   it("keeps the request usable after dropping a stale call", async () => {
     const body = {
       model: "gpt-x",
@@ -140,11 +218,10 @@ describe("compaction over a re-encoded body", () => {
     const out = reencodeMessages(body, result.messages);
     const encoded = JSON.stringify(out);
     // The call survives, its long result is truncated rather than lost.
-    expect(encoded).toContain('"tool_use"');
+    expect(encoded).toContain('"tool_calls"');
     expect(encoded).toContain("jevonian truncated");
     expect(encoded).toContain("Never edit src/generated");
-    // What shrank is the payload the model reads, not the JSON envelope: re-encoding into block
-    // form is more verbose than the terse chat shape, so compare the result text alone.
+    // The original chat shape and tool-call arguments survive; only the result text shrinks.
     expect(result.stats.charsAfter).toBeLessThan(result.stats.charsBefore / 2);
   });
 });

@@ -489,8 +489,17 @@ function sessionGoal(body: Record<string, unknown>, kind: RequestKind): string {
  * characters-per-token ratio: the ratio undercounts JSON-heavy agent transcripts by up to 40%,
  * which would let a model with a small window through the filter and then fail mid-turn.
  */
-function compactionEstimate(body: Record<string, unknown>): number {
-  return compactionTokens(JSON.stringify(body.messages ?? body.input ?? ""));
+export function compactionEstimate(body: Record<string, unknown>): number {
+  // The provider bills the whole request, not only the conversation. Tool schemas and
+  // instructions are especially significant in long coding-agent sessions. Empirical on-wire
+  // usage for Chat/Anthropic bridges can exceed this estimator by 20-40%, so retain a
+  // conservative margin before testing a model's context window.
+  const envelope = {
+    messages: body.messages ?? body.input ?? "",
+    tools: body.tools ?? [],
+    system: body.system ?? body.instructions ?? "",
+  };
+  return Math.ceil(compactionTokens(JSON.stringify(envelope)) * 1.5);
 }
 
 function requestTokens(

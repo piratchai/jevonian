@@ -34,6 +34,10 @@ export interface Message {
   text: string;
   toolUses: ToolUse[];
   toolResults?: ToolResult[];
+  /** Position in the caller's original input; keeps re-encoding lossless. */
+  sourceIndex?: number;
+  /** An unmodeled block (image, reasoning, etc.) must survive even when its tool call is dropped. */
+  hasUnmodeledContent?: boolean;
 }
 
 /** A tool call paired with its result by `tool_use_id`. */
@@ -245,11 +249,17 @@ export function normalizeTranscript(body: Record<string, unknown>): Message[] {
   const messages: Message[] = [];
   const byCallId = new Map<string, ToolResult>();
 
-  for (const entry of raw) {
+  for (const [sourceIndex, entry] of raw.entries()) {
     const message = asRecord(entry);
     const role: Role = message.role === "assistant" ? "assistant" : "user";
     const toolUses: ToolUse[] = [];
     const toolResults: ToolResult[] = [];
+    const hasUnmodeledContent =
+      Array.isArray(message.content) &&
+      message.content.some((raw) => {
+        const type = asRecord(raw).type;
+        return type !== "text" && type !== "tool_use" && type !== "tool_result";
+      });
 
     // Anthropic-style content blocks.
     if (Array.isArray(message.content)) {
@@ -331,9 +341,21 @@ export function normalizeTranscript(body: Record<string, unknown>): Message[] {
           // would make compaction keep it verbatim as un-droppable text.
           ""
         : textOf(message.content);
-    const normalized: Message = { role, text, toolUses };
+    const normalized: Message = {
+      role,
+      text,
+      toolUses,
+      sourceIndex,
+      ...(hasUnmodeledContent ? { hasUnmodeledContent } : {}),
+    };
     if (toolResults.length > 0) normalized.toolResults = toolResults;
-    if (text.trim().length === 0 && toolUses.length === 0 && toolResults.length === 0) continue;
+    if (
+      text.trim().length === 0 &&
+      toolUses.length === 0 &&
+      toolResults.length === 0 &&
+      !hasUnmodeledContent
+    )
+      continue;
     messages.push(normalized);
     for (const result of toolResults) byCallId.set(result.tool_use_id, result);
   }
@@ -532,7 +554,8 @@ export interface FittedState {
  * `maxStateTokens`: tool inputs are truncated, then long texts are abridged oldest-first
  * (pinned messages last), then old messages collapse to a one-line note, then old tool calls
  * shrink to one line each, then old messages that carry no call are left out, then runs of old
- * call-only messages are folded into one entry. Throws when even that is too big.
+ * call-only messages are folded into one entry. If that is still too large, only the newest
+ * state entries are sent to Jev; the actual request history is not discarded.
  */
 export function fitState(
   messages: readonly Message[],
@@ -632,16 +655,33 @@ export function fitState(
     }
   }
 
-  history = mergeCallRuns(
-    history.filter((_, i) => !left.has(i)),
-    pinned,
-  );
+  const recentEntries = history.filter((_, i) => !left.has(i));
+  history = mergeCallRuns(recentEntries, pinned);
   perEntry = history.map(entryTokens);
   tokens = baseTokens + perEntry.reduce((sum, count) => sum + count, 0);
   if (fits()) return fitted(history, tokens, "old calls merged");
 
+  // A long agent session can have more call summaries than Jev's state limit permits.
+  // Keep the most recent context, not an arbitrarily larger Jev request. Older unseen calls
+  // are never submitted for deletion; they remain untouched in the upstream conversation.
+  // Choose the cut on unmerged entries. A merged run contains many call ids but only one
+  // `i`; otherwise asking about an old call in that run would be ambiguous. A sliding window
+  // must also have space for the pinned latest user message even if earlier entries were huge.
+  history = recentEntries;
+  perEntry = history.map(entryTokens);
+  tokens = baseTokens;
+  let first = history.length;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const count = perEntry[index] ?? 0;
+    if (tokens + count > options.maxStateTokens) break;
+    tokens += count;
+    first = index;
+  }
+  if (first < history.length) {
+    return fitted(history.slice(first), tokens, "recent context only");
+  }
   throw new Error(
-    `history too large for Jev (~${tokens} tokens after truncation, limit ${options.maxStateTokens})`,
+    `latest message too large for Jev (~${baseTokens + (perEntry.at(-1) ?? 0)} tokens, limit ${options.maxStateTokens})`,
   );
 }
 
@@ -674,17 +714,22 @@ export interface JevAsker {
 }
 
 /** The two `noul` questions asked about one call: keep the call, keep its result. */
-export function questionsFor(call: ToolCall): Record<string, JevQuestion> {
-  return {
-    [`call_${call.id}`]: {
-      type: "noul",
-      instructions: `Tool call ${call.id} (${call.tool}) should stay in the history: knowing this call was made, with its input, still matters for what the assistant does next`,
-    },
+export function questionsFor(call: ToolCall, unseen = false): Record<string, JevQuestion> {
+  const result: Record<string, JevQuestion> = {
     [`result_${call.id}`]: {
       type: "noul",
-      instructions: `The full output of tool call ${call.id} (${call.tool}, ${call.resultChars} chars) should stay in the history verbatim: the assistant still needs its contents and re-running the tool would not do`,
+      instructions: `The full output of tool call ${call.id} (${call.tool}, input: ${inputText(call.input, 160)}, ${call.resultChars} chars) should stay in the history verbatim: the assistant still needs its contents and re-running the tool would not do`,
     },
   };
+  // Jev cannot safely delete an old call it did not see in the recent state. It may still
+  // judge whether the large, re-runnable result is needed verbatim from the call's brief index.
+  if (!unseen) {
+    result[`call_${call.id}`] = {
+      type: "noul",
+      instructions: `Tool call ${call.id} (${call.tool}, input: ${inputText(call.input, 160)}) should stay in the history: knowing this call was made, with its input, still matters for what the assistant does next`,
+    };
+  }
+  return result;
 }
 
 /**
@@ -695,13 +740,14 @@ export function batchCalls(
   calls: readonly ToolCall[],
   stateTokens: number,
   options: Pick<ResolvedCompactOptions, "maxRequestTokens">,
+  unseen?: ReadonlySet<string>,
 ): ToolCall[][] {
   const budget = options.maxRequestTokens - stateTokens - REQUEST_OVERHEAD_TOKENS;
   const batches: ToolCall[][] = [];
   let current: ToolCall[] = [];
   let currentTokens = 0;
   for (const call of calls) {
-    const tokens = estimateTokens(JSON.stringify(questionsFor(call)));
+    const tokens = estimateTokens(JSON.stringify(questionsFor(call, unseen?.has(call.id))));
     if (current.length > 0 && currentTokens + tokens > budget) {
       batches.push(current);
       current = [];
@@ -748,14 +794,18 @@ async function askBatch(
   asker: JevAsker,
   state: CompactionState,
   batch: readonly ToolCall[],
+  unseen?: ReadonlySet<string>,
 ): Promise<Map<string, CallAnswer>> {
-  const questions: Record<string, JevQuestion> = Object.assign({}, ...batch.map(questionsFor));
+  const questions: Record<string, JevQuestion> = Object.assign(
+    {},
+    ...batch.map((call) => questionsFor(call, unseen?.has(call.id))),
+  );
   const { answers } = await asker.ask(state, questions);
   return new Map(
     batch.map((call) => [
       call.id,
       {
-        keepCall: noulAnswer(answers, `call_${call.id}`),
+        keepCall: unseen?.has(call.id) ? 1 : noulAnswer(answers, `call_${call.id}`),
         keepResult: noulAnswer(answers, `result_${call.id}`),
       },
     ]),
@@ -809,10 +859,21 @@ export function applyDecisions(
         const text = truncatedResultText(result.text, result.isError ?? false, headChars);
         return text === result.text ? result : { ...result, text };
       });
-    if (message.text.trim().length === 0 && toolUses.length === 0 && toolResults.length === 0) {
+    if (
+      message.text.trim().length === 0 &&
+      toolUses.length === 0 &&
+      toolResults.length === 0 &&
+      !message.hasUnmodeledContent
+    ) {
       continue;
     }
-    const rebuilt: Message = { role: message.role, text: message.text, toolUses };
+    const rebuilt: Message = {
+      role: message.role,
+      text: message.text,
+      toolUses,
+      ...(message.sourceIndex === undefined ? {} : { sourceIndex: message.sourceIndex }),
+      ...(message.hasUnmodeledContent ? { hasUnmodeledContent: true } : {}),
+    };
     if (toolResults.length > 0) rebuilt.toolResults = toolResults;
     kept.push(rebuilt);
   }
@@ -824,9 +885,9 @@ function count(decisions: readonly CallDecision[], reason: CallDecision["reason"
 }
 
 /**
- * Compacts a transcript by asking Jev, for every tool call outside the pinned first and newest
- * messages, whether the call and whether its result must stay. The whole history (results
- * omitted, fitted into `maxStateTokens`) is sent as state with every batch of questions.
+ * Compacts a transcript by asking Jev about tool calls outside the pinned first and newest
+ * messages. When the history exceeds `maxStateTokens`, the shared state is limited to recent
+ * context. Earlier unseen calls cannot be removed, but their re-runnable results can shrink.
  * Throws when Jev fails or the history cannot be fitted; the caller decides whether to fall
  * back — and should check `reductionRatio` before accepting the result.
  */
@@ -847,9 +908,23 @@ export async function compact(
   if (candidates.length > 0) {
     const state = fitState(messages, calls, resolved);
     fitted = { tokens: state.tokens, stage: state.stage };
-    batches = batchCalls(candidates, state.tokens, resolved);
-    const answered = await Promise.all(batches.map((batch) => askBatch(asker, state.state, batch)));
-    for (const map of answered) for (const [id, answer] of map) answers.set(id, answer);
+    // Never ask Jev to delete a call outside its recent context. Ask only whether its result
+    // needs to remain verbatim; the call itself stays so the agent can re-run it if needed.
+    const visibleIndices = new Set(state.state.history.map((entry) => entry.i));
+    const unseen = new Set(
+      state.stage === "recent context only"
+        ? candidates.filter((call) => !visibleIndices.has(call.callIndex)).map((call) => call.id)
+        : [],
+    );
+    batches = batchCalls(candidates, state.tokens, resolved, unseen);
+    // A long agent session can produce dozens of batches. Bound concurrent requests so
+    // compaction does not burst the brain's rate limit or exhaust its connection pool.
+    for (let start = 0; start < batches.length; start += 3) {
+      const answered = await Promise.all(
+        batches.slice(start, start + 3).map((batch) => askBatch(asker, state.state, batch, unseen)),
+      );
+      for (const map of answered) for (const [id, answer] of map) answers.set(id, answer);
+    }
   }
 
   const decisions = calls.map((call) =>
@@ -886,38 +961,86 @@ export async function compact(
  * of the messages it came from. Only `messages`/`input` is replaced; every other field
  * (`model`, `tools`, `stream`, …) is left exactly as the caller sent it.
  *
- * Re-encoding is lossy by design for anything this module does not model — a message whose
- * blocks it did not understand is passed through untouched when it was untouched by the
- * decisions, and a rebuilt message only ever carries the text and tool blocks it understood.
- * That is why `applyDecisions` returns the original objects for messages it did not touch.
+ * Preserve original messages (including images, reasoning blocks, metadata and wire-specific
+ * fields) and edit only the tool calls/results that compaction actually changed.
  */
 export function reencodeMessages(
   body: Record<string, unknown>,
   messages: readonly Message[],
 ): Record<string, unknown> {
   const key = Array.isArray(body.messages) ? "messages" : "input";
-  const anthropic = key === "messages" && messages.some((message) => message.role === "assistant");
-  const out = messages.map((message) => encodeMessage(message, anthropic));
+  const original = (body[key] as unknown[]) ?? [];
+  const out = messages.map((message) => {
+    const source = asRecord(original[message.sourceIndex ?? -1]);
+    if (Object.keys(source).length === 0) return encodeMessage(message);
+    const calls = new Map(message.toolUses.map((tool) => [tool.tool_use_id, tool]));
+    const results = new Map(
+      (message.toolResults ?? []).map((result) => [result.tool_use_id, result]),
+    );
+    if (source.role === "tool") {
+      const result = results.get(idOf(source.tool_call_id));
+      return result && result.text !== textOf(source.content)
+        ? { ...source, content: result.text }
+        : source;
+    }
+    if (source.type === "function_call_output") {
+      const result = results.get(idOf(source.call_id));
+      return result && result.text !== textOf(source.output)
+        ? { ...source, output: result.text }
+        : source;
+    }
+    if (source.type === "function_call") return source;
+    if (Array.isArray(source.tool_calls)) {
+      const remaining = source.tool_calls.filter((raw) => calls.has(idOf(asRecord(raw).id)));
+      return remaining.length === source.tool_calls.length
+        ? source
+        : { ...source, tool_calls: remaining };
+    }
+    if (Array.isArray(source.content)) {
+      if (
+        source.content.every((raw) => {
+          const block = asRecord(raw);
+          if (block.type === "tool_use") return calls.has(idOf(block.id));
+          if (block.type === "tool_result") {
+            const result = results.get(idOf(block.tool_use_id));
+            return result !== undefined && result.text === textOf(block.content ?? block.text);
+          }
+          return true;
+        })
+      )
+        return source;
+      return {
+        ...source,
+        content: source.content.flatMap((raw) => {
+          const block = asRecord(raw);
+          if (block.type === "tool_use" && !calls.has(idOf(block.id))) return [];
+          if (block.type === "tool_result") {
+            const result = results.get(idOf(block.tool_use_id));
+            if (!result) return [];
+            return [
+              {
+                ...block,
+                ...(block.text !== undefined ? { text: result.text } : { content: result.text }),
+              },
+            ];
+          }
+          return [raw];
+        }),
+      };
+    }
+    return source;
+  });
   return { ...body, [key]: out };
 }
 
-function encodeMessage(message: Message, anthropicStyle: boolean): Record<string, unknown> {
-  const blocks: unknown[] = [];
-  if (message.text.length > 0) {
-    blocks.push(
-      anthropicStyle ? { type: "text", text: message.text } : { type: "text", text: message.text },
-    );
-  }
+function encodeMessage(message: Message): Record<string, unknown> {
+  const content: unknown[] = [];
+  if (message.text.length > 0) content.push({ type: "text", text: message.text });
   for (const tool of message.toolUses) {
-    blocks.push({ type: "tool_use", id: tool.tool_use_id, name: tool.tool, input: tool.input });
+    content.push({ type: "tool_use", id: tool.tool_use_id, name: tool.tool, input: tool.input });
   }
   for (const result of message.toolResults ?? []) {
-    blocks.push({
-      type: "tool_result",
-      tool_use_id: result.tool_use_id,
-      ...(anthropicStyle ? { content: result.text } : { text: result.text }),
-      ...(result.isError ? { is_error: true } : {}),
-    });
+    content.push({ type: "tool_result", tool_use_id: result.tool_use_id, content: result.text });
   }
-  return { role: message.role, content: blocks };
+  return { role: message.role, content };
 }

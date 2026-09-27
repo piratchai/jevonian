@@ -114,6 +114,45 @@ describe("tool call collection", () => {
 });
 
 describe("state fitting", () => {
+  it("caps a very long state to recent entries without deleting the request history", async () => {
+    const messages: Message[] = [message("user", "Keep this first instruction verbatim")];
+    for (let index = 0; index < 1_000; index += 1) {
+      messages.push(call(`call-${index}`, "Read", { file: `src/${index}.ts` }));
+      messages.push(result(`call-${index}`, "old result ".repeat(200)));
+    }
+    messages.push(message("user", "Continue with the most recent test"));
+    const calls = collectToolCalls(messages, 4);
+    const { state, tokens, stage } = fitState(messages, calls, {
+      ...fit,
+      preserveRecentMessages: 4,
+      maxStateTokens: 2_000,
+    });
+    expect(stage).toBe("recent context only");
+    expect(tokens).toBeLessThanOrEqual(2_000);
+    expect(state.history.at(-1)?.text).toBe("Continue with the most recent test");
+    expect(state.history[0]?.i).toBeGreaterThan(0);
+    // Omitting context from Jev's state does not silently discard those calls.
+    expect(calls).toHaveLength(1_000);
+
+    const seen: Seen[] = [];
+    const outcome = await compact(
+      messages,
+      fakeJev(() => 0.05, seen),
+      {
+        preserveRecentMessages: 4,
+        maxStateTokens: 2_000,
+        maxRequestTokens: 2_500,
+      },
+    );
+    expect(outcome.stats.requests).toBeGreaterThan(0);
+    expect(outcome.stats.requests).toBeLessThan(1_000);
+    expect(outcome.messages[0]?.text).toBe("Keep this first instruction verbatim");
+    expect(outcome.messages[1]?.toolUses[0]?.tool_use_id).toBe("call-0");
+    expect(outcome.messages[2]?.toolResults?.[0]?.text).toContain("jevonian truncated");
+    expect(seen.flatMap((request) => request.questions)).toContain("result_t1");
+    expect(seen.flatMap((request) => request.questions)).not.toContain("call_t1");
+  });
+
   it("sends the whole history with tool results replaced by a note", () => {
     const messages = transcript();
     const { state, stage } = fitState(messages, collectToolCalls(messages, 0), fit);
@@ -351,7 +390,7 @@ describe("compact", () => {
       fakeJev((name) => (name.startsWith("call_") ? 0.9 : 0.1), seen),
       {
         preserveRecentMessages: 1,
-        maxRequestTokens: stateTokens + 150,
+        maxRequestTokens: stateTokens + 220,
       },
     );
 
