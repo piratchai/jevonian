@@ -2,11 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## [0.3.0] - 2026-09-27
 
 ### Added
 
 - Devin subscription provider (`jevonian add devin-subscription`, or the **Devin** preset in the dashboard). Jevonian reads the session token that `devin auth login` stores in `~/.local/share/devin/credentials.toml` (`$XDG_DATA_HOME/devin` or `%APPDATA%\devin` when set; override with `JEVONIAN_DEVIN_CREDENTIALS`) and talks to Devin's Connect-RPC API directly (`type: "devin"`, `oauthSource: "devin"`). Models are discovered via `GetCliModelConfigs` — only the models your plan unlocks are listed, so the Free plan offers just `swe-1-6-slow` — and live quota shows Devin's daily and weekly windows from `GetUserStatus`. The token does not expire; if Devin rejects it, run `devin auth login` again and Jevonian picks up the new one on the next request.
+
+### Fixed
+
+- Devin turns that carry tools (every coding-agent turn from Cursor, Claude Code, Codex) no longer fail with `502 Unable to process request due to an MCP configuration issue`. Devin rejects `description` annotations inside tool parameter schemas, so Jevonian strips them from the wire schema and moves each tool's description into the system prompt; parameter names, types, and required fields are unchanged.
+- Long-context compaction now counts tool schemas and instructions toward the request size, keeps a safety margin for bridged wires, and retries a provider's hard context rejection once after compacting. When compaction cannot shrink the request, the original is sent instead of being rejected locally.
 
 ## [0.2.0] - 2026-09-27
 
