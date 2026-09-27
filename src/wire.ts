@@ -403,6 +403,8 @@ export function normalizeOpenAIMessages(
     }
 
     if (role === "assistant") {
+      const existing = Array.isArray(msg.tool_calls) ? (msg.tool_calls as unknown[]) : [];
+      const combined = [...existing, ...toolCalls];
       const assistantMsg: Record<string, unknown> = {
         ...msg,
         role: "assistant",
@@ -411,13 +413,14 @@ export function normalizeOpenAIMessages(
             ? textParts.join("\n")
             : imageParts.length > 0
               ? imageParts
-              : toolCalls.length > 0 || msg.tool_calls
+              : combined.length > 0
                 ? null
                 : "",
       };
-      if (toolCalls.length > 0) {
-        const existing = Array.isArray(msg.tool_calls) ? (msg.tool_calls as unknown[]) : [];
-        assistantMsg.tool_calls = [...existing, ...toolCalls];
+      if (combined.length > 0) {
+        assistantMsg.tool_calls = combined;
+      } else {
+        delete assistantMsg.tool_calls;
       }
       out.push(assistantMsg);
     } else if (role === "user") {
@@ -452,6 +455,17 @@ export function normalizeOpenAIMessages(
               ? imageParts
               : "",
       });
+    }
+  }
+
+  // Strict OpenAI backends (such as Alibaba Cloud Model Studio / Qwen / DeepSeek) reject
+  // messages with empty `tool_calls: []` ("Empty tool_calls is not supported in message.").
+  // Strip any empty tool_calls or null tool_calls across all messages before egress.
+  for (const item of out) {
+    if ("tool_calls" in item) {
+      if (!Array.isArray(item.tool_calls) || item.tool_calls.length === 0) {
+        delete item.tool_calls;
+      }
     }
   }
 

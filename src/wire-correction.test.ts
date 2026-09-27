@@ -318,5 +318,38 @@ describe("normalizeOpenAIMessages", () => {
       },
     ]);
   });
+
+  it("strips empty tool_calls arrays from messages to satisfy strict OpenAI validators", () => {
+    const input = [
+      {
+        role: "assistant",
+        content: "Both files are truncated; let me continue reading.",
+        tool_calls: [],
+      },
+      {
+        role: "user",
+        content: "Have you done?",
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Checking next file..." },
+        ],
+        tool_calls: [],
+      },
+    ];
+
+    const result = normalizeOpenAIMessages(input);
+    expect(result[0]).toEqual({
+      role: "assistant",
+      content: "Both files are truncated; let me continue reading.",
+    });
+    expect("tool_calls" in result[0]).toBe(false);
+    expect(result[2]).toEqual({
+      role: "assistant",
+      content: "Checking next file...",
+    });
+    expect("tool_calls" in result[2]).toBe(false);
+  });
 });
 
