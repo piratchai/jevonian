@@ -776,21 +776,47 @@ export function RoutingPage() {
     return map;
   }, [state]);
 
+  /**
+   * One searchable row per model a routing could take. The search text covers the id, the
+   * catalog's display name, every serving provider's label, and the price — so "opus",
+   * "openrouter", or "$3" all land on the right row even when the model id would not.
+   */
   const modelOptions = useCallback(
     (routingId: string) => {
       const used = drafts.find((entry) => entry.id === routingId)?.models ?? [];
+      const providerBadges = (modelId: string) =>
+        (providersByModel.get(modelId) ?? []).map((provider) => {
+          const status = statusByProvider.get(provider);
+          const official = officialsByModel.get(modelId)?.has(provider) ?? false;
+          const label = providerDisplayName(provider);
+          const text = `${label}${official ? " ✦" : ""}${status === "exhausted" ? " spent" : status === "low" ? " low" : ""}`;
+          return {
+            text,
+            tone:
+              status === "exhausted"
+                ? ("bad" as const)
+                : status === "low"
+                  ? ("warn" as const)
+                  : ("muted" as const),
+          };
+        });
       return [
         ...canonicals
           .filter((entry) => !used.includes(entry.id))
           .map((entry) => {
-            const providers = providersByModel.get(entry.id) ?? [];
+            const catalogName = catalogNames.get(entry.id);
+            const keywords = [
+              catalogName,
+              ...(providersByModel.get(entry.id) ?? []).map(providerDisplayName),
+            ]
+              .filter(Boolean)
+              .join(" ");
             return {
               value: entry.id,
               label: entry.id,
-              hint:
-                providers.length > 2
-                  ? `${providers.length} providers`
-                  : providers.map((provider) => providerDisplayName(provider)).join(", "),
+              hint: catalogName,
+              keywords,
+              meta: providerBadges(entry.id),
             };
           }),
         ...models
@@ -803,16 +829,21 @@ export function RoutingPage() {
           .map((model) => ({
             value: model.id,
             label: model.id,
-            hint: [
-              providerDisplayName(model.provider),
-              model.price ? `$${model.price.input}/$${model.price.output}` : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · "),
+            hint: model.price ? `$${model.price.input}/$${model.price.output}` : undefined,
+            keywords: providerDisplayName(model.provider),
+            meta: providerBadges(model.id),
           })),
       ];
     },
-    [canonicals, drafts, models, providersByModel],
+    [
+      canonicals,
+      catalogNames,
+      drafts,
+      models,
+      officialsByModel,
+      providersByModel,
+      statusByProvider,
+    ],
   );
 
   const dirty = useMemo(() => {
@@ -823,14 +854,33 @@ export function RoutingPage() {
     return JSON.stringify(current) !== JSON.stringify(previous);
   }, [saved, drafts, guard, state]);
 
+  const persistedById = useMemo(() => {
+    const map = new Map<string, RoutingEntryView>();
+    for (const entry of saved ? ensureRoutings(saved, state?.routings ?? []) : []) {
+      map.set(entry.id, entry);
+    }
+    return map;
+  }, [saved, state]);
+
+  /** Whether one card's drafts differ from what's persisted — drives "Save" vs "Done". */
+  function routingDirty(id: string): boolean {
+    const persisted = persistedById.get(id);
+    const current = drafts.find((entry) => entry.id === id);
+    if (!persisted || !current) return persisted !== current;
+    return JSON.stringify(persisted) !== JSON.stringify(current);
+  }
+
   function updateRouting(id: string, patch: Partial<RoutingEntryView>) {
     setDrafts((current) =>
       current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
     );
   }
 
-  function addModel(routingId: string) {
-    const value = picker[routingId];
+  /**
+   * Append a model by id. The Combobox hands back the picked value on Enter/click, so adding is
+   * one keystroke — no separate commit button, and the input clears itself for the next pick.
+   */
+  function addModel(routingId: string, value: string) {
     if (!value) return;
     setDrafts((current) =>
       current.map((entry) =>
@@ -942,7 +992,11 @@ export function RoutingPage() {
     }
   }
 
-  /** Persist drafts when leaving customize mode (Done, or switching cards). */
+  /**
+   * Leave customize mode. A dirty card hard-blocks the switch — the click is already
+   * pointer-events-none'd by the card's opacity, so this only fires from the focused card's
+   * own buttons. Save commits and closes; Cancel reverts via {@link cancelEditing}.
+   */
   async function commitEditing(nextEditingId: string | null = null): Promise<boolean> {
     if (dirty) {
       const ok = await save();
@@ -951,6 +1005,26 @@ export function RoutingPage() {
     setEditingId(nextEditingId);
     return true;
   }
+
+  /** Drop the edit in place: revert this card's drafts to the saved shape and collapse it. */
+  function cancelEditing(nextEditingId: string | null = null) {
+    if (!saved) return;
+    const persisted = ensureRoutings(saved, state?.routings ?? []);
+    setDrafts(persisted);
+    setGuard(saved.quotaGuard ?? GUARD_FALLBACK);
+    setEditingId(nextEditingId);
+    setError("");
+  }
+
+  /** Keep the last committed edits from vanishing on an accidental close or navigation. */
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   if (!saved || !state) return <RoutingSkeleton />;
 
@@ -1055,7 +1129,7 @@ export function RoutingPage() {
                     "flex flex-col gap-3 rounded-md border p-3 transition-[opacity,box-shadow,background-color]",
                     expanded &&
                       "border-foreground/25 bg-muted/30 shadow-sm ring-1 ring-foreground/10",
-                    editingId && !expanded && "opacity-50",
+                    editingId && !expanded && "pointer-events-none opacity-50",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -1087,10 +1161,15 @@ export function RoutingPage() {
                               }
                             />
                           </div>
-                          <span className="text-[10px] text-muted-foreground">
-                            <code>jevonian/{routing.id}</code>
-                            {builtin ? " · builtin" : " · custom"}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              <code>jevonian/{routing.id}</code>
+                              {builtin ? " · builtin" : " · custom"}
+                            </span>
+                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-600">
+                              editing{routingDirty(routing.id) ? " · unsaved" : ""}
+                            </span>
+                          </div>
                         </div>
                       ) : (
                         <div>
@@ -1103,14 +1182,23 @@ export function RoutingPage() {
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       {expanded ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy}
-                          onClick={() => void commitEditing(null)}
-                        >
-                          {busy ? "Saving…" : "Done"}
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => void commitEditing(null)}
+                            disabled={busy}
+                          >
+                            {busy ? "Saving…" : routingDirty(routing.id) ? "Save" : "Done"}
+                          </Button>
+                          <button
+                            type="button"
+                            className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                            disabled={busy}
+                            onClick={() => cancelEditing(null)}
+                          >
+                            Cancel
+                          </button>
+                        </>
                       ) : (
                         <Button
                           size="sm"
@@ -1153,7 +1241,7 @@ export function RoutingPage() {
 
                     {modelList.length === 0 ? (
                       <span className="text-[11px] text-muted-foreground">
-                        {expanded ? "None yet — add a model below." : "None — customize to add"}
+                        {expanded ? "None yet — search to add." : "None — customize to add"}
                       </span>
                     ) : (
                       <>
@@ -1219,28 +1307,25 @@ export function RoutingPage() {
                   </div>
 
                   {expanded ? (
-                    <div className="flex flex-col gap-2 border-t pt-3">
+                    <div className="flex flex-col gap-1.5 border-t pt-3">
                       <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         Add model
                       </Label>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Combobox
-                          value={picker[routing.id] ?? ""}
-                          onChange={(value) =>
-                            setPicker((current) => ({ ...current, [routing.id]: value }))
-                          }
-                          options={modelOptions(routing.id)}
-                          placeholder="Search models…"
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => addModel(routing.id)}
-                          disabled={!picker[routing.id]}
-                        >
-                          Add
-                        </Button>
-                      </div>
+                      <Combobox
+                        value={picker[routing.id] ?? ""}
+                        onChange={(value) => addModel(routing.id, value)}
+                        options={modelOptions(routing.id)}
+                        placeholder="Search by id, name, provider, or price…"
+                        emptyText="No model matches — check that a provider serves it."
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        Enter to add — search matches id, catalog name, provider, price.
+                      </span>
+                      {routingDirty(routing.id) ? (
+                        <span className="text-[10px] font-medium text-amber-600">
+                          Unsaved — Save or Cancel to switch cards.
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
