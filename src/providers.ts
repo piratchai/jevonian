@@ -171,6 +171,17 @@ export const PRESETS: ProviderPreset[] = [
     hint: "Sign in with the Antigravity IDE or `agy`; reads the local token and project id.",
     billing: "subscription",
   },
+  {
+    id: "devin-subscription",
+    name: "Devin",
+    type: "devin",
+    baseUrl: "https://server.codeium.com",
+    auth: "oauth",
+    oauthSource: "devin",
+    keysUrl: "https://docs.devin.ai/cli",
+    hint: "Sign in with `devin auth login`; Jevonian reads ~/.local/share/devin/credentials.toml.",
+    billing: "subscription",
+  },
 ];
 
 export function findPreset(id: string): ProviderPreset | undefined {

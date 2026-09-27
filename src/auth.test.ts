@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vite-plus/test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { resolveProviderAuth, withOpenRouterAttribution, withSessionAffinity } from "./auth";
 import { parseConfig, type Provider } from "./config";
+import { invalidateOAuthToken } from "./oauth";
 
 function provider(baseUrl: string): Provider {
   const config = parseConfig({
@@ -61,9 +66,70 @@ describe("withOpenRouterAttribution", () => {
 });
 
 describe("resolveProviderAuth", () => {
+  let dir = "";
+  let previousDevin: string | undefined;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "jevonian-auth-"));
+    previousDevin = process.env.JEVONIAN_DEVIN_CREDENTIALS;
+  });
+
+  afterEach(() => {
+    invalidateOAuthToken("devin");
+    if (previousDevin === undefined) delete process.env.JEVONIAN_DEVIN_CREDENTIALS;
+    else process.env.JEVONIAN_DEVIN_CREDENTIALS = previousDevin;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("attributes OpenRouter model calls to Jevonian", async () => {
     const auth = await resolveProviderAuth(provider("https://openrouter.ai/api/v1"), "openai");
     expect(auth.headers["HTTP-Referer"]).toBe("https://github.com/xinyao27/jevonian");
     expect(auth.headers["X-Title"]).toBe("Jevonian");
+    expect(auth.headers.authorization).toBe("Bearer test");
+    expect(auth.token).toBe("test");
+  });
+
+  it("returns the raw Devin token without building headers", async () => {
+    const path = join(dir, "credentials.toml");
+    writeFileSync(path, 'windsurf_api_key = "devin-session-token$abc"\n');
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = path;
+    const config = parseConfig({
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://server.codeium.com",
+          auth: "oauth",
+          oauthSource: "devin",
+          models: [],
+        },
+      ],
+    });
+    const devin = config.providers[0];
+    if (!devin) throw new Error("missing provider");
+    const auth = await resolveProviderAuth(devin, "openai");
+    expect(auth.error).toBeUndefined();
+    expect(auth.headers).toEqual({});
+    expect(auth.token).toBe("devin-session-token$abc");
+  });
+
+  it("surfaces a missing Devin login", async () => {
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = join(dir, "missing.toml");
+    const config = parseConfig({
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://server.codeium.com",
+          auth: "oauth",
+          oauthSource: "devin",
+          models: [],
+        },
+      ],
+    });
+    const devin = config.providers[0];
+    if (!devin) throw new Error("missing provider");
+    const auth = await resolveProviderAuth(devin, "openai");
+    expect(auth.error).toContain("devin auth login");
   });
 });

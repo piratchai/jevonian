@@ -4,7 +4,14 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { invalidateOAuthToken, resolveOAuthToken, type OAuthFailure } from "./oauth";
+import {
+  hasOAuthCredential,
+  invalidateOAuthToken,
+  oauthCredentialLabel,
+  resolveDevinServerUrl,
+  resolveOAuthToken,
+  type OAuthFailure,
+} from "./oauth";
 
 let dir = "";
 let claudePath = "";
@@ -12,8 +19,10 @@ let codexPath = "";
 let previousClaude: string | undefined;
 let previousCodex: string | undefined;
 let previousAntigravity: string | undefined;
+let previousDevin: string | undefined;
 
 beforeEach(() => {
+  previousDevin = process.env.JEVONIAN_DEVIN_CREDENTIALS;
   dir = mkdtempSync(join(tmpdir(), "jevonian-oauth-"));
   claudePath = join(dir, "claude-credentials.json");
   codexPath = join(dir, "codex-auth.json");
@@ -28,6 +37,9 @@ afterEach(() => {
   invalidateOAuthToken("claude-code");
   invalidateOAuthToken("codex");
   invalidateOAuthToken("antigravity");
+  invalidateOAuthToken("devin");
+  if (previousDevin === undefined) delete process.env.JEVONIAN_DEVIN_CREDENTIALS;
+  else process.env.JEVONIAN_DEVIN_CREDENTIALS = previousDevin;
   if (previousClaude === undefined) delete process.env.JEVONIAN_CLAUDE_CREDENTIALS;
   else process.env.JEVONIAN_CLAUDE_CREDENTIALS = previousClaude;
   if (previousCodex === undefined) delete process.env.JEVONIAN_CODEX_AUTH;
@@ -155,6 +167,71 @@ describe("Antigravity credentials", () => {
     });
     const result = await resolveOAuthToken({ source: "antigravity" });
     expect("token" in result && result.token).toBe("fresh");
+  });
+});
+
+describe("Devin credentials", () => {
+  it("reads the session token from credentials.toml", async () => {
+    const path = join(dir, "credentials.toml");
+    writeFileSync(
+      path,
+      [
+        "# written by devin auth login",
+        'windsurf_api_key = "devin-session-token$abc\\"def\\\\ghi"',
+        'api_server_url = "https://server.example.com/"',
+        'devin_webapp_host = "https://app.devin.ai"',
+        "",
+      ].join("\n"),
+    );
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = path;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("devin tokens never refresh");
+    });
+    const result = await resolveOAuthToken({ source: "devin" });
+    expect("token" in result && result.token).toBe('devin-session-token$abc"def\\ghi');
+    expect("token" in result && result.expiresAt).toBeUndefined();
+    expect(hasOAuthCredential("devin")).toBe(true);
+    expect(oauthCredentialLabel("devin")).toBe("Devin credentials");
+  });
+
+  it("re-reads the file after invalidation", async () => {
+    const path = join(dir, "credentials.toml");
+    writeFileSync(path, 'windsurf_api_key = "devin-session-token$one"\n');
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = path;
+    const first = await resolveOAuthToken({ source: "devin" });
+    expect("token" in first && first.token).toBe("devin-session-token$one");
+    writeFileSync(path, 'windsurf_api_key = "devin-session-token$two"\n');
+    invalidateOAuthToken("devin");
+    const second = await resolveOAuthToken({ source: "devin" });
+    expect("token" in second && second.token).toBe("devin-session-token$two");
+  });
+
+  it("reports a missing credentials file", async () => {
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = join(dir, "missing.toml");
+    const result = await resolveOAuthToken({ source: "devin" });
+    expect(failure(result).error).toBe(
+      "Devin credentials not found. Sign in with `devin auth login`, or set JEVONIAN_DEVIN_CREDENTIALS.",
+    );
+    expect(hasOAuthCredential("devin")).toBe(false);
+  });
+
+  it("reports a file without windsurf_api_key", async () => {
+    const path = join(dir, "credentials.toml");
+    writeFileSync(path, 'api_server_url = "https://server.codeium.com"\n');
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = path;
+    const result = await resolveOAuthToken({ source: "devin" });
+    expect(failure(result).error).toContain("unexpected shape");
+    expect(hasOAuthCredential("devin")).toBe(false);
+  });
+
+  it("resolves the API server url from the file or the default", () => {
+    const path = join(dir, "credentials.toml");
+    process.env.JEVONIAN_DEVIN_CREDENTIALS = path;
+    expect(resolveDevinServerUrl()).toBe("https://server.codeium.com");
+    writeFileSync(path, 'windsurf_api_key = "t"\napi_server_url = "https://server.example.com/"\n');
+    expect(resolveDevinServerUrl()).toBe("https://server.example.com");
+    writeFileSync(path, 'windsurf_api_key = "t"\n');
+    expect(resolveDevinServerUrl()).toBe("https://server.codeium.com");
   });
 });
 

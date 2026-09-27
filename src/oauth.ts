@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 import { retryingFetch } from "./retry";
 
-export type OAuthSource = "claude-code" | "codex" | "antigravity" | "static";
+export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "static";
 
 export const CLAUDE_CODE_SYSTEM_PROMPT =
   "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -19,6 +19,7 @@ const ANTIGRAVITY_CLIENT_ID =
 const ANTIGRAVITY_CLIENT_SECRET = "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";
 const ANTIGRAVITY_KEYCHAIN_SERVICE = "gemini";
 const ANTIGRAVITY_KEYCHAIN_ACCOUNT = "antigravity";
+const DEVIN_DEFAULT_SERVER_URL = "https://server.codeium.com";
 const REFRESH_SKEW_MS = 120_000;
 
 export interface OAuthToken {
@@ -331,6 +332,92 @@ export function resolveAntigravityProject(): string {
   return "default-cli-project";
 }
 
+/**
+ * Where Devin CLI (`devin auth login`) keeps its session token.
+ * `JEVONIAN_DEVIN_CREDENTIALS` wins; otherwise `%APPDATA%\devin` on Windows and
+ * `$XDG_DATA_HOME/devin` (default `~/.local/share/devin`) elsewhere.
+ */
+export function devinCredentialsPath(): string {
+  const override = process.env.JEVONIAN_DEVIN_CREDENTIALS;
+  if (override && override.trim().length > 0) return override.trim();
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+    return join(appData, "devin", "credentials.toml");
+  }
+  const xdg = process.env.XDG_DATA_HOME;
+  const base = xdg && xdg.trim().length > 0 ? xdg.trim() : join(homedir(), ".local", "share");
+  return join(base, "devin", "credentials.toml");
+}
+
+function unescapeTomlBasic(value: string): string {
+  return value.replace(/\\(["\\nrt])/g, (_, char: string) => {
+    if (char === "n") return "\n";
+    if (char === "r") return "\r";
+    if (char === "t") return "\t";
+    return char;
+  });
+}
+
+/**
+ * Parse the flat `key = "value"` lines of Devin's credentials.toml. Tables, arrays, and
+ * multi-line strings are not used by that file and are ignored.
+ */
+export function parseFlatToml(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("[")) continue;
+    const basic = /^([A-Za-z0-9_.-]+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(line);
+    if (basic?.[1] !== undefined && basic[2] !== undefined) {
+      result[basic[1]] = unescapeTomlBasic(basic[2]);
+      continue;
+    }
+    const literal = /^([A-Za-z0-9_.-]+)\s*=\s*'([^']*)'\s*(?:#.*)?$/.exec(line);
+    if (literal?.[1] !== undefined && literal[2] !== undefined) {
+      result[literal[1]] = literal[2];
+    }
+  }
+  return result;
+}
+
+function readDevinCredential(): Record<string, string> | undefined {
+  const path = devinCredentialsPath();
+  if (!existsSync(path)) return undefined;
+  try {
+    return parseFlatToml(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Devin session tokens do not expire and there is no refresh flow: when the server rejects
+ * one, the user signs in again with `devin auth login` and the next resolve re-reads the file.
+ */
+function resolveDevin(): Promise<OAuthToken | OAuthFailure> {
+  const data = readDevinCredential();
+  if (!data) {
+    return Promise.resolve({
+      error:
+        "Devin credentials not found. Sign in with `devin auth login`, or set JEVONIAN_DEVIN_CREDENTIALS.",
+    });
+  }
+  const token = data.windsurf_api_key?.trim() ?? "";
+  if (!token) {
+    return Promise.resolve({
+      error:
+        "Devin credential has an unexpected shape (no windsurf_api_key). Run `devin auth login` again.",
+    });
+  }
+  return Promise.resolve({ token });
+}
+
+/** Devin API server from credentials.toml (`api_server_url`), or the public default. */
+export function resolveDevinServerUrl(): string {
+  const value = readDevinCredential()?.api_server_url?.trim();
+  return value && value.length > 0 ? value.replace(/\/+$/, "") : DEVIN_DEFAULT_SERVER_URL;
+}
+
 interface RefreshedClaude {
   accessToken: string;
   refreshToken: string;
@@ -505,6 +592,7 @@ export function invalidateOAuthToken(source: OAuthSource): void {
 export function hasOAuthCredential(source: OAuthSource): boolean {
   if (source === "static") return false;
   if (source === "codex") return readCodexCredential() !== undefined;
+  if (source === "devin") return Boolean(readDevinCredential()?.windsurf_api_key?.trim());
   if (source === "antigravity") {
     const override = process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
     if (override && existsSync(override.trim())) return true;
@@ -536,7 +624,9 @@ export function resolveOAuthToken(options: {
       ? resolveClaude
       : options.source === "codex"
         ? resolveCodex
-        : resolveAntigravity;
+        : options.source === "devin"
+          ? resolveDevin
+          : resolveAntigravity;
   const task = resolve().then((result) => {
     if (!("error" in result)) cache.set(options.source, result);
     return result;
@@ -550,5 +640,6 @@ export function oauthCredentialLabel(source: OAuthSource): string {
   if (source === "claude-code") return "Claude Code credentials";
   if (source === "codex") return "Codex credentials";
   if (source === "antigravity") return "Antigravity credentials";
+  if (source === "devin") return "Devin credentials";
   return "stored token";
 }

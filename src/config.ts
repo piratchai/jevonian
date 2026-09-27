@@ -20,7 +20,7 @@ export const providerSupports = providerSpeaks;
 export const providerAcceptsClient = canServeClient;
 
 export type { ModelEntry, UpstreamWire };
-export type ProviderType = "openai" | "anthropic" | "responses" | "both" | "gemini";
+export type ProviderType = "openai" | "anthropic" | "responses" | "both" | "gemini" | "devin";
 export type ProviderAuth = "api-key" | "oauth";
 export type ProviderBilling = "api" | "subscription";
 
@@ -47,7 +47,7 @@ export interface Provider {
   /**
    * Background discovery opt-in/out. Explicit `false` always skips; explicit `true` always
    * syncs. When absent, only native OAuth subscription sources (Codex, Claude Code,
-   * Antigravity) sync — those catalogs are the intended full list. API keys and reseller
+   * Antigravity, Devin) sync — those catalogs are the intended full list. API keys and reseller
    * subscriptions keep a curated picker until the operator turns sync on.
    */
   syncModels?: boolean;
@@ -77,6 +77,7 @@ export const MODEL_SYNC_DEFAULT_SOURCES: readonly OAuthSource[] = [
   "codex",
   "claude-code",
   "antigravity",
+  "devin",
 ];
 
 export function providerSyncsByDefault(provider: Pick<Provider, "oauthSource">): boolean {
@@ -512,10 +513,11 @@ function parseProviderType(value: unknown, index: number): ProviderType {
     type !== "anthropic" &&
     type !== "responses" &&
     type !== "both" &&
-    type !== "gemini"
+    type !== "gemini" &&
+    type !== "devin"
   ) {
     throw new Error(
-      `providers[${index}].type must be "openai", "anthropic", "responses", "both", or "gemini"`,
+      `providers[${index}].type must be "openai", "anthropic", "responses", "both", "gemini", or "devin"`,
     );
   }
   return type;
@@ -527,7 +529,13 @@ export function effectiveProviderType(type: ProviderType, baseUrl: string): Prov
 }
 
 function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (value === "claude-code" || value === "codex" || value === "antigravity" || value === "static")
+  if (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "antigravity" ||
+    value === "devin" ||
+    value === "static"
+  )
     return value;
   return undefined;
 }

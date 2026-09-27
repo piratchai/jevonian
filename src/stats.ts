@@ -86,7 +86,7 @@ export function summarize(records: LedgerRecord[], config: Config | null): Stats
 
   const baselineProvider = config?.providers.find((provider) =>
     provider.models.some((entry) => entry.id === (baselineModel ?? "")),
-  )?.name;
+  );
 
   for (const record of records) {
     const row = byModel.get(record.model) ?? {
@@ -136,7 +136,8 @@ export function summarize(records: LedgerRecord[], config: Config | null): Stats
         baselineModel,
         usageOf(record),
         new Date(record.ts),
-        baselineProvider,
+        baselineProvider?.name,
+        baselineProvider?.type,
       ).usd;
       if (estimate !== null) {
         baselineUsd += estimate;

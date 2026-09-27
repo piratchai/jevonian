@@ -210,6 +210,35 @@ describe("planUpstreamWire", () => {
     ).toEqual({ wire: "openai", bridge: "to-openai" });
   });
 
+  it("folds every client onto Devin's Chat Completions body", () => {
+    const devin = provider({
+      name: "devin-subscription",
+      type: "devin",
+      baseUrl: "https://server.codeium.com",
+      auth: "oauth",
+      oauthSource: "devin",
+      billing: "subscription",
+      models: modelEntries("claude-opus-4-8-medium", "swe-1-6-slow"),
+    });
+    expect(providerSpeaks(devin, "openai")).toBe(true);
+    expect(providerSpeaks(devin, "anthropic")).toBe(false);
+    expect(providerSpeaks(devin, "responses")).toBe(false);
+    for (const client of ["openai", "anthropic", "responses"] as const) {
+      expect(canServeClient(devin, client)).toBe(true);
+    }
+    // Claude ids on Devin still leave as a Chat Completions body — never on /messages.
+    expect(inferModelWires(devin, "claude-opus-4-8-medium")).toEqual(["openai"]);
+    expect(
+      planUpstreamWire({ provider: devin, client: "openai", model: "claude-opus-4-8-medium" }),
+    ).toEqual({ wire: "openai", bridge: "none" });
+    expect(
+      planUpstreamWire({ provider: devin, client: "anthropic", model: "claude-opus-4-8-medium" }),
+    ).toEqual({ wire: "openai", bridge: "to-openai" });
+    expect(
+      planUpstreamWire({ provider: devin, client: "responses", model: "swe-1-6-slow" }),
+    ).toEqual({ wire: "openai", bridge: "to-openai" });
+  });
+
   it("keeps Responses clients on OpenCode's native /responses wire", () => {
     const opencode = provider({
       name: "opencode-go",

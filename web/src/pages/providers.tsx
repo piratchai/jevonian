@@ -209,7 +209,17 @@ export function ProvidersPage() {
         ? "responses"
         : auth === "oauth" && oauthSource === "antigravity"
           ? "gemini"
-          : undefined;
+          : auth === "oauth" && oauthSource === "devin"
+            ? "devin"
+            : undefined;
+  const lockedBy =
+    oauthSource === "codex"
+      ? "Codex"
+      : oauthSource === "antigravity"
+        ? "Antigravity"
+        : oauthSource === "devin"
+          ? "Devin"
+          : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
     auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource);
@@ -659,11 +669,12 @@ export function ProvidersPage() {
                       <SelectItem value="both">both — openai + anthropic</SelectItem>
                       <SelectItem value="responses">responses</SelectItem>
                       <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
+                      <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
                     </SelectContent>
                   </Select>
                   <span className="text-[11px] text-muted-foreground">
                     {lockedType
-                      ? `Set by the ${oauthSource === "codex" ? "Codex" : "Claude Code"} credential source.`
+                      ? `Set by the ${lockedBy} credential source.`
                       : "Wire format the endpoint expects."}
                   </span>
                 </div>
@@ -702,6 +713,7 @@ export function ProvidersPage() {
                         <SelectItem value="claude-code">Claude Code (~/.claude)</SelectItem>
                         <SelectItem value="codex">Codex (~/.codex)</SelectItem>
                         <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
+                        <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                         <SelectItem value="static">stored token</SelectItem>
                       </SelectContent>
                     </Select>
@@ -739,7 +751,9 @@ export function ProvidersPage() {
                       ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
                       : oauthSource === "codex"
                         ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
-                        : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                        : oauthSource === "devin"
+                          ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
+                          : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
                   </p>
                 )}
               </div>
@@ -862,9 +876,9 @@ export function ProvidersPage() {
                 <span>
                   <span className="font-medium">Auto-sync new models</span>
                   <span className="block text-xs text-muted-foreground">
-                    Append ids this provider newly lists. On by default for Codex, Claude Code, and
-                    Antigravity; off for API/reseller catalogs until you enable it. Unchecking a
-                    model remembers the removal so sync does not bring it back.
+                    Append ids this provider newly lists. On by default for Codex, Claude Code,
+                    Antigravity, and Devin; off for API/reseller catalogs until you enable it.
+                    Unchecking a model remembers the removal so sync does not bring it back.
                   </span>
                 </span>
               </label>
@@ -960,12 +974,12 @@ export function ProvidersPage() {
                         <SelectItem value="both">both — openai + anthropic</SelectItem>
                         <SelectItem value="responses">responses</SelectItem>
                         <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
+                        <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
                       </SelectContent>
                     </Select>
                     {lockedType ? (
                       <span className="text-[11px] text-muted-foreground">
-                        Set by the {oauthSource === "codex" ? "Codex" : "Claude Code"} credential
-                        source.
+                        Set by the {lockedBy} credential source.
                       </span>
                     ) : null}
                   </div>
@@ -1016,6 +1030,7 @@ export function ProvidersPage() {
                           <SelectItem value="claude-code">Claude Code (~/.claude)</SelectItem>
                           <SelectItem value="codex">Codex (~/.codex)</SelectItem>
                           <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
+                          <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                           <SelectItem value="static">stored token</SelectItem>
                         </SelectContent>
                       </Select>

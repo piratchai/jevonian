@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { resolveProviderAuth } from "./auth";
 import type { Config, Provider, ProviderQuotaSpec } from "./config";
 import { apiKeySource } from "./config";
+import { fetchDevinUserStatus } from "./devin";
 import { readRecords, type LedgerRecord } from "./ledger";
 import { resolveOAuthToken } from "./oauth";
 import { dataDir } from "./paths";
@@ -233,8 +234,38 @@ function clearRejection(provider: string): void {
   const snapshot = current[provider];
   if (!snapshot || !snapshot.windows.some((window) => window.status === "rejected")) return;
   const next = { ...current };
-  delete next[provider];
+  const remaining = snapshot.windows.filter(
+    (window) => window.model !== undefined && activeWindow(window, Date.now()),
+  );
+  if (remaining.length > 0) next[provider] = { ...snapshot, windows: remaining };
+  else delete next[provider];
   saveHeaderQuotas(next);
+}
+
+function activeWindow(window: QuotaWindow, now: number): boolean {
+  if (!window.resetsAt) return true;
+  const resets = Date.parse(window.resetsAt);
+  return Number.isNaN(resets) || resets > now;
+}
+
+/** A successful account-level probe does not prove that a model-specific refusal has cleared. */
+function modelRejections(provider: string, now = Date.now()): QuotaWindow[] {
+  return (headerQuotas()[provider]?.windows ?? []).filter(
+    (window) =>
+      window.model !== undefined && window.status === "rejected" && activeWindow(window, now),
+  );
+}
+
+function withModelRejections(provider: string, windows: QuotaWindow[]): QuotaWindow[] {
+  const rejections = modelRejections(provider);
+  return [
+    ...windows.filter(
+      (window) =>
+        !(window.model !== undefined && window.status === "rejected") &&
+        !rejections.some((rejection) => rejection.model === window.model),
+    ),
+    ...rejections,
+  ];
 }
 
 export function anthropicWindowsFromHeaders(headers: Headers): QuotaWindow[] {
@@ -331,8 +362,9 @@ export function codexWindowsFromHeaders(headers: Headers): QuotaWindow[] {
 }
 
 export function captureQuotaHeaders(provider: Provider, headers: Headers): void {
-  const windows = [...anthropicWindowsFromHeaders(headers), ...codexWindowsFromHeaders(headers)];
-  if (windows.length === 0) return;
+  const observed = [...anthropicWindowsFromHeaders(headers), ...codexWindowsFromHeaders(headers)];
+  if (observed.length === 0) return;
+  const windows = withModelRejections(provider.name, observed);
   const current = headerQuotas();
   const previous = current[provider.name];
   if (previous && !snapshotStale(previous.fetchedAt) && sameWindows(previous.windows, windows)) {
@@ -482,20 +514,64 @@ export function captureUsageLimit(provider: Provider, status: number, body: stri
       }
     }
   }
-  const window: QuotaWindow = {
-    id: signal === "billing" ? "balance" : weekly ? "week" : "limit",
+  markProviderSpent(provider, {
     label: signal === "billing" ? "balance" : weekly ? "week" : "limit",
+    ...(resetsAt ? { resetsAt } : {}),
+  });
+  return true;
+}
+
+/**
+ * Records a provider as spent from an already-classified refusal (e.g. Devin's Connect error
+ * trailer), writing the same synthetic `rejected` snapshot {@link captureUsageLimit} writes so
+ * routing skips the provider until the window resets or a live probe succeeds.
+ */
+export function markProviderSpent(
+  provider: Provider,
+  options: { label?: string; resetsAt?: string; model?: string } = {},
+): void {
+  const label = options.label ?? "limit";
+  const resetsAt = toIso(options.resetsAt);
+  const model = options.model?.trim() || undefined;
+  const window: QuotaWindow = {
+    id: model ? `${label}:${model}` : label,
+    label,
     usedPercent: 100,
     ...(resetsAt ? { resetsAt } : {}),
+    ...(model ? { model } : {}),
     status: "rejected",
   };
   const current = headerQuotas();
+  const previous = current[provider.name];
+  const live = liveCache.get(provider.name);
+  const recentLive = live && Date.now() - live.at < liveTtl(provider) ? live.quota.windows : [];
+  // Account-wide refusals supersede everything. Scoped refusals must not discard a live
+  // account window or another model's refusal, and must be refreshed per model.
+  const windows = model
+    ? [
+        ...(recentLive.some((entry) => entry.model === undefined)
+          ? recentLive.filter(
+              (entry) => entry.model === undefined && activeWindow(entry, Date.now()),
+            )
+          : (previous?.windows ?? []).filter(
+              (entry) => entry.model === undefined && activeWindow(entry, Date.now()),
+            )),
+        ...(previous?.windows ?? []).filter(
+          (entry) =>
+            entry.model !== undefined && entry.model !== model && activeWindow(entry, Date.now()),
+        ),
+        window,
+      ]
+    : [window];
   saveHeaderQuotas({
     ...current,
-    [provider.name]: { windows: [window], fetchedAt: new Date().toISOString() },
+    [provider.name]: {
+      windows,
+      fetchedAt: new Date().toISOString(),
+      ...(previous?.plan ? { plan: previous.plan } : {}),
+    },
   });
   liveCache.delete(provider.name);
-  return true;
 }
 
 function spendOf(records: LedgerRecord[], provider: string): ProviderSpend {
@@ -560,6 +636,12 @@ function isAntigravity(provider: Provider): boolean {
   return (
     provider.type === "gemini" ||
     (provider.auth === "oauth" && provider.oauthSource === "antigravity")
+  );
+}
+
+export function isDevin(provider: Provider): boolean {
+  return (
+    provider.type === "devin" || (provider.auth === "oauth" && provider.oauthSource === "devin")
   );
 }
 
@@ -973,6 +1055,34 @@ async function codexUsage(
   };
 }
 
+/**
+ * Devin meters a daily and a weekly allowance, reported as *remaining* percent by
+ * `GetUserStatus`. A window whose percent is absent is skipped rather than read as 0.
+ */
+export async function devinUsage(
+  provider: Provider,
+): Promise<{ windows: QuotaWindow[]; plan?: string } | { error: string }> {
+  const auth = await resolveProviderAuth(provider, "openai");
+  if (auth.error) return { error: auth.error };
+  if (!auth.token) return { error: `Missing Devin token for provider "${provider.name}"` };
+  const status = await fetchDevinUserStatus(auth.token, provider.baseUrl || undefined);
+  const windows: QuotaWindow[] = [];
+  const push = (id: string, label: string, remaining?: number, resets?: string): void => {
+    const left = percentPoints(remaining);
+    if (left === undefined) return;
+    const resetsAt = toIso(resets);
+    windows.push({
+      id,
+      label,
+      usedPercent: 100 - left,
+      ...(resetsAt ? { resetsAt } : {}),
+    });
+  };
+  push("devin-daily", "day", status.dailyRemainingPercent, status.dailyResetsAt);
+  push("devin-weekly", "week", status.weeklyRemainingPercent, status.weeklyResetsAt);
+  return { windows, ...(status.plan ? { plan: status.plan } : {}) };
+}
+
 function liveTtl(provider: Provider): number {
   if (provider.auth === "oauth" && provider.oauthSource === "claude-code") return 300_000;
   return 60_000;
@@ -987,6 +1097,7 @@ async function fetchLive(provider: Provider): Promise<LiveQuota | undefined> {
     if (isOpenCodeGo(provider)) return await opencodeGoUsage(provider);
     if (isCommandCode(provider)) return await commandCodeUsage(provider);
     if (isAntigravity(provider)) return await antigravityUsage(provider);
+    if (isDevin(provider)) return await devinUsage(provider);
     if (isDeepSeek(provider)) return await deepseekBalance(provider);
     if (isOpenRouter(provider)) return await openrouterBalance(provider);
     if (isMoonshot(provider)) return await moonshotBalance(provider);
@@ -1014,16 +1125,15 @@ async function buildQuota(
   const live = await fetchLive(provider);
   const liveError = live && "error" in live ? live.error : undefined;
   if (live && !("error" in live) && (live.windows.length > 0 || live.balance)) {
-    // The probe answered. Drop a synthetic rejection, and when live returns real
-    // windows overwrite the on-disk snapshot too — otherwise a cold live cache
-    // falls back to a stale 100% (mis-scaled Codex `used_percent: 1`, or an old
-    // rejection) and routing skips a healthy provider.
+    // A successful account probe replaces old account snapshots, but cannot establish
+    // whether a rejected model is available again. Keep active scoped refusals.
+    const windows = withModelRejections(provider.name, live.windows);
     if (live.windows.length > 0) {
       const current = headerQuotas();
       saveHeaderQuotas({
         ...current,
         [provider.name]: {
-          windows: live.windows,
+          windows,
           fetchedAt: new Date().toISOString(),
           ...(live.plan ? { plan: live.plan } : {}),
         },
@@ -1042,6 +1152,7 @@ async function buildQuota(
               usedPercent: 100,
               status: "rejected",
             },
+            ...modelRejections(provider.name),
           ],
           fetchedAt: new Date().toISOString(),
         },
@@ -1052,7 +1163,7 @@ async function buildQuota(
     return {
       ...base,
       source: "live",
-      windows: live.windows,
+      windows,
       fetchedAt: new Date().toISOString(),
       ...(live.plan ? { plan: live.plan } : {}),
       ...(live.note ? { note: live.note } : {}),
@@ -1061,14 +1172,17 @@ async function buildQuota(
   }
   const header = headerQuotas()[provider.name];
   if (header && header.windows.length > 0) {
+    const active = header.windows.filter((window) => activeWindow(window, Date.now()));
+    const hasAccount = active.some((window) => window.model === undefined);
+    const estimated = !hasAccount && provider.quota ? specWindows(provider.quota, spend) : [];
     const staleNote = stalenessNote(header.fetchedAt);
     return {
       ...base,
-      source: "headers",
-      windows: header.windows,
+      source: estimated.length > 0 ? "ledger" : "headers",
+      windows: [...estimated, ...active],
       fetchedAt: header.fetchedAt,
       ...(header.plan ? { plan: header.plan } : {}),
-      ...(staleNote ? { note: staleNote } : {}),
+      ...(staleNote && estimated.length === 0 ? { note: staleNote } : {}),
       ...(liveError ? { error: liveError } : {}),
     };
   }
@@ -1103,15 +1217,22 @@ interface KnownWindows {
 function knownWindows(provider: Provider, now: number, spend: ProviderSpend): KnownWindows {
   const cached = liveCache.get(provider.name);
   if (cached && now - cached.at < liveTtl(provider)) {
-    return { windows: cached.quota.windows, source: cached.quota.source };
+    return {
+      windows: withModelRejections(provider.name, cached.quota.windows),
+      source: cached.quota.source,
+    };
   }
   const header = headerQuotas()[provider.name];
   if (header && header.windows.length > 0) {
+    const active = header.windows.filter((window) => activeWindow(window, now));
+    // A scoped-only refusal does not replace an independently metered account cap.
+    const account = active.some((window) => window.model === undefined);
+    const estimated = !account && provider.quota ? specWindows(provider.quota, spend) : [];
     const staleNote = stalenessNote(header.fetchedAt);
     return {
-      windows: header.windows,
-      source: "headers",
-      ...(staleNote ? { staleNote } : {}),
+      windows: [...estimated, ...active],
+      source: estimated.length > 0 ? "ledger" : "headers",
+      ...(staleNote && estimated.length === 0 ? { staleNote } : {}),
     };
   }
   if (provider.quota) {
@@ -1163,20 +1284,19 @@ export function providerQuotaHealth(
     }
   }
 
-  // Model-scoped windows meter one model on top of the shared pool. They must not drop the
-  // provider from routing: a spent Fable window says nothing about whether other Claude
-  // models still have headroom. Fall back to them only when they are the sole signal.
+  // Scoped windows never exhaust the entire provider, even when they are the only signal.
   const account = known.windows.filter((window) => window.model === undefined);
-  const pooled = account.length > 0 ? account : known.windows;
   let worst: QuotaWindow | undefined;
-  for (const window of pooled) {
-    if (window.resetsAt) {
-      const resets = Date.parse(window.resetsAt);
-      if (!Number.isNaN(resets) && resets <= now) continue;
-    }
+  for (const window of account) {
+    if (!activeWindow(window, now)) continue;
     if (!worst || (window.usedPercent ?? 0) > (worst.usedPercent ?? 0)) worst = window;
   }
-  if (known.windows.length === 0) return { provider: provider.name, status: "unknown" };
+  if (account.length === 0) {
+    return {
+      provider: provider.name,
+      status: known.windows.length > 0 ? "ok" : "unknown",
+    };
+  }
   if (!worst) {
     return { provider: provider.name, status: "ok", note: "windows reset" };
   }
@@ -1223,6 +1343,23 @@ export function providerQuotaHealth(
   };
 }
 
+/** True when either the shared quota or this exact model's active window is exhausted. */
+export function providerModelExhausted(
+  provider: Provider,
+  model: string,
+  options: { lowPercent?: number; now?: number } = {},
+): boolean {
+  const now = options.now ?? Date.now();
+  if (providerQuotaHealth(provider, { ...options, now }).status === "exhausted") return true;
+  const spend = spendOf(ledgerRecords(now), provider.name);
+  return knownWindows(provider, now, spend).windows.some(
+    (window) =>
+      window.model === model &&
+      activeWindow(window, now) &&
+      (window.status === "rejected" || (window.usedPercent ?? 0) >= 100),
+  );
+}
+
 export async function providerQuotas(
   config: Config,
   options: { refresh?: boolean } = {},
@@ -1233,7 +1370,11 @@ export async function providerQuotas(
       const spend = spendOf(records, provider.name);
       const cached = liveCache.get(provider.name);
       if (!options.refresh && cached && Date.now() - cached.at < liveTtl(provider)) {
-        return { ...cached.quota, spend };
+        return {
+          ...cached.quota,
+          windows: withModelRejections(provider.name, cached.quota.windows),
+          spend,
+        };
       }
       const quota = await buildQuota(provider, spend);
       liveCache.set(provider.name, { at: Date.now(), quota });

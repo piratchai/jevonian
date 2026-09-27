@@ -152,7 +152,13 @@ function stringArray(value: unknown): string[] {
 }
 
 function parseType(value: unknown): ProviderType {
-  if (value === "anthropic" || value === "responses" || value === "both" || value === "gemini") {
+  if (
+    value === "anthropic" ||
+    value === "responses" ||
+    value === "both" ||
+    value === "gemini" ||
+    value === "devin"
+  ) {
     return value;
   }
   return "openai";
@@ -163,7 +169,13 @@ function parseAuth(value: unknown): ProviderAuth {
 }
 
 function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (value === "claude-code" || value === "codex" || value === "antigravity" || value === "static")
+  if (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "antigravity" ||
+    value === "devin" ||
+    value === "static"
+  )
     return value;
   return undefined;
 }
@@ -805,7 +817,7 @@ export function createAdminApp(state: AppState): Hono {
         const key = `${provider.name}/${id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const price = priceFor(id, provider.name);
+        const price = priceFor(id, provider.name, provider.type);
         models.push({
           id,
           provider: provider.name,

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { parseConfig } from "./config";
+import { devinPb } from "./devin";
 import { appendRecord } from "./ledger";
 import {
   anthropicWindowsFromHeaders,
@@ -12,6 +13,8 @@ import {
   captureUsageLimit,
   codexWindowsFromHeaders,
   headerQuotas,
+  markProviderSpent,
+  providerModelExhausted,
   providerQuotaHealth,
   providerQuotas,
   providerSpendSignal,
@@ -1014,6 +1017,173 @@ describe("quota headers", () => {
     expect(quotas[0]?.spend.fiveHourUsd).toBe(7);
     expect(quotas[0]?.windows.find((window) => window.id === "5h")?.usedPercent).toBeCloseTo(50);
     expect(quotas[0]?.windows.find((window) => window.id === "month")?.usedPercent).toBeCloseTo(10);
+  });
+});
+
+describe("model-scoped rejections", () => {
+  const config = () =>
+    parseConfig({
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://server.codeium.com",
+          apiKey: "test-key",
+          billing: "subscription",
+          models: ["swe-1-6-slow", "claude-opus-4-8-medium"],
+        },
+      ],
+    });
+
+  it("persists one model's refusal without discarding account windows or other model refusals", () => {
+    const provider = config().providers[0]!;
+    const reset = new Date(Date.now() + 60_000).toISOString();
+    writeFileSync(
+      quotaStatePath(),
+      JSON.stringify({
+        "devin-subscription": {
+          windows: [{ id: "devin-daily", label: "day", usedPercent: 25 }],
+          fetchedAt: new Date().toISOString(),
+        },
+      }),
+    );
+    resetQuotaCache();
+    markProviderSpent(provider, { label: "rate-limit", model: "swe-1-6-slow", resetsAt: reset });
+    markProviderSpent(provider, {
+      label: "rate-limit",
+      model: "claude-opus-4-8-medium",
+      resetsAt: reset,
+    });
+    resetQuotaCache();
+    expect(headerQuotas()[provider.name]?.windows).toMatchObject([
+      { id: "devin-daily", usedPercent: 25 },
+      { model: "swe-1-6-slow", status: "rejected" },
+      { model: "claude-opus-4-8-medium", status: "rejected" },
+    ]);
+    expect(providerQuotaHealth(provider).status).toBe("ok");
+    expect(providerModelExhausted(provider, "swe-1-6-slow")).toBe(true);
+    expect(providerModelExhausted(provider, "claude-opus-4-8-medium")).toBe(true);
+    expect(providerModelExhausted(provider, "other-model")).toBe(false);
+    expect(providerModelExhausted(provider, "swe-1-6-slow", { now: Date.parse(reset) })).toBe(
+      false,
+    );
+  });
+
+  it("retains a model refusal beside fresh live account windows across cache resets", async () => {
+    const parsed = config();
+    const provider = parsed.providers[0]!;
+    markProviderSpent(provider, {
+      label: "rate-limit",
+      model: "swe-1-6-slow",
+      resetsAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    // Local stub only: GetUserStatus reports 75% daily and 80% weekly remaining.
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          devinPb.bytesField(
+            1,
+            devinPb.bytesField(
+              13,
+              devinPb.concat([devinPb.varintField(14, 75), devinPb.varintField(15, 80)]),
+            ),
+          ),
+        ),
+    );
+    const quotas = await providerQuotas(parsed, { refresh: true });
+    expect(quotas[0]?.windows).toMatchObject([
+      { id: "devin-daily", usedPercent: 25 },
+      { id: "devin-weekly", usedPercent: 20 },
+      { model: "swe-1-6-slow", status: "rejected" },
+    ]);
+    resetQuotaCache();
+    expect(headerQuotas()[provider.name]?.windows).toMatchObject(quotas[0]?.windows ?? []);
+    expect(providerModelExhausted(provider, "swe-1-6-slow")).toBe(true);
+    // A second refusal after the live probe must retain those account windows too.
+    markProviderSpent(provider, {
+      label: "rate-limit",
+      model: "claude-opus-4-8-medium",
+      resetsAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const refreshed = await providerQuotas(parsed, { refresh: true });
+    expect(refreshed[0]?.windows).toMatchObject([
+      { id: "devin-daily", usedPercent: 25 },
+      { id: "devin-weekly", usedPercent: 20 },
+      { model: "swe-1-6-slow", status: "rejected" },
+      { model: "claude-opus-4-8-medium", status: "rejected" },
+    ]);
+    resetQuotaCache();
+    expect(headerQuotas()[provider.name]?.windows).toMatchObject(refreshed[0]?.windows ?? []);
+    expect(providerModelExhausted(provider, "swe-1-6-slow")).toBe(true);
+    expect(providerQuotaHealth(provider).status).toBe("ok");
+  });
+
+  it("keeps live account windows when a model fails while the live cache is warm", async () => {
+    const parsed = config();
+    const provider = parsed.providers[0]!;
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(devinPb.bytesField(1, devinPb.bytesField(13, devinPb.varintField(14, 75)))),
+    );
+    await providerQuotas(parsed, { refresh: true });
+    markProviderSpent(provider, {
+      model: "swe-1-6-slow",
+      resetsAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(headerQuotas()[provider.name]?.windows).toMatchObject([
+      { id: "devin-daily", usedPercent: 25 },
+      { model: "swe-1-6-slow", status: "rejected" },
+    ]);
+  });
+
+  it("keeps ledger account caps visible when a scoped refusal is the only snapshot", () => {
+    const provider = parseConfig({
+      providers: [
+        {
+          name: "metered-subscription",
+          type: "openai",
+          baseUrl: "https://example.invalid/v1",
+          apiKey: "test-key",
+          billing: "subscription",
+          quota: { fiveHourUsd: 10 },
+          models: ["model-a", "model-b"],
+        },
+      ],
+    }).providers[0]!;
+    appendRecord({
+      ts: new Date().toISOString(),
+      session: "s",
+      path: "/chat/completions",
+      provider: provider.name,
+      model: "model-b",
+      stream: false,
+      status: 200,
+      latencyMs: 1,
+      promptTokens: 1,
+      completionTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: 10,
+      pricingKnown: true,
+      billing: "subscription",
+    });
+    markProviderSpent(provider, {
+      model: "model-a",
+      resetsAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(providerQuotaHealth(provider).status).toBe("exhausted");
+    expect(providerModelExhausted(provider, "model-b")).toBe(true);
+  });
+
+  it("keeps account-wide refusals blocking every model", () => {
+    const provider = config().providers[0]!;
+    markProviderSpent(provider, { label: "limit" });
+    resetQuotaCache();
+    expect(providerQuotaHealth(provider).status).toBe("exhausted");
+    expect(providerModelExhausted(provider, "swe-1-6-slow")).toBe(true);
+    expect(providerModelExhausted(provider, "claude-opus-4-8-medium")).toBe(true);
   });
 });
 

@@ -1,3 +1,4 @@
+import { devinModelMeta } from "./devin-catalog";
 import { canonicalModelId } from "./models";
 import { loadCapabilities } from "./modelsdev";
 
@@ -94,7 +95,21 @@ function toCapabilities(caps: {
 export function modelCapabilities(model: string): ModelCapabilities {
   const index = catalogIndex();
   const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
-  return index.get(model) ?? index.get(tail) ?? index.get(canonicalModelId(model)) ?? {};
+  const catalog = index.get(model) ?? index.get(tail) ?? index.get(canonicalModelId(model));
+  const devin = devinCapabilities(model);
+  // A models.dev row with no limits (or only one of them) must not hide Devin's more
+  // specific limits. Where both state the same field, models.dev remains authoritative.
+  return { ...devin, ...catalog };
+}
+
+/** Devin-only ids fall back to the window and output cap Devin's own catalog states. */
+function devinCapabilities(model: string): ModelCapabilities | undefined {
+  const meta = devinModelMeta(model);
+  if (!meta || (meta.contextWindow === undefined && meta.maxOutput === undefined)) return undefined;
+  return {
+    ...(meta.contextWindow === undefined ? {} : { contextWindow: meta.contextWindow }),
+    ...(meta.maxOutput === undefined ? {} : { maxOutput: meta.maxOutput }),
+  };
 }
 
 /**

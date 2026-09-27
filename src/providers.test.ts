@@ -26,6 +26,12 @@ describe("providers", () => {
     expect(findPreset("openrouter")?.type).toBe("both");
     expect(findPreset("opencode-go")?.type).toBe("both");
     expect(findPreset("commandcode")?.type).toBe("both");
+    expect(findPreset("devin-subscription")).toMatchObject({
+      type: "devin",
+      auth: "oauth",
+      oauthSource: "devin",
+      billing: "subscription",
+    });
     expect(findPreset("nope")).toBeUndefined();
   });
 

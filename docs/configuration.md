@@ -90,12 +90,12 @@ A pass runs only when the last one (recorded in `model-sync.json`) is older than
 restarting `serve` does not re-probe every provider. An unpriced new id can fill an empty `plan`
 routing as a last resort, but never a cheap one (`execute`, `utility`, …).
 
-| Field / flag                | Default            | Meaning                                                                               |
-| --------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `modelSync.enabled`         | `true`             | Master switch for background discovery                                                |
-| `modelSync.intervalMinutes` | `720`              | Minimum minutes between discovery passes (clamped ≥ 15)                               |
-| `providers[].syncModels`    | OAuth on / API off | Explicit `true`/`false` overrides. Absent → only Codex, Claude Code, Antigravity sync |
-| `providers[].excludeModels` | —                  | Ids discovery must not re-add; a dashboard/CLI removal is recorded here               |
+| Field / flag                | Default            | Meaning                                                                                      |
+| --------------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
+| `modelSync.enabled`         | `true`             | Master switch for background discovery                                                       |
+| `modelSync.intervalMinutes` | `720`              | Minimum minutes between discovery passes (clamped ≥ 15)                                      |
+| `providers[].syncModels`    | OAuth on / API off | Explicit `true`/`false` overrides. Absent → only Codex, Claude Code, Antigravity, Devin sync |
+| `providers[].excludeModels` | —                  | Ids discovery must not re-add; a dashboard/CLI removal is recorded here                      |
 
 Trigger a pass immediately with `jevonian models --sync`, the Providers page **Sync now** button, or
 `POST /api/model-sync/run`. ChatGPT subscription discovery reads `~/.codex/models_cache.json`
@@ -103,25 +103,27 @@ Trigger a pass immediately with `jevonian models --sync`, the Providers page **S
 
 ## Environment
 
-| Variable                       | Overrides                                                                         |
-| ------------------------------ | --------------------------------------------------------------------------------- |
-| `JEVONIAN_CONFIG`              | config path                                                                       |
-| `JEVONIAN_CREDENTIALS`         | credentials path                                                                  |
-| `JEVONIAN_DATA_DIR`            | data directory (ledger, catalog, pricing, quota)                                  |
-| `JEVONIAN_LEDGER`              | ledger path                                                                       |
-| `JEVONIAN_MODEL_SYNC_STATE`    | last model-discovery sync status                                                  |
-| `JEVONIAN_UPDATE_STATE`        | update-check cache path                                                           |
-| `JEVONIAN_INSTALL_CHANNEL`     | force `npm`, `pnpm`, `source`, or `unknown` for update handling                   |
-| `JEVONIAN_NPM_REGISTRY`        | package metadata URL used by update checks                                        |
-| `JEVONIAN_CAPTURE_BODIES`      | set to `0` to stop storing request/brain payloads                                 |
-| `JEVONIAN_NO_OPEN`             | set to `1` to skip launching the browser                                          |
-| `JEVONIAN_UPSTREAM_RETRIES`    | retries after a transient upstream failure (default `2`, `0` disables, max `5`)   |
-| `JEVONIAN_SYSTEM_PROXY`        | set to `off` to ignore the macOS system proxy                                     |
-| `JEVONIAN_CLAUDE_CREDENTIALS`  | Claude Code credentials file (disables the keychain fallback)                     |
-| `JEVONIAN_CODEX_AUTH`          | Codex `auth.json` path                                                            |
-| `JEVONIAN_CODEX_USAGE_URL`     | Codex usage endpoint                                                              |
-| `JEVONIAN_ANTIGRAVITY_TOKEN`   | Antigravity credential file (keyring payload JSON or `go-keyring-base64:` string) |
-| `JEVONIAN_ANTIGRAVITY_PROJECT` | Cloud Code Assist project id                                                      |
+| Variable                        | Overrides                                                                         |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| `JEVONIAN_CONFIG`               | config path                                                                       |
+| `JEVONIAN_CREDENTIALS`          | credentials path                                                                  |
+| `JEVONIAN_DATA_DIR`             | data directory (ledger, catalog, pricing, quota)                                  |
+| `JEVONIAN_LEDGER`               | ledger path                                                                       |
+| `JEVONIAN_MODEL_SYNC_STATE`     | last model-discovery sync status                                                  |
+| `JEVONIAN_UPDATE_STATE`         | update-check cache path                                                           |
+| `JEVONIAN_INSTALL_CHANNEL`      | force `npm`, `pnpm`, `source`, or `unknown` for update handling                   |
+| `JEVONIAN_NPM_REGISTRY`         | package metadata URL used by update checks                                        |
+| `JEVONIAN_CAPTURE_BODIES`       | set to `0` to stop storing request/brain payloads                                 |
+| `JEVONIAN_NO_OPEN`              | set to `1` to skip launching the browser                                          |
+| `JEVONIAN_UPSTREAM_RETRIES`     | retries after a transient upstream failure (default `2`, `0` disables, max `5`)   |
+| `JEVONIAN_SYSTEM_PROXY`         | set to `off` to ignore the macOS system proxy                                     |
+| `JEVONIAN_CLAUDE_CREDENTIALS`   | Claude Code credentials file (disables the keychain fallback)                     |
+| `JEVONIAN_CODEX_AUTH`           | Codex `auth.json` path                                                            |
+| `JEVONIAN_CODEX_USAGE_URL`      | Codex usage endpoint                                                              |
+| `JEVONIAN_ANTIGRAVITY_TOKEN`    | Antigravity credential file (keyring payload JSON or `go-keyring-base64:` string) |
+| `JEVONIAN_ANTIGRAVITY_PROJECT`  | Cloud Code Assist project id                                                      |
+| `JEVONIAN_DEVIN_CREDENTIALS`    | Devin CLI `credentials.toml` path                                                 |
+| `JEVONIAN_DEVIN_CLIENT_VERSION` | Devin client version reported on the Connect-RPC wire                             |
 
 ## Data locations
 

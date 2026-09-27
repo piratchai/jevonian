@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Devin subscription provider (`jevonian add devin-subscription`, or the **Devin** preset in the dashboard). Jevonian reads the session token that `devin auth login` stores in `~/.local/share/devin/credentials.toml` (`$XDG_DATA_HOME/devin` or `%APPDATA%\devin` when set; override with `JEVONIAN_DEVIN_CREDENTIALS`) and talks to Devin's Connect-RPC API directly (`type: "devin"`, `oauthSource: "devin"`). Models are discovered via `GetCliModelConfigs` — only the models your plan unlocks are listed, so the Free plan offers just `swe-1-6-slow` — and live quota shows Devin's daily and weekly windows from `GetUserStatus`. The token does not expire; if Devin rejects it, run `devin auth login` again and Jevonian picks up the new one on the next request.
+
 ## [0.2.0] - 2026-09-27
 
 ### Changed

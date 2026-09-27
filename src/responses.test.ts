@@ -17,6 +17,11 @@ import {
 } from "./responses";
 
 describe("responsesToChatRequest", () => {
+  it("preserves a Responses string input as a user message", () => {
+    const body = responsesToChatRequest({ input: "Say pong." }, "swe-1-6-slow");
+    expect(body.messages).toEqual([{ role: "user", content: "Say pong." }]);
+  });
+
   it("maps Responses input, tools, and reasoning back to chat completions", () => {
     const body = responsesToChatRequest(
       {
@@ -434,6 +439,18 @@ describe("ResponsesChatBridge", () => {
 });
 
 describe("ChatToResponsesBridge", () => {
+  it("treats a chat error as terminal rather than completing a failed response", () => {
+    const bridge = new ChatToResponsesBridge("swe-1-6-slow");
+    bridge.handle({ choices: [{ delta: { role: "assistant", content: "partial" } }] });
+    const failed = bridge.handle({
+      error: { message: "upstream refused", type: "upstream_error" },
+    });
+    expect(failed).toMatchObject([{ type: "response.failed" }]);
+    expect(bridge.handle({ choices: [{ delta: { content: "late" } }] })).toEqual([]);
+    expect(bridge.finish()).toEqual([]);
+    expect(bridge.result().failure).toBe("upstream refused");
+  });
+
   it("turns chat completion chunks into responses events", () => {
     const bridge = new ChatToResponsesBridge("openai/gpt-6-astra");
     const events = [

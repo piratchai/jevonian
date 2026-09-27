@@ -4,19 +4,19 @@ Everything — providers, keys, routing, logs — is configured in the browser, 
 
 ## Provider fields
 
-| Field         | Values                                     | Notes                                                                        |
-| ------------- | ------------------------------------------ | ---------------------------------------------------------------------------- |
-| `type`        | `openai`, `anthropic`, `responses`, `both` | the wire protocol; `both` serves OpenAI and Anthropic from one entry         |
-| `auth`        | `api-key` (default), `oauth`               | `oauth` adds bearer/beta headers and reads the credential from `oauthSource` |
-| `oauthSource` | `claude-code`, `codex`, `static`           | `static` uses the stored key as a bearer token                               |
-| `billing`     | `api` (default), `subscription`            | subscription spend is recorded as quota value, not real money                |
-| `quota`       | `{ fiveHourUsd, weeklyUsd, monthlyUsd }`   | optional caps for ledger-based quota meters                                  |
+| Field         | Values                                                        | Notes                                                                                                                             |
+| ------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `type`        | `openai`, `anthropic`, `responses`, `both`, `gemini`, `devin` | the wire protocol; `both` serves OpenAI and Anthropic from one entry; `gemini` is Cloud Code Assist; `devin` is Devin Connect-RPC |
+| `auth`        | `api-key` (default), `oauth`                                  | `oauth` adds bearer/beta headers and reads the credential from `oauthSource`                                                      |
+| `oauthSource` | `claude-code`, `codex`, `antigravity`, `devin`, `static`      | `static` uses the stored key as a bearer token                                                                                    |
+| `billing`     | `api` (default), `subscription`                               | subscription spend is recorded as quota value, not real money                                                                     |
+| `quota`       | `{ fiveHourUsd, weeklyUsd, monthlyUsd }`                      | optional caps for ledger-based quota meters                                                                                       |
 
 A top-level `modelAliases` map pins irregular cross-provider names to a canonical id (see [routing.md](routing.md#canonical-models)).
 
 ## Presets
 
-Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), and Antigravity. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
+Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), Antigravity, and Devin. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
 
 `jevonian init` (or `jevonian add`) walks through everything:
 
@@ -33,6 +33,7 @@ jevonian add my-gateway --base-url https://gateway.internal/v1 --type openai --k
 jevonian add opencode-go --key sk-... --models opencode-go/kimi-k3,opencode-go/deepseek-v4.1-flash
 jevonian add claude-subscription            # reads your Claude Code login
 jevonian add chatgpt-subscription --models gpt-5.6-codex   # adds a responses provider
+jevonian add devin-subscription             # reads your `devin auth login` session
 ```
 
 ## Subscriptions
@@ -52,9 +53,12 @@ Two families are supported:
 | ---------------- | ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | Claude Pro/Max   | `claude-subscription`  | `~/.claude/.credentials.json`, or the macOS keychain item `Claude Code-credentials` | Anthropic Messages (Bearer + `oauth-2025-04-20`, Claude Code system prompt injected) |
 | ChatGPT Plus/Pro | `chatgpt-subscription` | `~/.codex/auth.json`                                                                | OpenAI Responses (`store: false`, account + originator headers)                      |
+| Antigravity      | `antigravity`          | macOS keychain item `gemini`/`antigravity` and the local project id                 | Gemini / Cloud Code Assist                                                           |
+| Devin            | `devin-subscription`   | `~/.local/share/devin/credentials.toml` (`$XDG_DATA_HOME/devin`, `%APPDATA%\devin`) | Devin Connect-RPC (`GetChatMessage`)                                                 |
 
 - Tokens are read on demand, cached in memory, and refreshed with the vendor's refresh-token endpoint when they are about to expire; rotated tokens are written back to the source file so Claude Code / Codex keep working. Set `oauthSource: "static"` to use a stored long-lived token instead.
-- Model discovery works for subscriptions too: Claude reads Anthropic's `/v1/models` with the OAuth token, ChatGPT reads the model list Codex caches at `~/.codex/models_cache.json` (run `codex` once if it is missing), and Antigravity calls `v1internal:fetchAvailableModels` with the local token. The protocol field follows the credential source — Claude Code pins `anthropic`, Codex pins `responses`, Antigravity pins `gemini` — so one entry gets the right wire automatically.
+- Devin's session token (written by `devin auth login`) does not expire and has no refresh flow. When Devin rejects it, run `devin auth login` again; Jevonian re-reads the file on the next request. `JEVONIAN_DEVIN_CREDENTIALS` points at a different credentials file. The default upstream is `https://server.codeium.com`; set the provider's `baseUrl` explicitly for a different endpoint.
+- Model discovery works for subscriptions too: Claude reads Anthropic's `/v1/models` with the OAuth token, ChatGPT reads the model list Codex caches at `~/.codex/models_cache.json` (run `codex` once if it is missing), Antigravity calls `v1internal:fetchAvailableModels` with the local token, and Devin calls `GetCliModelConfigs`. Devin lists only the models your plan unlocks — the Free plan only offers `swe-1-6-slow`. The protocol field follows the credential source — Claude Code pins `anthropic`, Codex pins `responses`, Antigravity pins `gemini`, Devin pins `devin` — so one entry gets the right wire automatically.
 - Background auto-sync (see [configuration.md](configuration.md#model-auto-sync)) appends newly listed ids while `serve` runs. Removals are sticky via `excludeModels`. Fixed routings are never rewritten; only empty auto-derived routings can pick an unpriced new id as a last-resort candidate.
 - `/v1/responses` is proxied for clients that speak the Responses API (Codex CLI). A chat-completions request that routes to a Responses provider is translated on the fly (streaming chunks included), so any OpenAI-compatible agent can use the ChatGPT subscription. The reverse also works: a Responses client that routes to an Anthropic-only host (Claude Pro/Max) folds through Chat Completions → Anthropic Messages and back.
 - Subscription access through third-party clients is outside the vendors' official clients. Expect the usual caveats: it can break when upstream headers change, and use is at your own risk.
@@ -77,7 +81,7 @@ A subscription provider in `~/.config/jevonian/config.json`:
 
 The Overview and Providers pages show, per provider, the rolling windows, remaining quota, reset times, and local spend. Sources, in order:
 
-1. **Live** — vendor usage endpoints: OpenCode Go (`GET {baseUrl}/usage`), Claude (`GET https://api.anthropic.com/api/oauth/usage`), Codex (`GET https://chatgpt.com/backend-api/wham/usage`). Fetches are cached (Claude for 5 minutes, everything else for 1 minute) and refreshed with `jevonian quota --refresh` or the dashboard button. Claude reports its shared 5h/7d pools plus any model-scoped weekly limits (for example a Fable-only window); scoped windows are shown for visibility but never drive the quota guard, since a spent scoped pool says nothing about the rest of the account.
+1. **Live** — vendor usage endpoints: OpenCode Go (`GET {baseUrl}/usage`), Claude (`GET https://api.anthropic.com/api/oauth/usage`), Codex (`GET https://chatgpt.com/backend-api/wham/usage`), Devin (`GetUserStatus` daily and weekly windows). Fetches are cached (Claude for 5 minutes, everything else for 1 minute) and refreshed with `jevonian quota --refresh` or the dashboard button. Claude reports its shared 5h/7d pools plus any model-scoped weekly limits (for example a Fable-only window); scoped windows are shown for visibility but never drive the quota guard, since a spent scoped pool says nothing about the rest of the account.
 2. **Response headers** — `anthropic-ratelimit-unified-*` and `x-codex-*` headers captured passively from every proxied response, persisted at `~/.local/share/jevonian/quota.json`.
 3. **Ledger** — dollar windows computed from the local ledger when a provider declares caps (`quota.fiveHourUsd` / `weeklyUsd` / `monthlyUsd`). Useful for Command Code and any subscription without a usage API.
 

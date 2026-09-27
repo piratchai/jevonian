@@ -3,6 +3,7 @@ import antigravity from "@/assets/logos/antigravity.png";
 import claude from "@/assets/logos/claude.svg?raw";
 import commandcode from "@/assets/logos/commandcode.svg?raw";
 import deepseek from "@/assets/logos/deepseek.svg?raw";
+import devin from "@/assets/logos/devin.svg?raw";
 import google from "@/assets/logos/google.svg?raw";
 import minimax from "@/assets/logos/minimax.svg?raw";
 import moonshotai from "@/assets/logos/moonshotai.svg?raw";
@@ -20,6 +21,8 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   "claude-subscription": claude,
   commandcode,
   deepseek,
+  devin,
+  "devin-subscription": devin,
   google,
   minimax,
   moonshotai,

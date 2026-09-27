@@ -1,4 +1,4 @@
-export type ProviderTypeView = "openai" | "anthropic" | "responses" | "both" | "gemini";
+export type ProviderTypeView = "openai" | "anthropic" | "responses" | "both" | "gemini" | "devin";
 export type ProviderAuthView = "api-key" | "oauth";
 export type ProviderBillingView = "api" | "subscription";
 

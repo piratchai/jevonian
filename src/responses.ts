@@ -257,7 +257,12 @@ export function responsesToChatRequest(
     messages.push({ role: "system", content: instructions });
   }
 
-  const input = Array.isArray(body.input) ? body.input : [];
+  const input =
+    typeof body.input === "string"
+      ? [{ role: "user", content: body.input }]
+      : Array.isArray(body.input)
+        ? body.input
+        : [];
   for (const raw of input) {
     const item = asRecord(raw);
     // Compaction markers are request-only; they must never become chat messages.
@@ -710,6 +715,7 @@ export class ChatToResponsesBridge {
   private finishReason = "stop";
   private started = false;
   private completed = false;
+  private failure: { message: string; type: string } | undefined;
   private messageItemId: string | undefined;
   private messageOutputIndex: number | undefined;
   private nextOutputIndex = 0;
@@ -788,19 +794,18 @@ export class ChatToResponsesBridge {
   }
 
   handle(raw: unknown): Record<string, unknown>[] {
+    if (this.completed || this.failure) return [];
     const chunk = asRecord(raw);
     if (typeof chunk.error === "object" && chunk.error !== null) {
       const error = asRecord(chunk.error);
+      this.failure = {
+        message: typeof error.message === "string" ? error.message : "upstream error",
+        type: typeof error.type === "string" ? error.type : "upstream_error",
+      };
       return [
         {
           type: "response.failed",
-          response: {
-            ...this.responseSkeleton("failed"),
-            error: {
-              message: typeof error.message === "string" ? error.message : "upstream error",
-              type: typeof error.type === "string" ? error.type : "upstream_error",
-            },
-          },
+          response: { ...this.responseSkeleton("failed"), error: this.failure },
         },
       ];
     }
@@ -915,12 +920,14 @@ export class ChatToResponsesBridge {
       finishReason:
         this.finishReason === "tool_calls" || this.calls.size > 0 ? "tool_calls" : "stop",
       usage: this.usage,
+      ...(this.failure ? { failure: this.failure.message } : {}),
     };
   }
 
   finish(): Record<string, unknown>[] {
     if (this.completed) return [];
     this.completed = true;
+    if (this.failure) return [];
     const events: Record<string, unknown>[] = [];
     const output: unknown[] = [];
 

@@ -116,6 +116,16 @@ const command = parsed.positionals[0] ?? "serve";
 const rest = parsed.positionals.slice(1);
 const flags = parsed.flags;
 
+function isOAuthSource(value: string): value is OAuthSource {
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "antigravity" ||
+    value === "devin" ||
+    value === "static"
+  );
+}
+
 function pad(value: string, width: number): string {
   return value.length >= width ? value : value + " ".repeat(width - value.length);
 }
@@ -212,8 +222,14 @@ function report(): void {
     if (baseline && baselinePriced) {
       const baselineProvider = config?.providers.find((provider) =>
         provider.models.some((entry) => entry.id === baseline),
-      )?.name;
-      const estimate = costOf(baseline, usageOf(record), new Date(record.ts), baselineProvider).usd;
+      );
+      const estimate = costOf(
+        baseline,
+        usageOf(record),
+        new Date(record.ts),
+        baselineProvider?.name,
+        baselineProvider?.type,
+      ).usd;
       if (estimate !== null) baselineCost += estimate;
     }
   }
@@ -547,7 +563,7 @@ async function addProvider(): Promise<void> {
   }
   if (!id) {
     console.error(
-      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses] [--auth oauth --oauth-source claude-code|codex|static] [--billing subscription]",
+      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|static] [--billing subscription]",
     );
     process.exit(1);
   }
@@ -559,15 +575,39 @@ async function addProvider(): Promise<void> {
     flags.type === "openai" ||
     flags.type === "responses" ||
     flags.type === "both" ||
-    flags.type === "gemini"
+    flags.type === "gemini" ||
+    flags.type === "devin"
       ? flags.type
       : (preset?.type ?? meta?.type ?? "openai");
   let apiKeyEnv = flags.env ?? preset?.apiKeyEnv ?? meta?.env[0] ?? "";
   const auth: ProviderAuth = flags.auth === "oauth" ? "oauth" : (preset?.auth ?? "api-key");
+  const flagSource = flags["oauth-source"];
+  if (flagSource !== undefined && !isOAuthSource(flagSource)) {
+    console.error(
+      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, or static.`,
+    );
+    process.exit(1);
+  }
   const oauthSource: OAuthSource | undefined =
     auth === "oauth"
-      ? ((flags["oauth-source"] as OAuthSource | undefined) ?? preset?.oauthSource ?? "static")
+      ? ((flagSource as OAuthSource | undefined) ?? preset?.oauthSource ?? "static")
       : undefined;
+  // A Devin session token only works on Devin's own Connect-RPC wire.
+  if (oauthSource === "devin") {
+    if (flags.type !== undefined && type !== "devin") {
+      console.error("Devin credentials require --type devin.");
+      process.exit(1);
+    }
+    type = "devin";
+  }
+  if (type === "devin" && auth !== "oauth") {
+    console.error("Devin wire requires --auth oauth --oauth-source devin (or static).");
+    process.exit(1);
+  }
+  if (type === "devin" && oauthSource !== "devin" && oauthSource !== "static") {
+    console.error("Devin wire requires --oauth-source devin (or static).");
+    process.exit(1);
+  }
   const billing: ProviderBilling =
     flags.billing === "api"
       ? "api"
@@ -585,8 +625,15 @@ async function addProvider(): Promise<void> {
     }
     name = await ask("Provider name", name === "custom" ? "my-provider" : name);
     baseUrl = await ask("Base URL (OpenAI-, Anthropic-, or Responses-compatible)", baseUrl);
-    const typed = await ask("Protocol type (openai/anthropic/responses/both)", type);
-    type = typed === "anthropic" || typed === "responses" || typed === "both" ? typed : "openai";
+    const typed = await ask("Protocol type (openai/anthropic/responses/both/gemini/devin)", type);
+    type =
+      typed === "anthropic" ||
+      typed === "responses" ||
+      typed === "both" ||
+      typed === "gemini" ||
+      typed === "devin"
+        ? typed
+        : "openai";
     if (!apiKeyEnv) apiKeyEnv = await ask("Environment variable name for the key (optional)");
   } else if (unknown && interactive && name === "custom") {
     name = await ask("Provider name", "my-provider");
@@ -595,7 +642,8 @@ async function addProvider(): Promise<void> {
     console.error("A base URL is required.");
     process.exit(1);
   }
-  if (preset?.keysUrl) console.log(`Get a key at ${preset.keysUrl}`);
+  if (preset?.auth === "oauth" && preset.hint) console.log(preset.hint);
+  else if (preset?.keysUrl) console.log(`Get a key at ${preset.keysUrl}`);
   else if (preset?.hint) console.log(preset.hint);
 
   const needsKey = auth !== "oauth" || oauthSource === "static";
@@ -609,7 +657,11 @@ async function addProvider(): Promise<void> {
     console.log(
       oauthSource === "claude-code"
         ? "Using Claude Code credentials from ~/.claude (run `claude` to sign in)."
-        : "Using Codex credentials from ~/.codex (run `codex` to sign in).",
+        : oauthSource === "codex"
+          ? "Using Codex credentials from ~/.codex (run `codex` to sign in)."
+          : oauthSource === "devin"
+            ? "Using Devin credentials from ~/.local/share/devin (run `devin auth login` to sign in)."
+            : "Using Antigravity credentials from the IDE / `agy` (run `agy` to sign in).",
     );
   }
 
@@ -633,9 +685,12 @@ async function addProvider(): Promise<void> {
       .map((model) => model.trim())
       .filter(Boolean);
   if (models.length === 0) {
-    const resolved = resolveApiKey(probe);
-    if (resolved) {
-      const entry = await discoverProviderModels({ ...probe, apiKey: resolved });
+    // Live OAuth sources (Claude Code, Codex, Antigravity, Devin) resolve their own token inside
+    // discovery; key-based providers need a resolved key first.
+    const liveOAuth = auth === "oauth" && oauthSource !== undefined && oauthSource !== "static";
+    const resolved = liveOAuth ? undefined : resolveApiKey(probe);
+    if (liveOAuth || resolved) {
+      const entry = await discoverProviderModels(resolved ? { ...probe, apiKey: resolved } : probe);
       if (entry.error) console.log(`model discovery failed: ${entry.error}`);
       models = [...new Set(entry.models)].sort();
     }

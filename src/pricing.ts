@@ -1,3 +1,4 @@
+import { devinModelMeta } from "./devin-catalog";
 import { loadPricingSnapshot, OFFICIAL_PROVIDERS } from "./modelsdev";
 import bundled from "./pricing/models.json";
 
@@ -90,10 +91,22 @@ function pricingAliases(model: string): string[] {
 // authoritative; otherwise the vendor list price wins over whichever reseller happens
 // to own the bare key — antigravity serving `gemini-3.8-flash-tiered` must bill
 // Google's `gemini-3.8-flash`, not `opencode`'s markup.
-export function priceFor(model: string, provider?: string): ModelPrice | undefined {
+export function priceFor(
+  model: string,
+  provider?: string,
+  providerType?: string,
+): ModelPrice | undefined {
   const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
   const names = [...new Set([model, tail])].flatMap((name) => [name, ...pricingAliases(name)]);
   const providerIsOfficial = provider ? OFFICIAL_PROVIDERS.has(provider) : false;
+  // Devin's exact catalog rate takes priority over models.dev aliases, including a vendor's
+  // effort-suffixed listing or the stripped base. Type makes custom-named Devin providers
+  // unambiguous; legacy name inference keeps existing callers working.
+  const namedProvider = provider ?? (model.includes("/") ? model.slice(0, model.indexOf("/")) : "");
+  if (providerType === "devin" || namedProvider.toLowerCase().includes("devin")) {
+    const exactDevinPrice = devinPrice(model);
+    if (exactDevinPrice) return exactDevinPrice;
+  }
   const candidates: ModelPrice[] = [];
   // A provider-qualified listing the caller named stays authoritative over the bare vendor
   // key: `reseller/deepseek-v4-pro` must bill the reseller's 99, not DeepSeek's list price.
@@ -114,8 +127,27 @@ export function priceFor(model: string, provider?: string): ModelPrice | undefin
   return (
     named ??
     candidates.find((price) => OFFICIAL_PROVIDERS.has(price.provider ?? "")) ??
-    candidates[0]
+    candidates[0] ??
+    devinPrice(model)
   );
+}
+
+/**
+ * Devin's published per-id rates cover ids such as `swe-1-6-slow`, effort-suffixed Claude / GPT
+ * models, and `MODEL_PRIVATE_*`. A models.dev vendor or base-model alias may also exist, but
+ * cannot substitute for Devin's exact rate. Devin states no cache-write rate, so writes are
+ * billed at the input rate.
+ */
+function devinPrice(model: string): ModelPrice | undefined {
+  const price = devinModelMeta(model)?.price;
+  if (!price) return undefined;
+  return {
+    provider: "devin",
+    input: price.input,
+    output: price.output,
+    ...(price.cacheRead === undefined ? {} : { cacheRead: price.cacheRead }),
+    cacheWrite: price.input,
+  };
 }
 
 export function isDeepSeekPeak(at: Date): boolean {
@@ -130,8 +162,9 @@ export function costOf(
   usage: Usage,
   at: Date,
   provider?: string,
+  providerType?: string,
 ): { usd: number | null; known: boolean } {
-  const price = priceFor(model, provider);
+  const price = priceFor(model, provider, providerType);
   if (!price) return { usd: null, known: false };
   const usePeak = price.peakRule === "deepseek" && isDeepSeekPeak(at);
   const rates = usePeak && price.peak ? price.peak : price;

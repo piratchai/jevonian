@@ -5,6 +5,12 @@ export interface AuthResolution {
   headers: Record<string, string>;
   error?: string;
   project?: string;
+  /**
+   * Raw credential (API key or OAuth access token), for wires that do not authenticate with a
+   * header. Devin's Connect-RPC wire embeds the session token in the request body, so for
+   * `type: "devin"` `headers` is empty and the wire module builds its own from this token.
+   */
+  token?: string;
 }
 
 function antigravityPlatform(): string {
@@ -124,6 +130,9 @@ export async function resolveProviderAuth(
     }
   }
 
+  // Devin's wire module builds its own Connect-RPC headers and metadata from the raw token.
+  if (provider.type === "devin") return { headers: {}, token };
+
   const anthropicWire =
     provider.type === "anthropic" || (provider.type === "both" && kind === "anthropic");
   if (anthropicWire) {
@@ -144,7 +153,7 @@ export async function resolveProviderAuth(
       platform: "PLATFORM_UNSPECIFIED",
       pluginType: "GEMINI",
     });
-    return { headers, project: resolveAntigravityProject() };
+    return { headers, project: resolveAntigravityProject(), token };
   }
-  return { headers };
+  return { headers, token };
 }

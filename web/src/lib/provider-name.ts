@@ -14,6 +14,8 @@ const NAME_OVERRIDES: Record<string, string> = {
   "opencode-go": "OpenCode Go",
   commandcode: "Command Code",
   antigravity: "Antigravity",
+  "devin-subscription": "Devin",
+  devin: "Devin",
   "claude-subscription": "Claude",
   "chatgpt-subscription": "ChatGPT",
   chatgpt: "ChatGPT",

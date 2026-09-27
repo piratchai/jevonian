@@ -47,7 +47,7 @@ Planning, implementation, background calls, and small talk need different levels
 
 ### Your providers, one place
 
-API keys and subscriptions — Claude Pro/Max, ChatGPT Codex, OpenCode Go, Command Code — sit behind the same local endpoint. Quota-aware routing avoids exhausted providers before sending a request.
+API keys and subscriptions — Claude Pro/Max, ChatGPT Codex, Antigravity, Devin, OpenCode Go, Command Code — sit behind the same local endpoint. Quota-aware routing avoids exhausted providers before sending a request.
 
 ### The decision is visible
 
@@ -185,7 +185,7 @@ Two separate questions: where you run the agent, and where the tokens finally go
 
 **Clients.** Any client speaking the OpenAI Chat Completions, Anthropic Messages, or OpenAI Responses protocol can point at `http://127.0.0.1:8787/v1`. Those are the three shapes Jevonian parses and rewrites; compatibility of a specific client's own extras is not implied by protocol support.
 
-**Providers.** Presets ship for DeepSeek, Anthropic, OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, and custom endpoints. Two families are worth distinguishing:
+**Providers.** Presets ship for DeepSeek, Anthropic, OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), Antigravity, Devin, and custom endpoints. Two families are worth distinguishing:
 
 - **API key** — pay-per-token, `billing: "api"`.
 - **Subscription** — flat-rate or quota-based, `billing: "subscription"`. Either an API-key subscription (`opencode-go`, `commandcode`) or an OAuth subscription whose credential already lives on your machine:
@@ -195,6 +195,7 @@ Two separate questions: where you run the agent, and where the tokens finally go
 | Claude Pro/Max   | `~/.claude/.credentials.json` or the macOS keychain | Anthropic Messages (Bearer) |
 | ChatGPT Plus/Pro | `~/.codex/auth.json`                                | OpenAI Responses            |
 | Antigravity      | local IDE token and project id                      | Gemini / Cloud Code Assist  |
+| Devin            | `~/.local/share/devin/credentials.toml`             | Devin Connect-RPC           |
 
 OAuth tokens are read on demand, refreshed when near expiry, and rotated tokens are written back so Claude Code and Codex keep working. Subscription access through third-party clients sits outside the vendors' official clients: it can break when upstream headers change, and it is used at your own risk.
 

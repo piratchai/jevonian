@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { parseConfig } from "./config";
 import { appendRecord } from "./ledger";
-import { providerQuotaHealth, resetQuotaCache } from "./quota";
+import { markProviderSpent, providerQuotaHealth, resetQuotaCache } from "./quota";
 import { decideRoute, SessionStore } from "./routing";
 
 let dir = "";
@@ -57,7 +57,7 @@ afterEach(() => {
 // are what the quota guard actually filtered.
 const BRAINS = [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY" }];
 
-async function shownCandidates(config: ReturnType<typeof twoProviderConfig>) {
+async function shownCandidates(config: ReturnType<typeof twoProviderConfig>, now = 1_000) {
   let shown: Array<{ model: string; provider: string }> = [];
   let shownRoutings: Array<{ id: string }> = [];
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
@@ -80,7 +80,7 @@ async function shownCandidates(config: ReturnType<typeof twoProviderConfig>) {
     headers: {},
     store: new SessionStore(60_000),
     kind: "openai",
-    now: 1_000,
+    now,
   });
   if ("error" in decision) throw new Error(decision.error);
   return {
@@ -188,6 +188,69 @@ describe("providerQuotaHealth", () => {
 });
 
 describe("the quota guard narrows what the brain is offered", () => {
+  it("routes around one rejected model while keeping its provider's other model", async () => {
+    const config = parseConfig({
+      defaultProvider: "devin-subscription",
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://server.codeium.com",
+          apiKey: "test-key",
+          billing: "subscription",
+          models: ["swe-1-6-slow", "claude-opus-4-8-medium"],
+        },
+      ],
+      routing: {
+        brains: BRAINS,
+        tiers: {
+          plan: ["swe-1-6-slow", "claude-opus-4-8-medium"],
+          execute: [],
+          utility: [],
+          chat: [],
+        },
+      },
+    });
+    markProviderSpent(config.providers[0]!, {
+      model: "swe-1-6-slow",
+      label: "rate-limit",
+      resetsAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const { shown, decision } = await shownCandidates(config);
+    expect(shown).toEqual([{ provider: "devin-subscription", model: "claude-opus-4-8-medium" }]);
+    expect(decision.model).toBe("claude-opus-4-8-medium");
+    expect(decision.reason).toContain("quota-skip");
+
+    const explicit = await decideRoute({
+      config,
+      body: { model: "jevonian/plan", messages: [{ role: "user", content: "hi" }] },
+      headers: {},
+      store: new SessionStore(60_000),
+      kind: "openai",
+    });
+    if ("error" in explicit) throw new Error(explicit.error);
+    expect(explicit.model).toBe("claude-opus-4-8-medium");
+    expect(explicit.reason).toContain("quota-skip");
+  });
+
+  it("ignores an expired model refusal when choosing a route", async () => {
+    const config = twoProviderConfig();
+    markProviderSpent(config.providers[0]!, {
+      label: "rate-limit",
+      model: "model-a",
+      resetsAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    const { shown, decision } = await shownCandidates(config, Date.now());
+    expect(shown.map((candidate) => candidate.model)).toEqual(["model-a", "model-b"]);
+    expect(decision.model).toBe("model-a");
+  });
+
+  it("keeps a shared account-wide refusal blocking all models", async () => {
+    const config = twoProviderConfig();
+    markProviderSpent(config.providers[0]!, { label: "limit" });
+    const { shown } = await shownCandidates(config);
+    expect(shown.map((candidate) => candidate.provider)).toEqual(["sub-b"]);
+  });
   it("hides an exhausted provider when a healthier one offers a tiered model", async () => {
     spend("sub-a", 10);
     const { shown } = await shownCandidates(twoProviderConfig());

@@ -25,7 +25,12 @@ import { benchmarkFocusFor, benchmarksCoverageOf, leaderboardViewFor } from "./l
 import { appendRecord } from "./ledger";
 import { canonicalVariants } from "./models";
 import { costOf, isDeepSeekPeak, priceFor, type Usage } from "./pricing";
-import { captureUsageLimit, providerQuotaHealth, type QuotaStatus } from "./quota";
+import {
+  captureUsageLimit,
+  providerModelExhausted,
+  providerQuotaHealth,
+  type QuotaStatus,
+} from "./quota";
 import { configuredRetries, withRetry } from "./retry";
 import { sessionFingerprint } from "./session";
 import { canServeClient } from "./wire";
@@ -1227,7 +1232,7 @@ export async function decideRoute(
               lowPercent: guard.lowPercent,
               now,
             }).status;
-            return status !== "low" && status !== "exhausted";
+            return status !== "low" && !providerModelExhausted(candidate, requestedModel, { now });
           }) ?? byWire)
         : byWire;
     if (exact) {
@@ -1256,7 +1261,7 @@ export async function decideRoute(
               lowPercent: guard.lowPercent,
               now,
             }).status;
-            return status !== "low" && status !== "exhausted";
+            return status !== "low" && !providerModelExhausted(target, variant.model, { now });
           })
         : undefined;
       const chosen = acceptable ?? variants[0];
@@ -1309,6 +1314,16 @@ export async function decideRoute(
     const entry = routings.find((routing) => routing.id === target);
     return entry ? routingCandidates(config, entry, kind) : [];
   };
+  const candidateExhausted = (candidate: TierPick): boolean => {
+    const provider = config.providers.find((entry) => entry.name === candidate.provider);
+    return (
+      !provider ||
+      providerModelExhausted(provider, candidate.model, {
+        lowPercent: config.routing.quotaGuard.lowPercent,
+        now,
+      })
+    );
+  };
 
   let phase: Phase;
   // Assigned on every path before the decision is returned; the initial value only satisfies
@@ -1325,14 +1340,7 @@ export async function decideRoute(
     const tier = candidatesFor(phase);
     const guard = config.routing.quotaGuard;
     const healthy = guard.enabled
-      ? tier.filter((candidate) => {
-          const target = config.providers.find((entry) => entry.name === candidate.provider);
-          if (!target) return false;
-          return (
-            providerQuotaHealth(target, { lowPercent: guard.lowPercent, now }).status !==
-            "exhausted"
-          );
-        })
+      ? tier.filter((candidate) => !candidateExhausted(candidate))
       : tier;
     // Aggregated routing: a spent utility/chat tier (OpenCode's haiku probe lands here)
     // must not pin the client to that subscription — widen to any healthy model.
@@ -1344,14 +1352,7 @@ export async function decideRoute(
         const key = `${candidate.provider}/${candidate.model}`;
         if (seen.has(key)) return;
         seen.add(key);
-        const targetProvider = config.providers.find((entry) => entry.name === candidate.provider);
-        if (!targetProvider) return;
-        if (
-          providerQuotaHealth(targetProvider, { lowPercent: guard.lowPercent, now }).status ===
-          "exhausted"
-        ) {
-          return;
-        }
+        if (candidateExhausted(candidate)) return;
         fallback.push(candidate);
       };
       // Prefer light routings first when the pinned one is fully spent.
@@ -1411,18 +1412,6 @@ export async function decideRoute(
   // Code narrows each routing's pool; Jev picks the routing. Quota is arithmetic, so it is
   // resolved before the brain sees anything: an exhausted provider is never an option.
   const guard = config.routing.quotaGuard;
-  const statuses = new Map<string, QuotaStatus>();
-  const statusOf = (providerName: string): QuotaStatus => {
-    const cached = statuses.get(providerName);
-    if (cached) return cached;
-    const provider = config.providers.find((candidate) => candidate.name === providerName);
-    const status: QuotaStatus = provider
-      ? providerQuotaHealth(provider, { lowPercent: guard.lowPercent, now }).status
-      : "unknown";
-    statuses.set(providerName, status);
-    return status;
-  };
-
   const conversationTokens = requestTokens(body, compactionEstimate);
   const requestedEffort = headerEffort(headers);
   const brainPicksEffort = config.routing.brainPicksEffort;
@@ -1468,7 +1457,7 @@ export async function decideRoute(
   for (const entry of routings) {
     const declared = candidatesFor(entry.id);
     const healthy = guard.enabled
-      ? declared.filter((candidate) => statusOf(candidate.provider) !== "exhausted")
+      ? declared.filter((candidate) => !candidateExhausted(candidate))
       : declared;
     // Skip a routing whose every provider is spent when other routings still have room —
     // matching the old flat-pool filter. Exhausted fallbacks are only used when nothing is left.
@@ -1751,13 +1740,19 @@ export async function decideRoute(
   const chosenCandidate = offer.offeredToBrain.find(
     (candidate) => candidate.provider === chosen.provider && candidate.model === chosen.model,
   );
-  const declaredProviders = new Set(
+  const declaredCandidates = new Set(
     routings.flatMap((entry) =>
-      routingCandidates(config, entry, kind).map((candidate) => candidate.provider),
+      routingCandidates(config, entry, kind).map(
+        (candidate) => `${candidate.provider}/${candidate.model}`,
+      ),
     ),
   );
-  const usedProviders = new Set(offer.candidates.map((candidate) => candidate.provider));
-  if ([...declaredProviders].some((provider) => !usedProviders.has(provider))) {
+  const offeredCandidates = new Set(
+    offers.flatMap((entry) =>
+      entry.candidates.map((candidate) => `${candidate.provider}/${candidate.model}`),
+    ),
+  );
+  if ([...declaredCandidates].some((candidate) => !offeredCandidates.has(candidate))) {
     reason = `${reason}:quota-skip`;
   }
   if (skipped.some((entry) => entry.reason === "context")) reason = `${reason}:context-skip`;

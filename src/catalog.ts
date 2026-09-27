@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 
 import { resolveProviderAuth } from "./auth";
 import type { Config, Provider } from "./config";
+import { DEVIN_DEFAULT_BASE_URL, fetchDevinModels } from "./devin";
+import { isRoutableDevinModel, saveDevinModelMeta } from "./devin-catalog";
 import { dataDir } from "./paths";
 
 export interface CatalogEntry {
@@ -94,8 +96,43 @@ export function readNativeCodexCatalogEntries(): Array<Record<string, unknown>> 
   }
 }
 
+/** Devin subscription: `type: "devin"`, or an OAuth provider reading Devin CLI credentials. */
+export function isDevinProvider(provider: Provider): boolean {
+  return (
+    provider.type === "devin" || (provider.auth === "oauth" && provider.oauthSource === "devin")
+  );
+}
+
+async function discoverDevinModels(provider: Provider, fetchedAt: string): Promise<CatalogEntry> {
+  const auth = await resolveProviderAuth(provider, "openai");
+  if (auth.error || !auth.token) {
+    return {
+      provider: provider.name,
+      models: [],
+      fetchedAt,
+      error: auth.error ?? `Missing Devin token for provider "${provider.name}"`,
+    };
+  }
+  try {
+    const catalog = await fetchDevinModels(auth.token, provider.baseUrl || DEVIN_DEFAULT_BASE_URL);
+    const usable = catalog.filter(isRoutableDevinModel);
+    // Keep the cache small: fusion combos and server-side routers have no stable model price
+    // or context window and are excluded from both the picker and persisted metadata.
+    saveDevinModelMeta(usable);
+    return { provider: provider.name, models: usable.map((model) => model.id), fetchedAt };
+  } catch (error) {
+    return {
+      provider: provider.name,
+      models: [],
+      fetchedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function discoverProviderModels(provider: Provider): Promise<CatalogEntry> {
   const fetchedAt = new Date().toISOString();
+  if (isDevinProvider(provider)) return discoverDevinModels(provider, fetchedAt);
   if (
     provider.type === "gemini" ||
     (provider.auth === "oauth" && provider.oauthSource === "antigravity")

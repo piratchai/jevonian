@@ -13,11 +13,12 @@ import {
   anthropicThinkingSupport,
   fitThinkingMaxTokens,
 } from "./anthropic-thinking";
-import { resolveProviderAuth, withSessionAffinity } from "./auth";
+import { resolveProviderAuth, withSessionAffinity, type AuthResolution } from "./auth";
 import { saveBody } from "./bodies";
 import { decodeBody } from "./body-encoding";
 import { askJevRaw } from "./brain";
 import { effectiveCapabilities, isReasoningEffort, type ReasoningEffort } from "./capabilities";
+import { chatToAnthropicStream } from "./chat-anthropic-stream";
 import { isClaudeGatewayRequest, resolveClaudeGatewayModel } from "./claude-gateway";
 import {
   compact,
@@ -31,6 +32,18 @@ import {
 import type { Config, Provider } from "./config";
 import { findProviderByName } from "./config";
 import {
+  buildDevinChatRequest,
+  classifyDevinError,
+  devinChatCompletion,
+  devinChatUrl,
+  devinHeaders,
+  devinToChatStream,
+  peekDevinStream,
+  type DevinErrorKind,
+  type DevinFinish,
+  type DevinStreamError,
+} from "./devin";
+import {
   chatToGemini,
   geminiChatCompletion,
   geminiEndpoint,
@@ -42,7 +55,12 @@ import { appendRecord } from "./ledger";
 import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
 import { costOf, type Usage } from "./pricing";
-import { captureQuotaHeaders, captureUsageLimit, providerQuotaHealth } from "./quota";
+import {
+  captureQuotaHeaders,
+  captureUsageLimit,
+  markProviderSpent,
+  providerQuotaHealth,
+} from "./quota";
 import {
   needsReasoningPassback,
   rememberFromChatCompletion,
@@ -785,6 +803,387 @@ function injectClaudeCodeSystem(body: Record<string, unknown>): void {
   body.system = [{ ...prompt, cache_control: { type: "ephemeral" } }];
 }
 
+/** Anthropic `tools` as Chat Completions function tools. Server tools (no schema) are dropped. */
+function anthropicToolsAsChat(body: Record<string, unknown>): Record<string, unknown> {
+  const tools = (Array.isArray(body.tools) ? body.tools : []).flatMap((raw) => {
+    const tool = asRecord(raw);
+    const name = asString(tool.name);
+    if (name.length === 0 || typeof tool.input_schema !== "object" || tool.input_schema === null) {
+      return [];
+    }
+    return [
+      {
+        type: "function",
+        function: {
+          name,
+          ...(typeof tool.description === "string" ? { description: tool.description } : {}),
+          parameters: tool.input_schema,
+        },
+      },
+    ];
+  });
+  const choice = asRecord(body.tool_choice);
+  const toolChoice =
+    choice.type === "any"
+      ? "required"
+      : choice.type === "none"
+        ? "none"
+        : choice.type === "tool" && asString(choice.name).length > 0
+          ? { type: "function", function: { name: asString(choice.name) } }
+          : choice.type === "auto"
+            ? "auto"
+            : undefined;
+  return {
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(tools.length > 0 && toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
+  };
+}
+
+class DevinImageError extends Error {}
+
+const DEVIN_INLINE_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
+
+/** Devin's protobuf encoder accepts image_url parts containing inline base64 data URLs only. */
+function devinImageUrl(url: unknown): string {
+  const value = typeof url === "string" ? url : asRecord(url).url;
+  if (typeof value !== "string" || !DEVIN_INLINE_IMAGE.test(value.replace(/\s/g, ""))) {
+    throw new DevinImageError(
+      "Devin only supports inline base64 images; remote URLs and file IDs are not supported",
+    );
+  }
+  return value;
+}
+
+function devinAnthropicImage(block: Record<string, unknown>): Record<string, unknown> {
+  const source = asRecord(block.source);
+  if (
+    source.type !== "base64" ||
+    typeof source.media_type !== "string" ||
+    typeof source.data !== "string"
+  ) {
+    throw new DevinImageError(
+      "Devin only supports Anthropic inline base64 image sources, not remote URLs",
+    );
+  }
+  return {
+    type: "image_url",
+    image_url: { url: devinImageUrl(`data:${source.media_type};base64,${source.data}`) },
+  };
+}
+
+/** Fold each multimodal block separately: Devin encodes images per turn, not between text spans. */
+function devinAnthropicMessages(body: Record<string, unknown>, model: string): unknown[] {
+  const base = anthropicToChatRequest(body, model);
+  const messages = Array.isArray(base.messages) ? base.messages : [];
+  const incoming = Array.isArray(body.messages) ? body.messages : [];
+  if (
+    !incoming.some(
+      (raw) =>
+        Array.isArray(asRecord(raw).content) &&
+        (asRecord(raw).content as unknown[]).some((block) => {
+          const entry = asRecord(block);
+          return (
+            entry.type === "image" ||
+            (entry.type === "tool_result" &&
+              Array.isArray(entry.content) &&
+              entry.content.some((part) => asRecord(part).type === "image"))
+          );
+        }),
+    )
+  ) {
+    return messages;
+  }
+  const system = anthropicToChatRequest({ system: body.system, messages: [] }, model);
+  const result: unknown[] = Array.isArray(system.messages) ? [...system.messages] : [];
+  for (const raw of incoming) {
+    const message = asRecord(raw);
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (!Array.isArray(message.content)) {
+      result.push(
+        ...(anthropicToChatRequest({ messages: [message] }, model).messages as unknown[]),
+      );
+      continue;
+    }
+    for (const rawBlock of message.content) {
+      const block = asRecord(rawBlock);
+      if (block.type === "image") {
+        if (message.role !== "user")
+          throw new DevinImageError("Devin only supports images in user messages");
+        result.push({ role: "user", content: [devinAnthropicImage(block)] });
+      } else if (block.type === "tool_result") {
+        const parts = Array.isArray(block.content) ? block.content : [];
+        if (parts.some((part) => asRecord(part).type === "image")) {
+          throw new DevinImageError("Devin does not support images in Anthropic tool results");
+        }
+        result.push(
+          ...(anthropicToChatRequest({ messages: [{ ...message, content: [block] }] }, model)
+            .messages as unknown[]),
+        );
+      } else {
+        result.push(
+          ...(anthropicToChatRequest({ messages: [{ ...message, content: [block] }] }, model)
+            .messages as unknown[]),
+        );
+      }
+    }
+  }
+  return result;
+}
+
+function devinResponsesMessages(body: Record<string, unknown>, model: string): unknown[] {
+  const converted = responsesToChatRequest(body, model);
+  const input = Array.isArray(body.input) ? body.input : [];
+  const hasImages = input.some(
+    (raw) =>
+      Array.isArray(asRecord(raw).content) &&
+      (asRecord(raw).content as unknown[]).some((part) => asRecord(part).type === "input_image"),
+  );
+  if (!hasImages) return converted.messages as unknown[];
+  const system = responsesToChatRequest({ instructions: body.instructions }, model);
+  const messages: unknown[] = Array.isArray(system.messages) ? [...system.messages] : [];
+  for (const raw of input) {
+    const item = asRecord(raw);
+    const content = Array.isArray(item.content) ? item.content : null;
+    if (!content || !content.some((part) => asRecord(part).type === "input_image")) {
+      messages.push(...(responsesToChatRequest({ input: [raw] }, model).messages as unknown[]));
+      continue;
+    }
+    if (item.role === "assistant" || item.role === "system") {
+      throw new DevinImageError("Devin only supports images in user messages");
+    }
+    for (const rawPart of content) {
+      const part = asRecord(rawPart);
+      if (part.type === "input_image") {
+        if (part.file_id !== undefined) {
+          throw new DevinImageError(
+            "Devin does not support Responses image file IDs; supply inline base64 image_url instead",
+          );
+        }
+        messages.push({
+          role: "user",
+          content: [{ type: "image_url", image_url: { url: devinImageUrl(part.image_url) } }],
+        });
+      } else {
+        messages.push(
+          ...(responsesToChatRequest({ input: [{ ...item, content: [rawPart] }] }, model)
+            .messages as unknown[]),
+        );
+      }
+    }
+  }
+  return messages;
+}
+
+/** The Chat Completions body Devin's wire module encodes, keeping tools and image block order. */
+function devinChatBody(
+  body: Record<string, unknown>,
+  clientKind: RequestKind,
+  model: string,
+): Record<string, unknown> {
+  if (clientKind === "responses") {
+    return {
+      ...responsesToChatRequest(body, model),
+      messages: devinResponsesMessages(body, model),
+      model,
+    };
+  }
+  if (clientKind === "anthropic") {
+    return {
+      ...anthropicToChatRequest(body, model),
+      ...anthropicToolsAsChat(body),
+      messages: devinAnthropicMessages(body, model),
+      model,
+    };
+  }
+  // The native Chat Completions path can carry image_url parts too; Devin's encoder silently
+  // skips non-data URLs, so reject them before the request reaches the wire module.
+  for (const raw of Array.isArray(body.messages) ? body.messages : []) {
+    const message = asRecord(raw);
+    const content = Array.isArray(message.content) ? message.content : [];
+    for (const rawPart of content) {
+      const part = asRecord(rawPart);
+      if (part.type === "image_url") devinImageUrl(part.image_url);
+    }
+  }
+  return { ...body, model };
+}
+
+/** Devin usage is exclusive; OpenAI-shaped client payloads expect inclusive prompt counts. */
+function inclusiveUsage(usage: Usage): Usage {
+  return { ...usage, input: usage.input + usage.cacheRead + usage.cacheWrite };
+}
+
+const DEVIN_ERROR_TYPES: Record<DevinErrorKind, string> = {
+  quota: "rate_limit_error",
+  rate_limit: "rate_limit_error",
+  capacity: "overloaded_error",
+  internal: "api_error",
+  content_policy: "invalid_request_error",
+  model_blocked: "invalid_request_error",
+  auth: "authentication_error",
+  other: "api_error",
+};
+
+/** A quota / rate-limit refusal is a verdict about the provider, so routing should skip it. */
+function isDevinSpend(error: DevinStreamError): boolean {
+  return error.kind === "quota" || error.kind === "rate_limit";
+}
+
+/** How long a rate limit with no stated reset keeps the provider out of routing. */
+const DEVIN_RATE_LIMIT_COOLDOWN_MS = 60_000;
+
+function markDevinSpent(provider: Provider, error: DevinStreamError, model: string): void {
+  // A quota refusal without a reset stays until a live probe says otherwise; a bare rate limit
+  // is short-lived, so it expires on its own instead of benching the subscription indefinitely.
+  const resetsAt =
+    error.resetsAt ??
+    (error.kind === "rate_limit"
+      ? new Date(Date.now() + DEVIN_RATE_LIMIT_COOLDOWN_MS).toISOString()
+      : undefined);
+  const modelScoped =
+    error.kind === "rate_limit" && /\b(?:for this model|for the model)\b/i.test(error.message);
+  markProviderSpent(provider, {
+    label: error.kind === "rate_limit" ? "rate-limit" : "limit",
+    ...(resetsAt ? { resetsAt } : {}),
+    ...(modelScoped ? { model } : {}),
+  });
+}
+
+function devinErrorStatus(error: DevinStreamError): number {
+  return error.status >= 400 && error.status <= 599 ? error.status : 502;
+}
+
+/** A classified Devin refusal, in the error envelope of the client's own wire. */
+function devinErrorResponse(
+  meta: RequestMeta,
+  clientKind: RequestKind,
+  error: DevinStreamError,
+  headers: Record<string, string>,
+): Response {
+  const status = devinErrorStatus(error);
+  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
+  const type = DEVIN_ERROR_TYPES[error.kind] ?? "api_error";
+  const payload =
+    clientKind === "anthropic"
+      ? { type: "error", error: { type, message: error.message } }
+      : { error: { message: error.message, type, code: error.kind } };
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+/** Adds `reasoning_content` as a leading thinking block, which `chatToAnthropicMessage` drops. */
+function withThinkingBlock(
+  message: Record<string, unknown>,
+  completion: Record<string, unknown>,
+): Record<string, unknown> {
+  const choice = asRecord(asRecord((completion.choices as unknown[])?.[0]).message);
+  const thinking = asString(choice.reasoning_content);
+  if (thinking.length === 0) return message;
+  const content = Array.isArray(message.content) ? message.content : [];
+  return { ...message, content: [{ type: "thinking", thinking, signature: "" }, ...content] };
+}
+
+/**
+ * Answers the client from a Devin stream that already passed the error-trailer peek. Devin
+ * always streams upstream; a non-stream client gets the folded completion instead.
+ */
+async function devinClientResponse(input: {
+  c: Context<AppEnv>;
+  meta: RequestMeta;
+  provider: Provider;
+  decision: RouteDecision;
+  clientKind: RequestKind;
+  clientStream: boolean;
+  started: number;
+  stream: ReadableStream<Uint8Array>;
+  headers: Record<string, string>;
+  token?: string;
+}): Promise<Response> {
+  const { c, meta, provider, decision, clientKind, clientStream, started, stream, headers, token } =
+    input;
+  const model = decision.model;
+  const finalize = (finish: DevinFinish | undefined): void => {
+    const usage = finish?.usage ?? emptyUsage();
+    if (finish?.error) {
+      if (isDevinSpend(finish.error)) markDevinSpent(provider, finish.error, model);
+      record(
+        meta,
+        devinErrorStatus(finish.error),
+        usage,
+        null,
+        true,
+        `${finish.error.kind}: ${finish.error.message}`.slice(0, 300),
+      );
+      return;
+    }
+    const cost = costOf(model, usage, new Date(), decision.provider, provider.type);
+    record(meta, 200, usage, cost.usd, cost.known);
+  };
+
+  if (!clientStream) {
+    const { completion, finish } = await devinChatCompletion(stream, model, token);
+    if (finish.error) {
+      if (isDevinSpend(finish.error)) markDevinSpent(provider, finish.error, model);
+      return devinErrorResponse(meta, clientKind, finish.error, headers);
+    }
+    finalize(finish);
+    if (clientKind === "anthropic") {
+      const message = chatToAnthropicMessage(completion, model);
+      return c.json(
+        {
+          ...withThinkingBlock(message, completion),
+          usage: {
+            input_tokens: finish.usage.input,
+            output_tokens: finish.usage.output,
+            cache_read_input_tokens: finish.usage.cacheRead,
+            cache_creation_input_tokens: finish.usage.cacheWrite,
+          },
+        },
+        200,
+        headers,
+      );
+    }
+    if (clientKind === "responses") {
+      return c.json(
+        chatJsonToResponse(completion, {
+          model,
+          session: decision.session,
+          started,
+          usage: inclusiveUsage(finish.usage),
+        }),
+        200,
+        headers,
+      );
+    }
+    return c.json(completion, 200, headers);
+  }
+
+  let finish: DevinFinish | undefined;
+  if (clientKind === "openai") {
+    const toChat = devinToChatStream(model, finalize, token);
+    return streamResponse(stream.pipeThrough(toChat), meta, headers);
+  }
+  const toChat = devinToChatStream(
+    model,
+    (result) => {
+      finish = result;
+    },
+    token,
+  );
+  // The ledger row is written after the last stage flushes, from Devin's exclusive usage: the
+  // chat hop has no cache-write field, so letting a later stage's usage win would under-bill.
+  const next =
+    clientKind === "anthropic"
+      ? chatToAnthropicStream(model, {
+          usage: () => finish?.usage,
+          onFinish: () => finalize(finish),
+        })
+      : chatToResponsesStream(model, () => finalize(finish));
+  return streamResponse(stream.pipeThrough(toChat).pipeThrough(next), meta, headers);
+}
+
 async function forward(
   c: Context<AppEnv>,
   config: Config,
@@ -907,6 +1306,30 @@ async function forward(
 
   let quotaFailovers = 0;
   let overflowRetries = 0;
+  /**
+   * Re-routes the turn after the current provider refused it for quota. Returns true when a
+   * different provider/model took the turn, so the caller should `continue` the loop.
+   */
+  const quotaFailover = async (): Promise<boolean> => {
+    // Remote compaction v2 only ChatGPT's Responses API can answer. Failover onto
+    // OpenRouter/DeepSeek would bridge to Chat Completions and Codex would then
+    // see "got 0 compaction items" — or our bridge guard. Keep the upstream error.
+    if (clientKind === "responses" && isRemoteCompactionV2(body)) return false;
+    if (quotaFailovers >= 2) return false;
+    const next = await decideRoute({
+      config,
+      body,
+      headers: incomingHeaders,
+      store,
+      kind: clientKind,
+      requestId,
+    });
+    if ("error" in next) return false;
+    if (next.provider === decision.provider && next.model === decision.model) return false;
+    decision = { ...next, reason: `${next.reason}:quota-failover` };
+    quotaFailovers += 1;
+    return true;
+  };
   while (true) {
     const meta = decisionMeta(decision, endpoint, clientStream, started, requestId, keyId, keyName);
     const provider: Provider | undefined = findProviderByName(config, decision.provider);
@@ -918,6 +1341,7 @@ async function forward(
 
     const translated = provider.type === "responses" && clientKind === "openai";
     const geminiWire = provider.type === "gemini";
+    const devinWire = provider.type === "devin";
     const planned = planUpstreamWire({
       provider,
       client: clientKind,
@@ -937,11 +1361,17 @@ async function forward(
       );
     }
     let upstreamKind: RequestKind = planned.wire;
-    meta.usageKind = upstreamKind;
-    const upstreamStream = provider.type === "responses" ? true : clientStream;
+    // Devin reports exclusive usage (uncached input, cache reads, cache writes apart), the same
+    // accounting Anthropic uses, so cache observation must not subtract reads from input again.
+    meta.usageKind = devinWire ? "anthropic" : upstreamKind;
+    // Devin's chat RPC only streams; non-stream clients get the stream folded into one reply.
+    const upstreamStream = provider.type === "responses" || devinWire ? true : clientStream;
 
     let auth = await resolveProviderAuth(provider, upstreamKind);
     if (auth.error) return errorResponse(c, meta, 400, auth.error);
+    if (devinWire && !auth.token) {
+      return errorResponse(c, meta, 400, `Missing Devin token for provider "${provider.name}"`);
+    }
     withSessionAffinity(auth.headers, provider, decision.session, incomingHeaders);
 
     saveBody(requestId, {
@@ -963,14 +1393,18 @@ async function forward(
       body,
     });
 
+    const maxOutput = effectiveCapabilities(
+      decision.model,
+      config.routing.capacities?.[decision.model],
+    ).maxOutput;
     const bodyFor = (wire: RequestKind): Record<string, unknown> => {
       // The client's own level, in whatever field its wire uses. Detected per wire so the router
       // never overrides an explicit instruction, and so the log can say who chose the level.
       const clientEffort = clientEffortOf(body, clientKind);
-      const maxOutput = effectiveCapabilities(
-        decision.model,
-        config.routing.capacities?.[decision.model],
-      ).maxOutput;
+      // Devin, like Gemini, wins over the OpenAI bridge: its wire module encodes a Chat
+      // Completions body into Connect-RPC protobuf, so every client folds onto that body.
+      // Effort is part of Devin's model ids, so no effort field is written.
+      if (devinWire) return devinChatBody(body, clientKind, decision.model);
       if (wire === "anthropic" && bridgeToAnthropic) {
         // Responses clients fold through Chat Completions first (same two-hop as
         // Responses→Antigravity), then chatToAnthropic builds the Messages body.
@@ -1051,7 +1485,20 @@ async function forward(
         : native;
     };
 
-    let upstreamBody: Record<string, unknown> = bodyFor(upstreamKind);
+    let upstreamBody: Record<string, unknown>;
+    try {
+      upstreamBody = bodyFor(upstreamKind);
+    } catch (error) {
+      if (error instanceof DevinImageError) {
+        record(meta, 400, emptyUsage(), null, true, error.message);
+        const payload =
+          clientKind === "anthropic"
+            ? { type: "error", error: { type: "invalid_request_error", message: error.message } }
+            : { error: { type: "invalid_request_error", message: error.message } };
+        return c.json(payload, 400);
+      }
+      throw error;
+    }
     // OpenAI Responses rejects empty call_id / name (minLength 1) and call_id
     // longer than 64 chars. Sanitize before egress — Cursor / bridged history
     // can leave "" or oversized ids on function_call(_output) items.
@@ -1062,6 +1509,7 @@ async function forward(
     // tool calls. Restore it from the previous upstream response before egress.
     const passbackReasoning =
       upstreamKind === "openai" &&
+      !devinWire &&
       needsReasoningPassback(decision.provider, decision.model, provider.baseUrl);
     if (passbackReasoning) {
       upstreamBody = repairReasoningContent(upstreamBody, decision.session).body;
@@ -1072,10 +1520,11 @@ async function forward(
 
     // The log reports the level the model was actually sent, read back from the body rather than
     // from the router's intent: those differ when the client set its own level. `gemini` takes no
-    // effort field, so nothing is recorded for it.
-    const sentEffort = geminiWire
-      ? undefined
-      : effortInBody(upstreamBody, upstreamKind, decision.effort);
+    // effort field and Devin bakes effort into its model ids, so nothing is recorded for them.
+    const sentEffort =
+      geminiWire || devinWire
+        ? undefined
+        : effortInBody(upstreamBody, upstreamKind, decision.effort);
     meta.effort = sentEffort;
     if (decision.effort && sentEffort && sentEffort !== decision.effort) {
       // The body carries a different level than the router chose — the client overrode it, and
@@ -1110,10 +1559,25 @@ async function forward(
         ? applyClaudeCodeSystem(payload)
         : payload;
     };
-    const upstreamUrl = urlFor(upstreamKind);
+    const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
     // Built once per wire, not per attempt: a retry repeats the same bytes, which is the whole
     // point of retrying a POST that failed on the network.
-    const payload = JSON.stringify(payloadFor(upstreamKind));
+    const payload = devinWire ? "" : JSON.stringify(payloadFor(upstreamKind));
+    // Devin carries its session token inside the protobuf body, so its request is rebuilt when
+    // a 401 forces a fresh token; everything else only swaps headers.
+    const requestInit = (current: AuthResolution): RequestInit => {
+      if (!devinWire) return { method: "POST", headers: current.headers, body: payload };
+      const token = current.token ?? "";
+      return {
+        method: "POST",
+        headers: devinHeaders(token, "stream"),
+        body: buildDevinChatRequest(token, upstreamBody, decision.model, {
+          // Stable per conversation, so Devin's prompt cache keeps hitting across turns.
+          sessionId: decision.session,
+          ...(maxOutput ? { maxOutput } : {}),
+        }) as Uint8Array<ArrayBuffer>,
+      };
+    };
 
     // A socket reset from a local proxy, a DNS timeout, or a gateway's brief 502 otherwise
     // costs the whole turn — and the same request almost always succeeds on a second attempt.
@@ -1132,7 +1596,7 @@ async function forward(
     try {
       ({ response: upstream, text: failureText } = await postUpstream(
         upstreamUrl,
-        { method: "POST", headers: auth.headers, body: payload },
+        requestInit(auth),
         onRetry,
       ));
       if (
@@ -1147,7 +1611,7 @@ async function forward(
           auth = refreshed;
           ({ response: upstream, text: failureText } = await postUpstream(
             upstreamUrl,
-            { method: "POST", headers: auth.headers, body: payload },
+            requestInit(auth),
             onRetry,
           ));
         }
@@ -1157,6 +1621,53 @@ async function forward(
     }
 
     captureQuotaHeaders(provider, upstream.headers);
+
+    if (devinWire) {
+      // Devin refuses in two ways: a non-200 status, or a 200 whose Connect stream opens with an
+      // end-of-stream error trailer before any data. Both classify into one error, so quota
+      // failover and the client-facing error share one path.
+      let failure: DevinStreamError | undefined;
+      let stream: ReadableStream<Uint8Array> | undefined;
+      if (!upstream.ok) {
+        failure = classifyDevinError(upstream.status, failureText, auth.token);
+      } else if (!upstream.body) {
+        failure = { status: 502, kind: "other", message: "Devin returned an empty response body" };
+      } else {
+        const peeked = await peekDevinStream(upstream.body, auth.token);
+        if ("error" in peeked) failure = peeked.error;
+        else stream = peeked.stream;
+      }
+      if (failure || !stream) {
+        const error = failure ?? {
+          status: 502,
+          kind: "other" as const,
+          message: "Devin returned no stream",
+        };
+        if (isDevinSpend(error)) {
+          markDevinSpent(provider, error, decision.model);
+          if (await quotaFailover()) continue;
+        }
+        return devinErrorResponse(meta, clientKind, error, {
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        });
+      }
+      return devinClientResponse({
+        c,
+        meta,
+        provider,
+        decision,
+        clientKind,
+        clientStream,
+        started,
+        stream,
+        token: auth.token,
+        headers: {
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        },
+      });
+    }
 
     if (!upstream.ok) {
       // Read during the attempt, not here: a body left unread would hold the pooled socket
@@ -1170,10 +1681,9 @@ async function forward(
         overflowRetries += 1;
         const shrunk = await compactForOverflow(config, body);
         if (shrunk.ok) {
-          body = shrunk.body;
           const retry = await decideRoute({
             config,
-            body,
+            body: shrunk.body,
             headers: incomingHeaders,
             store,
             kind: clientKind,
@@ -1182,6 +1692,7 @@ async function forward(
             keyName,
           });
           if (!("error" in retry)) {
+            body = shrunk.body;
             decision = { ...retry, reason: `${retry.reason}:context-retry` };
             continue;
           }
@@ -1197,31 +1708,7 @@ async function forward(
         captureUsageLimit(provider, upstream.status, text) ||
         ((upstream.status === 429 || upstream.status === 403) &&
           providerQuotaHealth(provider).status === "exhausted");
-      // Remote compaction v2 only ChatGPT's Responses API can answer. Failover onto
-      // OpenRouter/DeepSeek would bridge to Chat Completions and Codex would then
-      // see "got 0 compaction items" — or our bridge guard. Keep the upstream error.
-      const remoteCompact = clientKind === "responses" && isRemoteCompactionV2(body);
-      if (limited && !remoteCompact && quotaFailovers < 2) {
-        const next = await decideRoute({
-          config,
-          body,
-          headers: incomingHeaders,
-          store,
-          kind: clientKind,
-          requestId,
-        });
-        if (
-          !("error" in next) &&
-          (next.provider !== decision.provider || next.model !== decision.model)
-        ) {
-          decision = {
-            ...next,
-            reason: `${next.reason}:quota-failover`,
-          };
-          quotaFailovers += 1;
-          continue;
-        }
-      }
+      if (limited && (await quotaFailover())) continue;
       record(meta, upstream.status, emptyUsage(), null, true, text.slice(0, 300));
       return new Response(text, {
         status: upstream.status,
