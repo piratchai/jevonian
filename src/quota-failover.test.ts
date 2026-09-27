@@ -427,4 +427,352 @@ describe("same-request quota failover", () => {
       status: "rejected",
     });
   });
+
+  it("failovers a Devin daily-quota 500 (classified quota) onto the next provider", async () => {
+    const config = parseConfig({
+      defaultProvider: "devin-subscription",
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://api.devin.ai",
+          apiKey: "devin-key",
+          billing: "subscription",
+          models: ["claude-opus-5-5-high", "swe-2-max"],
+        },
+        {
+          name: "chatgpt-subscription",
+          type: "both",
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "openai-key",
+          billing: "subscription",
+          models: ["gpt-6-astra"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY", timeoutMs: 1_000 }],
+        tiers: {
+          plan: ["claude-opus-5-5-high", "gpt-6-astra"],
+          execute: ["claude-opus-5-5-high", "gpt-6-astra"],
+          utility: ["gpt-6-astra"],
+          chat: ["gpt-6-astra"],
+        },
+      },
+    });
+
+    let devinHits = 0;
+    let openaiHits = 0;
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "plan", confidence: 0.9 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("devin.ai")) {
+        devinHits += 1;
+        // The shape a spent account produces: an internal-looking 500 whose body names the
+        // quota. This is the exact wording seen on the failing turn.
+        return new Response(
+          JSON.stringify({
+            code: "internal",
+            message:
+              "Your daily usage quota has been exhausted. Visit https://app.devin.ai/settings/usage to purchase on-demand usage or turn on auto-reload. (trace ID: bbdd07ca49202cec286b54dbb6f602a8)",
+          }),
+          { status: 500, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("api.openai.com")) {
+        openaiHits += 1;
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-1",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    });
+
+    const app = createApp({ config }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-provider")).toBe("chatgpt-subscription");
+    expect(response.headers.get("x-jevonian-reason") ?? "").toContain("quota-failover");
+    // The 500 passes through the transient retry budget before failover (Devin's 500s are
+    // sometimes blips), so it is hit more than once — but the turn still lands elsewhere.
+    expect(devinHits).toBeGreaterThanOrEqual(1);
+    expect(openaiHits).toBe(1);
+    // The Devin refusal is recorded as a rejected window so the next turn skips it without
+    // burning a probe.
+    expect(headerQuotas()["devin-subscription"]?.windows[0]).toMatchObject({
+      usedPercent: 100,
+      status: "rejected",
+    });
+  });
+
+  it("failovers a Devin model_blocked trailer onto the next provider", async () => {
+    const config = parseConfig({
+      defaultProvider: "devin-subscription",
+      providers: [
+        {
+          name: "devin-subscription",
+          type: "devin",
+          baseUrl: "https://api.devin.ai",
+          apiKey: "devin-key",
+          billing: "subscription",
+          models: ["claude-opus-5-5-high", "swe-2-max"],
+        },
+        {
+          name: "chatgpt-subscription",
+          type: "both",
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "openai-key",
+          billing: "subscription",
+          models: ["gpt-6-astra"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY", timeoutMs: 1_000 }],
+        tiers: {
+          plan: ["claude-opus-5-5-high", "gpt-6-astra"],
+          execute: ["claude-opus-5-5-high", "gpt-6-astra"],
+          utility: ["gpt-6-astra"],
+          chat: ["gpt-6-astra"],
+        },
+      },
+    });
+
+    let devinHits = 0;
+    let openaiHits = 0;
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "plan", confidence: 0.9 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("devin.ai")) {
+        devinHits += 1;
+        return new Response(
+          JSON.stringify({
+            code: "permission_denied",
+            message: "Please visit /upgrade to access this model",
+          }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("api.openai.com")) {
+        openaiHits += 1;
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-1",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    });
+
+    const app = createApp({ config }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-provider")).toBe("chatgpt-subscription");
+    expect(response.headers.get("x-jevonian-reason") ?? "").toContain("quota-failover");
+    expect(devinHits).toBe(1);
+    expect(openaiHits).toBe(1);
+  });
+
+  it("failovers an unknown-shape 429 that matches no allow-listed token", async () => {
+    const config = parseConfig({
+      defaultProvider: "custom",
+      providers: [
+        {
+          name: "custom",
+          type: "openai",
+          baseUrl: "https://api.custom.example/v1",
+          apiKey: "custom-key",
+          models: ["custom-model"],
+        },
+        {
+          name: "chatgpt-subscription",
+          type: "both",
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "openai-key",
+          billing: "subscription",
+          models: ["gpt-6-astra"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY", timeoutMs: 1_000 }],
+        tiers: {
+          plan: ["custom-model", "gpt-6-astra"],
+          execute: ["custom-model", "gpt-6-astra"],
+          utility: ["gpt-6-astra"],
+          chat: ["gpt-6-astra"],
+        },
+      },
+    });
+
+    let customHits = 0;
+    let openaiHits = 0;
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "plan", confidence: 0.9 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("custom.example")) {
+        customHits += 1;
+        // A vendor whose error envelope is not on the allow-list: still a 429, still a
+        // verdict about the account, still worth routing around.
+        return new Response(
+          JSON.stringify({ err: "account_throttled", reason: "monthly cap reached" }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("api.openai.com")) {
+        openaiHits += 1;
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-1",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    });
+
+    const app = createApp({ config }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-provider")).toBe("chatgpt-subscription");
+    expect(response.headers.get("x-jevonian-reason") ?? "").toContain("quota-failover");
+    expect(customHits).toBe(1);
+    expect(openaiHits).toBe(1);
+    expect(headerQuotas().custom?.windows[0]).toMatchObject({
+      usedPercent: 100,
+      status: "rejected",
+    });
+  });
+
+  it("surfaces the error only after every routable provider has been refused", async () => {
+    const config = parseConfig({
+      defaultProvider: "provider-a",
+      providers: [
+        {
+          name: "provider-a",
+          type: "openai",
+          baseUrl: "https://a.example/v1",
+          apiKey: "a-key",
+          models: ["model-a"],
+        },
+        {
+          name: "provider-b",
+          type: "openai",
+          baseUrl: "https://b.example/v1",
+          apiKey: "b-key",
+          models: ["model-b"],
+        },
+        {
+          name: "provider-c",
+          type: "openai",
+          baseUrl: "https://c.example/v1",
+          apiKey: "c-key",
+          models: ["model-c"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY", timeoutMs: 1_000 }],
+        tiers: {
+          plan: ["model-a", "model-b", "model-c"],
+          execute: ["model-a", "model-b", "model-c"],
+          utility: ["model-c"],
+          chat: ["model-c"],
+        },
+      },
+    });
+
+    const hits = { a: 0, b: 0, c: 0 };
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "plan", confidence: 0.9 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("a.example")) hits.a += 1;
+      else if (url.includes("b.example")) hits.b += 1;
+      else if (url.includes("c.example")) hits.c += 1;
+      // Every host answers 429 with a wording no allow-list knows.
+      return new Response(JSON.stringify({ err: "nope" }), { status: 429 });
+    });
+
+    const app = createApp({ config }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    // Every provider got exactly one shot, and only then is the refusal surfaced. The old
+    // fixed cap of 2 would have returned after provider-b.
+    expect(hits).toEqual({ a: 1, b: 1, c: 1 });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("x-jevonian-quota-failovers")).toBe("2");
+  });
 });
