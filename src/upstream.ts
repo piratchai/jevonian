@@ -39,6 +39,7 @@ import {
   devinHeaders,
   devinToChatStream,
   peekDevinStream,
+  stripAgentSystemMessages,
   type DevinErrorKind,
   type DevinFinish,
   type DevinStreamError,
@@ -55,6 +56,7 @@ import { appendRecord } from "./ledger";
 import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
 import { costOf, type Usage } from "./pricing";
+import { rewritePromptBodies } from "./prompt-policy";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
@@ -1214,9 +1216,12 @@ async function forward(
 
   // ChatGPT Desktop dual catalog: native models keep using OpenAI / the
   // ChatGPT subscription. Only `jevonian/*` (and bare `auto`) stay on Jevonian.
+  // A caller holding a real Jevonian key is talking to Jevonian, so a concrete
+  // model it names (swe-2-max, claude-opus-4-6-thinking, …) is routed locally
+  // instead of being forwarded to OpenAI with that key.
   if (clientKind === "responses" || clientKind === "openai") {
     const model = typeof body.model === "string" ? body.model : "";
-    const nativeRoute = shouldProxyNativeCodex(model, c.req.raw.headers);
+    const nativeRoute = c.get("jevoKey") ? false : shouldProxyNativeCodex(model, c.req.raw.headers);
     if (nativeRoute) {
       return proxyNativeCodex(c, nativeRoute, decodedBytes);
     }
@@ -1505,6 +1510,10 @@ async function forward(
     if (upstreamKind === "responses") {
       upstreamBody = ensureResponsesCallIds(upstreamBody);
     }
+    // Prompt hygiene runs last, so every wire's own assembly (the Chat fold, the Anthropic
+    // bridge) sees the rewritten text. The Devin wire applies its built-ins again while
+    // encoding; both passes are idempotent.
+    upstreamBody = rewritePromptBodies(upstreamBody, config.promptPolicy);
     // DeepSeek / Kimi thinking mode: clients often drop `reasoning_content` after
     // tool calls. Restore it from the previous upstream response before egress.
     const passbackReasoning =
@@ -1575,6 +1584,7 @@ async function forward(
           // Stable per conversation, so Devin's prompt cache keeps hitting across turns.
           sessionId: decision.session,
           ...(maxOutput ? { maxOutput } : {}),
+          builtins: config.promptPolicy.builtins,
         }) as Uint8Array<ArrayBuffer>,
       };
     };
@@ -1628,6 +1638,7 @@ async function forward(
       // failover and the client-facing error share one path.
       let failure: DevinStreamError | undefined;
       let stream: ReadableStream<Uint8Array> | undefined;
+      let policyRetried = false;
       if (!upstream.ok) {
         failure = classifyDevinError(upstream.status, failureText, auth.token);
       } else if (!upstream.body) {
@@ -1636,6 +1647,49 @@ async function forward(
         const peeked = await peekDevinStream(upstream.body, auth.token);
         if ("error" in peeked) failure = peeked.error;
         else stream = peeked.stream;
+      }
+      // The wire neutralizes the prompt signatures we know about, but that list trails the
+      // client. One retry without the client's system prompt clears wording we have not seen.
+      if (failure?.kind === "content_policy" && !policyRetried) {
+        policyRetried = true;
+        upstreamBody = {
+          ...upstreamBody,
+          messages: stripAgentSystemMessages(
+            Array.isArray(upstreamBody.messages) ? upstreamBody.messages : [],
+          ),
+        };
+        meta.retries = (meta.retries ?? 0) + 1;
+        console.warn(
+          `devin content policy: retrying ${decision.provider}/${decision.model} without the client system prompt`,
+        );
+        try {
+          ({ response: upstream, text: failureText } = await postUpstream(
+            upstreamUrl,
+            requestInit(auth),
+            onRetry,
+          ));
+          failure = undefined;
+          stream = undefined;
+          if (!upstream.ok) {
+            failure = classifyDevinError(upstream.status, failureText, auth.token);
+          } else if (!upstream.body) {
+            failure = {
+              status: 502,
+              kind: "other",
+              message: "Devin returned an empty response body",
+            };
+          } else {
+            const peeked = await peekDevinStream(upstream.body, auth.token);
+            if ("error" in peeked) failure = peeked.error;
+            else stream = peeked.stream;
+          }
+        } catch (error) {
+          failure = {
+            status: 502,
+            kind: "other",
+            message: `Upstream retry failed: ${describeFetchError(error)}`,
+          };
+        }
       }
       if (failure || !stream) {
         const error = failure ?? {

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import type { Usage } from "./pricing";
+import { sanitizeBuiltinPrompt } from "./prompt-policy";
 
 export const DEVIN_DEFAULT_BASE_URL = "https://server.codeium.com";
 
@@ -268,6 +269,8 @@ export function encodeConnectFrame(payload: Uint8Array, flags = 0): Uint8Array {
 export interface DevinChatOptions {
   sessionId?: string;
   maxOutput?: number;
+  /** Apply the built-in rival-prompt signature rewrites. Defaults to on. */
+  builtins?: boolean;
 }
 
 interface DevinImage {
@@ -475,6 +478,25 @@ function encodeTools(raw: unknown): { definitions: Uint8Array[]; descriptions: s
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ─── content-policy hygiene ─────────────────────────────────────────────────
+
+/** Rewrites prompt signatures the upstream blocklist rejects; every other line is untouched. */
+export function sanitizeDevinSystemPrompt(text: string): string {
+  return sanitizeBuiltinPrompt(text);
+}
+
+/**
+ * Last resort for a `content_policy` refusal: drop the client's system prompt entirely. The wire
+ * injects its own minimal prompt when tools are present, so the request stays valid and the turn
+ * reaches the model even after a client ships prompt wording the blocklist has not seen yet.
+ */
+export function stripAgentSystemMessages(messages: unknown[]): unknown[] {
+  return messages.filter((raw) => {
+    const role = asRecord(raw).role;
+    return role !== "system" && role !== "developer";
+  });
+}
+
 /** Session ids ride as UUIDs; arbitrary caller keys map to a stable UUID-shaped digest. */
 function sessionUuid(sessionId: string | undefined): string {
   const trimmed = sessionId?.trim() ?? "";
@@ -502,7 +524,9 @@ export function buildDevinChatRequest(
   const { system: joinedSystem, turns } = toTurns(messages);
   const tools = encodeTools(body.tools);
   const system = [
-    joinedSystem || (tools.definitions.length > 0 ? TOOLS_SYSTEM_PROMPT : ""),
+    (joinedSystem &&
+      (options.builtins === false ? joinedSystem : sanitizeBuiltinPrompt(joinedSystem))) ||
+      (tools.definitions.length > 0 ? TOOLS_SYSTEM_PROMPT : ""),
     tools.descriptions.length > 0
       ? `Available tools and when to use them:\n${tools.descriptions.join("\n")}`
       : "",

@@ -119,6 +119,12 @@ export type AppEnv = {
   Variables: {
     keyId?: string;
     keyName?: string;
+    /**
+     * True when the caller authenticated with a Jevonian API key (rather than being a
+     * loopback desktop client). Such a request belongs to the router even when it names a
+     * concrete model, so it is never forwarded to the native OpenAI/ChatGPT upstream.
+     */
+    jevoKey?: boolean;
   };
 };
 
@@ -158,6 +164,7 @@ export function createPublicApp(state: AppState, store: SessionStore): Hono<AppE
     }
     c.set("keyId", key.id);
     c.set("keyName", key.name);
+    c.set("jevoKey", true);
     return next();
   });
   app.get("/healthz", (c) => c.json({ ok: true, public: true }));
@@ -280,6 +287,7 @@ export function createApp(state: AppState, store: SessionStore): Hono<AppEnv> {
     }
     c.set("keyId", key.id);
     c.set("keyName", key.name);
+    c.set("jevoKey", true);
     return next();
   });
 

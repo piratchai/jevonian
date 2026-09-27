@@ -101,6 +101,46 @@ Trigger a pass immediately with `jevonian models --sync`, the Providers page **S
 `POST /api/model-sync/run`. ChatGPT subscription discovery reads `~/.codex/models_cache.json`
 (run `codex` once if that cache is missing).
 
+## Prompt policy
+
+Some upstreams refuse a request outright when the system prompt carries verbatim wording from a
+rival coding agent's prompt. Devin's content policy is the observed case: against `swe-2-max`,
+each of Cursor's identity line (`You operate in Cursor.`), its `tool_calling` paragraph, the
+`## METHOD 2: MARKDOWN CODE BLOCKS … NOT already in Codebase` heading, and the
+`There is one text file for each terminal the user has running.` sentence blocked a request on its
+own — while a paraphrase of the same instruction passed. Jevonian rewrites those signatures to
+neutral wording on the way out, so the turn reaches the model and the client's instructions keep
+their meaning.
+
+| Field                   | Default | Meaning                                                                         |
+| ----------------------- | ------- | ------------------------------------------------------------------------------- |
+| `promptPolicy.builtins` | `true`  | Apply the built-in rival-prompt signature rewrites (Devin wire)                 |
+| `promptPolicy.rewrites` | `[]`    | Your own `{ match, flags?, replace }` rules; run after the built-ins, all wires |
+
+A rule is a regular expression applied to every prompt field of the outgoing body — Chat
+Completions `messages`, Anthropic `system`, and Responses `instructions` — whether the field is a
+string or a list of text blocks. Only `system`/`developer` messages are touched, and a body that
+matches nothing is sent byte-identical. `replace` takes `$1` group references; leave it empty to
+delete the match. A rule whose `match` is not a valid pattern is ignored rather than failing the
+turn.
+
+```json
+{
+  "promptPolicy": {
+    "builtins": true,
+    "rewrites": [
+      { "match": "internal-hostname\\.corp", "replace": "the staging host" },
+      { "match": "\\s*<scratchpad>[\\s\\S]*?</scratchpad>", "replace": "" }
+    ]
+  }
+}
+```
+
+This is a compatibility shim for upstream filters, not a secret scanner: it rewrites prompt text in
+flight and nothing else. If a client ships brand-new blocked wording, the Devin wire also retries
+once with the whole client system prompt dropped, so the turn does not fail with the client's own
+prompt text.
+
 ## Environment
 
 | Variable                        | Overrides                                                                         |

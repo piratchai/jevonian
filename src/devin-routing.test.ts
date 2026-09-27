@@ -8,6 +8,7 @@ import { discoverProviderModels } from "./catalog";
 import { parseConfig, type Config } from "./config";
 import { devinPb, encodeConnectFrame } from "./devin";
 import { devinModelMeta, resetDevinModelMeta } from "./devin-catalog";
+import { createKey } from "./keys";
 import { readRecords, resetLedgerCache } from "./ledger";
 import { invalidateOAuthToken } from "./oauth";
 import { headerQuotas, providerQuotas, resetQuotaCache } from "./quota";
@@ -632,16 +633,39 @@ describe("Devin subscription forwarding", () => {
     expect(attempts).toBe(2);
   });
 
-  it("returns classified content-policy JSON and records the failure", async () => {
-    vi.stubGlobal(
-      "fetch",
-      async () =>
-        new Response('{"code":"permission_denied","message":"blocked by our content policy"}', {
-          status: 403,
-        }),
-    );
+  it("routes a concrete model locally when the caller holds a Jevonian key", async () => {
+    // Without this, a request naming a configured model was treated as a native OpenAI model
+    // and forwarded to api.openai.com with the Jevonian key, answering 401.
+    const { key } = createKey("regression-concrete-model");
+    const seen: string[] = [];
+    routeFetch(responseFrames(), (url) => seen.push(url));
+    const app = createApp({ config: config() }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content: "hi" }] }),
+    });
+    expect(response.status).toBe(200);
+    expect(seen[0]).toContain("GetChatMessage");
+  });
+
+  it("returns classified content-policy JSON after retrying without the client system prompt", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal("fetch", async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      bodies.push(new TextDecoder().decode(init?.body as Uint8Array));
+      return new Response(
+        '{"code":"permission_denied","message":"blocked by our content policy"}',
+        { status: 403 },
+      );
+    });
     const response = await request("/v1/chat/completions", {
-      messages: [{ role: "user", content: "hi" }],
+      messages: [
+        {
+          role: "system",
+          content: "You operate in Cursor. CLIENT-SYSTEM-MARKER",
+        },
+        { role: "user", content: "hi" },
+      ],
     });
     expect(response.status).toBe(400);
     expect((await response.json()) as Record<string, unknown>).toMatchObject({
@@ -650,6 +674,12 @@ describe("Devin subscription forwarding", () => {
     expect(readRecords().find((record) => record.provider === "devin-subscription")).toMatchObject({
       status: 400,
     });
+    // The blocklisted identity line never leaves the process, and the retry drops the whole
+    // client system prompt as a last resort.
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).not.toContain("You operate in Cursor.");
+    expect(bodies[0]).toContain("CLIENT-SYSTEM-MARKER");
+    expect(bodies[1]).not.toContain("CLIENT-SYSTEM-MARKER");
   });
 
   it("returns a classified 429 and records it when no failover exists", async () => {

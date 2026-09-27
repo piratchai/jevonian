@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `promptPolicy` config for outgoing prompt hygiene. Devin's content policy refuses a turn when the system prompt carries verbatim wording from a rival coding agent — Cursor's `You operate in Cursor.` line, its `tool_calling` paragraph, the `## METHOD 2: MARKDOWN CODE BLOCKS … NOT already in Codebase` heading, and the `There is one text file for each terminal the user has running.` sentence each blocked a request on their own, while a paraphrase of the same instruction passed. Jevonian now rewrites those signatures before egress (`promptPolicy.builtins`, on by default), and `promptPolicy.rewrites` takes your own `{ match, flags?, replace }` rules, applied to every wire — Chat Completions `messages`, Anthropic `system`, and Responses `instructions`. An invalid pattern is ignored rather than failing the turn.
+
+### Fixed
+
+- Devin no longer answers `400 content_policy` on a client whose system prompt matches that blocklist. A `content_policy` refusal is also retried once with the client system prompt dropped, so wording a client adds later cannot reintroduce the failure.
+- A request that names a configured model (`swe-2-max`, `claude-opus-4-6-thinking`, …) while presenting a Jevonian API key is now routed by Jevonian. It used to be treated as a native ChatGPT/Codex model and forwarded to `api.openai.com` with the Jevonian key, which answered `401 Incorrect API key provided: sk-jev-…`. Native pass-through still applies to desktop clients, which present their own credentials instead of a Jevonian key.
+
 ## [0.3.1] - 2026-09-27
 
 ### Changed

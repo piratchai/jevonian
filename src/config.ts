@@ -6,6 +6,7 @@ import { getCredential } from "./credentials";
 import type { OAuthSource } from "./oauth";
 import { hasOAuthCredential } from "./oauth";
 import { configPath } from "./paths";
+import { DEFAULT_PROMPT_POLICY, parsePromptPolicy, type PromptPolicyConfig } from "./prompt-policy";
 import {
   canServeClient,
   normalizeProviderType,
@@ -411,6 +412,8 @@ export interface Config {
   tunnel: TunnelConfig;
   routing: RoutingConfig;
   modelSync: ModelSyncConfig;
+  /** Outgoing prompt hygiene: built-in rival-prompt signatures plus operator rules. */
+  promptPolicy: PromptPolicyConfig;
 }
 
 export const DEFAULT_QUOTA_GUARD: QuotaGuardConfig = {
@@ -830,6 +833,7 @@ export function parseConfig(raw: unknown): Config {
     tunnel,
     routing: parseRouting(value.routing),
     modelSync: parseModelSync(value.modelSync),
+    promptPolicy: parsePromptPolicy(value.promptPolicy),
   };
 }
 
@@ -880,6 +884,7 @@ export function writeExampleConfig(): string {
       brainPicksEffort: true,
     },
     modelSync: { enabled: true, intervalMinutes: 720 },
+    promptPolicy: DEFAULT_PROMPT_POLICY,
   };
   writeFileSync(path, `${JSON.stringify(example, null, 2)}\n`);
   return path;

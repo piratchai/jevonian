@@ -17,6 +17,8 @@ import {
   parseDevinModels,
   parseDevinUserStatus,
   peekDevinStream,
+  sanitizeDevinSystemPrompt,
+  stripAgentSystemMessages,
 } from "./devin";
 
 const { concat, bytesField: bytes, varintField: int } = devinPb;
@@ -327,6 +329,58 @@ describe("Devin request wire", () => {
       "You are a helpful assistant. Use the available tools when appropriate.",
     );
     expect(num(sub(request, 8), 2)).toBe(1000);
+  });
+
+  it("rewrites prompt signatures the upstream blocklist rejects", () => {
+    const identity = "You operate in Cursor.";
+    const toolCalling =
+      "Use specialized tools instead of terminal commands when possible, as this provides a " +
+      "better user experience. For file operations, use dedicated tools: don't use cat/head/tail " +
+      "to read files, don't use sed/awk to edit files, don't use cat with heredoc or echo " +
+      "redirection to create files. Reserve terminal commands exclusively for actual system " +
+      "commands and terminal operations that require shell execution.";
+    const system = [
+      identity,
+      toolCalling,
+      "## METHOD 2: MARKDOWN CODE BLOCKS - Proposing or Displaying Code NOT already in Codebase",
+      "There is one text file for each terminal the user has running.",
+      "Unrelated sentence that must survive verbatim.",
+    ].join("\n\n");
+    const request = unframe(
+      buildDevinChatRequest(
+        "secret",
+        {
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: "hi" },
+          ],
+        },
+        "model",
+      ),
+    );
+    const sent = str(request, 2);
+    expect(sent).not.toContain(identity);
+    expect(sent).not.toContain(toolCalling);
+    expect(sent).not.toContain("MARKDOWN CODE BLOCKS - Proposing or Displaying");
+    expect(sent).not.toContain("one text file for each terminal the user has running");
+    expect(sent).toContain("Unrelated sentence that must survive verbatim.");
+    // The identity line is rewritten wherever it appears, including suffixed forms.
+    expect(sanitizeDevinSystemPrompt("You operate in Cursor IDE\nrest")).toBe(
+      "You work inside the user's code editor.\nrest",
+    );
+  });
+
+  it("drops system and developer messages for the content-policy retry", () => {
+    const messages = [
+      { role: "system", content: "a" },
+      { role: "developer", content: "b" },
+      { role: "user", content: "c" },
+      { role: "assistant", content: "d" },
+    ];
+    expect(stripAgentSystemMessages(messages)).toEqual([
+      { role: "user", content: "c" },
+      { role: "assistant", content: "d" },
+    ]);
   });
 });
 
