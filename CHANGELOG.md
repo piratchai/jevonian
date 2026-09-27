@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.9] - 2026-09-27
+
+### Fixed
+
+- Claude subscription quota now treats live 5h and 7d utilization as percentage points. A reported 1% no longer appears as 100% used or incorrectly marks the provider exhausted.
+
 ## [0.1.8] - 2026-09-26
 
 ### Fixed
