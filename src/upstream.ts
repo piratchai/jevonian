@@ -57,11 +57,16 @@ import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
 import { costOf, type Usage } from "./pricing";
 import { rewritePromptBodies } from "./prompt-policy";
+import { saveTokens } from "./saver";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
+  isProviderRefusal,
+  isRateLimitRefusal,
   markProviderSpent,
+  messageSpendSignal,
   providerQuotaHealth,
+  PROVIDER_COOLDOWN_MS,
 } from "./quota";
 import {
   needsReasoningPassback,
@@ -135,6 +140,8 @@ interface RequestMeta {
   keyName?: string;
   /** Transient upstream failures that were retried before this turn was recorded. */
   retries?: number;
+  /** Estimated prompt tokens the tool-result saver removed before egress. */
+  savedTokens?: number;
   /** Set once a ledger row is written so cancel cannot double-record a finished turn. */
   recorded?: boolean;
 }
@@ -343,6 +350,7 @@ function record(
     ...(meta.effortNote ? { effortNote: meta.effortNote } : {}),
     ...(meta.skipped && meta.skipped.length > 0 ? { skipped: meta.skipped } : {}),
     ...(meta.retries ? { retries: meta.retries } : {}),
+    ...(meta.savedTokens ? { savedTokens: meta.savedTokens } : {}),
     ...(error ? { error } : {}),
   });
 }
@@ -1048,29 +1056,59 @@ const DEVIN_ERROR_TYPES: Record<DevinErrorKind, string> = {
   other: "api_error",
 };
 
-/** A quota / rate-limit refusal is a verdict about the provider, so routing should skip it. */
-function isDevinSpend(error: DevinStreamError): boolean {
-  return error.kind === "quota" || error.kind === "rate_limit";
+/**
+ * Whether a Devin refusal should send the turn to another provider.
+ *
+ * A quota or rate-limit verdict obviously should, and so should the ones describing a provider
+ * that cannot run this model *now*: a model gated behind a bigger plan, an overloaded backend,
+ * an internal fault, or credentials this host will not accept. Every one of those is a fact
+ * about Devin, and another provider can usually take the turn. Only a content-policy refusal is
+ * left out — that is a judgment about the request text, which is the client's to fix, and
+ * re-sending the same prompt elsewhere is not a repair.
+ */
+function devinShouldFailover(error: DevinStreamError): boolean {
+  return error.kind !== "content_policy";
 }
 
-/** How long a rate limit with no stated reset keeps the provider out of routing. */
-const DEVIN_RATE_LIMIT_COOLDOWN_MS = 60_000;
-
-function markDevinSpent(provider: Provider, error: DevinStreamError, model: string): void {
-  // A quota refusal without a reset stays until a live probe says otherwise; a bare rate limit
-  // is short-lived, so it expires on its own instead of benching the subscription indefinitely.
-  const resetsAt =
-    error.resetsAt ??
-    (error.kind === "rate_limit"
-      ? new Date(Date.now() + DEVIN_RATE_LIMIT_COOLDOWN_MS).toISOString()
-      : undefined);
-  const modelScoped =
-    error.kind === "rate_limit" && /\b(?:for this model|for the model)\b/i.test(error.message);
-  markProviderSpent(provider, {
-    label: error.kind === "rate_limit" ? "rate-limit" : "limit",
-    ...(resetsAt ? { resetsAt } : {}),
-    ...(modelScoped ? { model } : {}),
-  });
+/**
+ * Records what a Devin refusal means for routing, so the next `decideRoute` walks past it.
+ *
+ * A quota refusal keeps the provider out until the stated reset, or until a live probe proves
+ * the account is alive again. Everything short-lived — a bare rate limit, an overloaded
+ * backend, an internal fault, a rejected credential — gets a cooldown instead, because benching
+ * any of those indefinitely would take a working subscription out of the pool for a blip. A
+ * plan gate is per-model, so it retires just that model and leaves the rest usable.
+ */
+function markDevinRefusal(provider: Provider, error: DevinStreamError, model: string): void {
+  const cooldown = new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString();
+  const modelScoped = /\b(?:for this model|for the model)\b/i.test(error.message);
+  switch (error.kind) {
+    case "quota":
+      markProviderSpent(provider, {
+        label: "limit",
+        ...(error.resetsAt ? { resetsAt: error.resetsAt } : {}),
+      });
+      return;
+    case "rate_limit":
+      markProviderSpent(provider, {
+        label: "rate-limit",
+        resetsAt: error.resetsAt ?? cooldown,
+        ...(modelScoped ? { model } : {}),
+      });
+      return;
+    case "model_blocked":
+      markProviderSpent(provider, { label: "model-blocked", model, resetsAt: cooldown });
+      return;
+    case "capacity":
+    case "internal":
+    case "auth":
+      markProviderSpent(provider, { label: error.kind, resetsAt: cooldown });
+      return;
+    default:
+      // `other` and `content_policy` carry no trustworthy verdict about the subscription, so
+      // they are failed over (or not) without writing a bench that could outlive the cause.
+      return;
+  }
 }
 
 function devinErrorStatus(error: DevinStreamError): number {
@@ -1113,6 +1151,8 @@ function withThinkingBlock(
  * Answers the client from a Devin stream that already passed the error-trailer peek. Devin
  * always streams upstream; a non-stream client gets the folded completion instead.
  */
+type DevinOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+
 async function devinClientResponse(input: {
   c: Context<AppEnv>;
   meta: RequestMeta;
@@ -1124,14 +1164,22 @@ async function devinClientResponse(input: {
   stream: ReadableStream<Uint8Array>;
   headers: Record<string, string>;
   token?: string;
-}): Promise<Response> {
+  /**
+   * Called when a non-stream Devin call ends in a refusal, before the error is surfaced.
+   * Returning true tells the caller the turn was re-routed, so the error response must not be
+   * written; the caller `continue`s the routing loop.
+   */
+  onFailover?: () => Promise<boolean>;
+}): Promise<DevinOutcome> {
   const { c, meta, provider, decision, clientKind, clientStream, started, stream, headers, token } =
     input;
   const model = decision.model;
   const finalize = (finish: DevinFinish | undefined): void => {
     const usage = finish?.usage ?? emptyUsage();
     if (finish?.error) {
-      if (isDevinSpend(finish.error)) markDevinSpent(provider, finish.error, model);
+      // A streaming answer is already on the wire, so the refusal can only be recorded here.
+      // Failover happens on the folded (non-stream) path below, where nothing has been sent.
+      if (devinShouldFailover(finish.error)) markDevinRefusal(provider, finish.error, model);
       record(
         meta,
         devinErrorStatus(finish.error),
@@ -1149,45 +1197,64 @@ async function devinClientResponse(input: {
   if (!clientStream) {
     const { completion, finish } = await devinChatCompletion(stream, model, token);
     if (finish.error) {
-      if (isDevinSpend(finish.error)) markDevinSpent(provider, finish.error, model);
-      return devinErrorResponse(meta, clientKind, finish.error, headers);
+      if (devinShouldFailover(finish.error)) {
+        markDevinRefusal(provider, finish.error, model);
+        if (await input.onFailover?.()) {
+          // The turn moved to another provider. No ledger row is written for this dead
+          // attempt: the loop's next iteration records the turn under the new decision.
+          return { kind: "failover" };
+        }
+      }
+      return {
+        kind: "response",
+        response: devinErrorResponse(meta, clientKind, finish.error, headers),
+      };
     }
     finalize(finish);
     if (clientKind === "anthropic") {
       const message = chatToAnthropicMessage(completion, model);
-      return c.json(
-        {
-          ...withThinkingBlock(message, completion),
-          usage: {
-            input_tokens: finish.usage.input,
-            output_tokens: finish.usage.output,
-            cache_read_input_tokens: finish.usage.cacheRead,
-            cache_creation_input_tokens: finish.usage.cacheWrite,
+      return {
+        kind: "response",
+        response: c.json(
+          {
+            ...withThinkingBlock(message, completion),
+            usage: {
+              input_tokens: finish.usage.input,
+              output_tokens: finish.usage.output,
+              cache_read_input_tokens: finish.usage.cacheRead,
+              cache_creation_input_tokens: finish.usage.cacheWrite,
+            },
           },
-        },
-        200,
-        headers,
-      );
+          200,
+          headers,
+        ),
+      };
     }
     if (clientKind === "responses") {
-      return c.json(
-        chatJsonToResponse(completion, {
-          model,
-          session: decision.session,
-          started,
-          usage: inclusiveUsage(finish.usage),
-        }),
-        200,
-        headers,
-      );
+      return {
+        kind: "response",
+        response: c.json(
+          chatJsonToResponse(completion, {
+            model,
+            session: decision.session,
+            started,
+            usage: inclusiveUsage(finish.usage),
+          }),
+          200,
+          headers,
+        ),
+      };
     }
-    return c.json(completion, 200, headers);
+    return { kind: "response", response: c.json(completion, 200, headers) };
   }
 
   let finish: DevinFinish | undefined;
   if (clientKind === "openai") {
     const toChat = devinToChatStream(model, finalize, token);
-    return streamResponse(stream.pipeThrough(toChat), meta, headers);
+    return {
+      kind: "response",
+      response: streamResponse(stream.pipeThrough(toChat), meta, headers),
+    };
   }
   const toChat = devinToChatStream(
     model,
@@ -1205,7 +1272,10 @@ async function devinClientResponse(input: {
           onFinish: () => finalize(finish),
         })
       : chatToResponsesStream(model, () => finalize(finish));
-  return streamResponse(stream.pipeThrough(toChat).pipeThrough(next), meta, headers);
+  return {
+    kind: "response",
+    response: streamResponse(stream.pipeThrough(toChat).pipeThrough(next), meta, headers),
+  };
 }
 
 async function forward(
@@ -1334,15 +1404,24 @@ async function forward(
   let quotaFailovers = 0;
   let overflowRetries = 0;
   /**
+   * Every provider/model this turn has already tried and been refused by. Failover keeps
+   * walking the routing chain until `decideRoute` can only offer a target from this set —
+   * which is the point where the client is genuinely out of options and the refusal is
+   * worth surfacing. A fixed attempt cap is not enough: a routing chain with five healthy
+   * subscriptions would still be cut off after two, and the client would see a rate-limit
+   * error while three usable providers sat idle.
+   */
+  const triedTargets = new Set<string>([`${decision.provider} ${decision.model}`]);
+  /**
    * Re-routes the turn after the current provider refused it for quota. Returns true when a
-   * different provider/model took the turn, so the caller should `continue` the loop.
+   * provider/model that has not been tried yet took the turn, so the caller should `continue`
+   * the loop.
    */
   const quotaFailover = async (): Promise<boolean> => {
     // Remote compaction v2 only ChatGPT's Responses API can answer. Failover onto
     // OpenRouter/DeepSeek would bridge to Chat Completions and Codex would then
     // see "got 0 compaction items" — or our bridge guard. Keep the upstream error.
     if (clientKind === "responses" && isRemoteCompactionV2(body)) return false;
-    if (quotaFailovers >= 2) return false;
     const next = await decideRoute({
       config,
       body,
@@ -1352,7 +1431,12 @@ async function forward(
       requestId,
     });
     if ("error" in next) return false;
-    if (next.provider === decision.provider && next.model === decision.model) return false;
+    const target = `${next.provider} ${next.model}`;
+    // The router may hand back the target we just gave up on when its own guard cannot see
+    // the refusal yet (guard disabled, or a live probe still reporting headroom). Looping on
+    // it would burn the turn; treating it as "nothing new" ends the chain honestly.
+    if (triedTargets.has(target)) return false;
+    triedTargets.add(target);
     decision = { ...next, reason: `${next.reason}:quota-failover` };
     quotaFailovers += 1;
     return true;
@@ -1551,6 +1635,17 @@ async function forward(
         upstreamBody.messages as Record<string, unknown>[],
       );
     }
+
+    // The token saver compresses prior tool results on the fully assembled upstream body, so
+    // whichever wire the turn took — chat, Anthropic, Responses, or the Devin fold — shares
+    // the same deterministic filters. The estimate lands on the ledger row written by `record`.
+    if (config.tokenSaver.enabled) {
+      const saved = saveTokens(upstreamBody, upstreamKind, config.tokenSaver);
+      if (saved.stats.savedTokens > 0) {
+        upstreamBody = saved.body;
+        meta.savedTokens = saved.stats.savedTokens;
+      }
+    }
     // DeepSeek / Kimi thinking mode: clients often drop `reasoning_content` after
     // tool calls. Restore it from the previous upstream response before egress.
     const passbackReasoning =
@@ -1734,8 +1829,8 @@ async function forward(
           kind: "other" as const,
           message: "Devin returned no stream",
         };
-        if (isDevinSpend(error)) {
-          markDevinSpent(provider, error, decision.model);
+        if (devinShouldFailover(error)) {
+          markDevinRefusal(provider, error, decision.model);
           if (await quotaFailover()) continue;
         }
         return devinErrorResponse(meta, clientKind, error, {
@@ -1743,7 +1838,7 @@ async function forward(
           ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
         });
       }
-      return devinClientResponse({
+      const delivered = await devinClientResponse({
         c,
         meta,
         provider,
@@ -1753,11 +1848,16 @@ async function forward(
         started,
         stream,
         token: auth.token,
+        onFailover: quotaFailover,
         headers: {
           ...decisionHeaders(decision, meta.retries),
           ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
         },
       });
+      // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
+      // so the client only sees an error once no alternative is left.
+      if (delivered.kind === "failover") continue;
+      return delivered.response;
     }
 
     if (!upstream.ok) {
@@ -1795,11 +1895,24 @@ async function forward(
       // headers on the same response already say the window is spent. After capturing
       // those headers, treat an exhausted health bit as the same failover trigger so
       // the next model in the phase chain (gpt-6-astra, …) gets the turn.
-      const limited =
-        captureUsageLimit(provider, upstream.status, text) ||
-        ((upstream.status === 429 || upstream.status === 403) &&
-          providerQuotaHealth(provider).status === "exhausted");
-      if (limited && (await quotaFailover())) continue;
+      const spent = captureUsageLimit(provider, upstream.status, text);
+      // The response's own rate-limit headers may already have recorded the real window
+      // (`5h` rejected, with its reset) a few lines above. That reading beats a synthetic
+      // cooldown, so it is checked before one is invented.
+      const exhausted = providerQuotaHealth(provider).status === "exhausted";
+      // Beyond the allow-list: any provider-side refusal is worth trying elsewhere. The
+      // client only sees an error once `quotaFailover` reports that no target outside
+      // `triedTargets` is left, which is the honest "you really are out" signal.
+      const refused = spent || exhausted || isProviderRefusal(upstream.status);
+      if (refused && !spent && !exhausted && isRateLimitRefusal(upstream.status)) {
+        // Nothing recorded this refusal, so bench the provider briefly: without it the next
+        // turn's routing brain would pick the same host straight back up.
+        markProviderSpent(provider, {
+          label: "rate-limit",
+          resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
+        });
+      }
+      if (refused && (await quotaFailover())) continue;
       record(meta, upstream.status, emptyUsage(), null, true, text.slice(0, 300));
       return new Response(text, {
         status: upstream.status,
@@ -2029,6 +2142,13 @@ async function forward(
         const failure = responsesErrorMessage(events);
         if (!completed || failure) {
           const message = failure ?? "upstream stream ended before completion";
+          // The folded stream carries a `response.failed` rather than an HTTP error, so the
+          // refusal hides inside a 200. Read it like the body it is: a quota verdict still
+          // fails the provider over, while a truncation is surfaced as before.
+          if (messageSpendSignal(message)) {
+            markProviderSpent(provider, { label: "limit" });
+            if (await quotaFailover()) continue;
+          }
           record(meta, 502, emptyUsage(), null, true, message);
           return c.json({ error: { message, type: "jevonian_error" } }, 502);
         }
@@ -2057,6 +2177,10 @@ async function forward(
         const failure = responsesErrorMessage(events);
         if (!completed || failure) {
           const message = failure ?? "upstream stream ended before completion";
+          if (messageSpendSignal(message)) {
+            markProviderSpent(provider, { label: "limit" });
+            if (await quotaFailover()) continue;
+          }
           record(meta, 502, emptyUsage(), null, true, message);
           return c.json({ error: { message, type: "jevonian_error" } }, 502);
         }

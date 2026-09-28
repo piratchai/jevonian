@@ -414,6 +414,21 @@ function normalizeToken(value: string): string {
     .replace(/^_|_$/g, "");
 }
 
+/**
+ * Free-text phrasing that still names a spend verdict, used where an error has already been
+ * unwrapped from its envelope — a Responses `response.failed` message, say — and the only
+ * signal left is the words themselves. Kept narrow on purpose: loose substring matching
+ * ("limit") is how a router re-learns that "context length limit" is not a quota problem.
+ */
+const FREE_TEXT_SPEND_PATTERNS: Array<{ pattern: RegExp; signal: ProviderSpendSignal }> = [
+  { pattern: /usage limit (has been )?reached|usage_limit_reached/i, signal: "quota" },
+  { pattern: /weekly usage limit|weekly_usage_limit/i, signal: "quota" },
+  { pattern: /quota (has been )?exhausted|quota_exceeded|out of quota/i, signal: "quota" },
+  { pattern: /rate limit( has been)? reached|too many requests/i, signal: "quota" },
+  { pattern: /insufficient (credits?|balance|funds?|quota)/i, signal: "billing" },
+  { pattern: /payment required|billing not active|budget exhausted/i, signal: "billing" },
+];
+
 /** Pull type/code tokens from the common OpenAI / Anthropic / gateway error envelopes. */
 function errorTokens(body: string): string[] {
   const tokens: string[] = [];
@@ -463,9 +478,71 @@ export function providerSpendSignal(status: number, body: string): ProviderSpend
   return undefined;
 }
 
+/**
+ * The same verdict, recovered from an already-unwrapped error message rather than a response
+ * body. A Responses `response.failed` event or a Devin trailer hands us prose with no
+ * `type`/`code` field to read; {@link providerSpendSignal} sees no token in that and stays
+ * silent. The patterns here stay deliberately narrow, so a wording that merely mentions a
+ * limit ("context length limit", "token limit exceeded") is not mistaken for a spend verdict.
+ */
+export function messageSpendSignal(message: string): ProviderSpendSignal | undefined {
+  for (const { pattern, signal } of FREE_TEXT_SPEND_PATTERNS) {
+    if (pattern.test(message)) return signal;
+  }
+  // A bare token quoted inside prose ("usage_limit_reached") is still a structured signal.
+  const normalized = normalizeToken(message);
+  if (BILLING_TOKENS.has(normalized)) return "billing";
+  if (QUOTA_TOKENS.has(normalized)) return "quota";
+  return undefined;
+}
+
 /** @deprecated Prefer {@link providerSpendSignal}. */
 export function isUsageLimitError(status: number, body: string): boolean {
   return providerSpendSignal(status, body) !== undefined;
+}
+
+/** How long an unclassified "this provider is busy or limited" refusal benches a provider. */
+export const PROVIDER_COOLDOWN_MS = 60_000;
+
+/**
+ * True when a failed response is a verdict about the *provider* rather than the request.
+ *
+ * The distinction decides whether another provider is worth trying. A 400/413/422 says the
+ * body is wrong and would be wrong everywhere, so the error belongs to the client. Everything
+ * here says the host could not take the turn — payment, quota, a rate limit, a WAF or key
+ * rejection, an endpoint that does not know the model, or the host being down — and a second
+ * provider very often can. Surfacing one of these while healthy alternatives sit idle is the
+ * exact failure this router exists to prevent.
+ *
+ * Deliberately broad: an unclassified 429 is still a provider that will not serve this turn,
+ * even when its body uses wording no allow-list has seen yet.
+ */
+export function isProviderRefusal(status: number): boolean {
+  return (
+    status === 401 || // key rejected; another provider's credentials may still work
+    status === 402 || // payment required
+    status === 403 || // entitlement, WAF, or quota
+    status === 404 || // this host does not know the model
+    status === 408 || // the host gave up on the request
+    status === 429 || // rate limit or quota, classified or not
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    status === 529 // Anthropic's "overloaded"
+  );
+}
+
+/**
+ * True when a refusal is a *rate or spend* verdict, so the provider should be benched briefly
+ * rather than left for the next turn to rediscover.
+ *
+ * Only worth doing when the response carried no spend signal: a classified quota window is
+ * already recorded with its real reset time by {@link captureUsageLimit}, and inventing a
+ * cooldown for it would shorten a genuine multi-hour limit to a minute.
+ */
+export function isRateLimitRefusal(status: number): boolean {
+  return status === 402 || status === 403 || status === 429;
 }
 
 /**

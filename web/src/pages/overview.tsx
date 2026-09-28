@@ -26,6 +26,12 @@ import {
   type UpdateResponse,
 } from "@/lib/api";
 import { money, percent } from "@/lib/utils";
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
+}
 import { ActivitySection } from "@/pages/activity";
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -268,6 +274,13 @@ export function OverviewPage() {
           value={percent(stats.cacheHitRate)}
           hint="share of prompt tokens served from cache"
         />
+        {stats.savedTokens > 0 ? (
+          <Stat
+            label="Tokens saved"
+            value={formatTokens(stats.savedTokens)}
+            hint="estimated prompt tokens the tool-result saver removed"
+          />
+        ) : null}
       </div>
 
       <ActivitySection />

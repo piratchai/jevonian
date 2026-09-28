@@ -35,6 +35,8 @@ export interface StatsSummary {
   savingsUsd: number;
   savingsPct: number;
   cacheHitRate: number;
+  /** Estimated prompt tokens the tool-result saver kept out of upstream calls. */
+  savedTokens: number;
   unpriced: number;
   byModel: ModelStat[];
   byPhase: PhaseStat[];
@@ -82,6 +84,7 @@ export function summarize(records: LedgerRecord[], config: Config | null): Stats
   let subscriptionBaselineUsd = 0;
   let cacheReadTokens = 0;
   let promptTokens = 0;
+  let savedTokens = 0;
   let unpriced = 0;
 
   const baselineProvider = config?.providers.find((provider) =>
@@ -131,6 +134,7 @@ export function summarize(records: LedgerRecord[], config: Config | null): Stats
 
     cacheReadTokens += record.cacheReadTokens;
     promptTokens += record.promptTokens;
+    savedTokens += record.savedTokens ?? 0;
     if (baselineModel && record.kind !== "brain") {
       const estimate = costOf(
         baselineModel,
@@ -165,6 +169,7 @@ export function summarize(records: LedgerRecord[], config: Config | null): Stats
     savingsPct: apiBaselineUsd > 0 ? (savingsUsd / apiBaselineUsd) * 100 : 0,
     cacheHitRate:
       cacheReadTokens + promptTokens > 0 ? cacheReadTokens / (cacheReadTokens + promptTokens) : 0,
+    savedTokens,
     unpriced,
     byModel: [...byModel.values()].sort((left, right) => right.costUsd - left.costUsd),
     byPhase: [...byPhase.values()].sort((left, right) => right.costUsd - left.costUsd),

@@ -23,6 +23,7 @@ import {
   type ProviderType,
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
+import { kevCommand } from "./kev";
 import { readRecords, type LedgerRecord } from "./ledger";
 import { ServerLifecycle } from "./lifecycle";
 import { scheduleModelSync, runModelSync } from "./model-sync";
@@ -187,6 +188,7 @@ function report(): void {
   let baselineCost = 0;
   let cacheRead = 0;
   let prompt = 0;
+  let savedTokens = 0;
   let brainDecided = 0;
   const byEffort = new Map<string, { requests: number; cost: number }>();
 
@@ -212,6 +214,7 @@ function report(): void {
     byModel.set(record.model, row);
     cacheRead += record.cacheReadTokens;
     prompt += record.promptTokens;
+    savedTokens += record.savedTokens ?? 0;
     if (record.brain) brainDecided += 1;
     // The level the model was actually sent; "default" means the router applied none.
     const effort = record.effort ?? "default";
@@ -263,6 +266,12 @@ function report(): void {
   console.log(
     `cache hits: ${cacheRead + prompt > 0 ? ((cacheRead / (cacheRead + prompt)) * 100).toFixed(1) : "0.0"}% (${cacheRead} cached tokens)`,
   );
+  if (savedTokens > 0) {
+    console.log(
+      `token saver: ~${savedTokens.toLocaleString()} tokens kept out of prompts` +
+        (prompt > 0 ? ` (${((savedTokens / (prompt + savedTokens)) * 100).toFixed(1)}% of input)` : ""),
+    );
+  }
   console.log(`brain-decided: ${brainDecided}`);
   console.log("");
   console.log("by phase:");
@@ -1050,6 +1059,8 @@ async function main(): Promise<void> {
     await refreshCommand();
   } else if (command === "quota") {
     await quota("refresh" in flags);
+  } else if (command === "kev") {
+    await kevCommand(flags);
   } else if (command === "update") {
     await updateCommand();
   } else if (command === "stop") {
@@ -1251,7 +1262,7 @@ async function main(): Promise<void> {
     );
   } else {
     console.log(
-      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|update|launch|init]",
+      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]",
     );
     process.exit(1);
   }

@@ -645,7 +645,7 @@ function classifyKind(status: number, code: string, lc: string): DevinErrorKind 
   // A hard per-model limit carries its reset window; it must beat the "try again later" capacity arm.
   if (/rate limit/.test(lc) && /resets? in[:\s]/.test(lc)) return "rate_limit";
   if (
-    /insufficient.*(credit|quota|balance|funds)|out of (credits?|quota)|quota.*exceeded|exceeded.*quota|credits?.*exhausted/.test(
+    /insufficient.*(credit|quota|balance|funds)|out of (credits?|quota)|quota.*exceeded|exceeded.*quota|(credit|quota|balance|funds).*(exhausted|depleted|spent|used up)|exhausted.*(credit|quota|balance|funds)|quota has been|usage quota has been|daily usage|usage (cap|allowance|limit).*(reached|hit|exceeded)/.test(
       lc,
     )
   ) {

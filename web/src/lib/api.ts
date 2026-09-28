@@ -61,6 +61,8 @@ export interface BrainChannelView {
   apiKeyEnv: string;
   requiresBaseUrl?: boolean;
   requiresAccountId?: boolean;
+  keyOptional?: boolean;
+  defaultMinConfidence?: number;
   hint?: string;
   keysUrl?: string;
 }
@@ -201,6 +203,13 @@ export interface ModelSyncConfigView {
   intervalMinutes: number;
 }
 
+export interface TokenSaverConfigView {
+  enabled: boolean;
+  maxChars: number;
+  dedupeLines: boolean;
+  stripNoise: boolean;
+}
+
 export interface ModelSyncProviderResultView {
   provider: string;
   added: string[];
@@ -229,6 +238,7 @@ export interface StateResponse {
     providers: ProviderView[];
     routing: RoutingView;
     modelSync?: ModelSyncConfigView;
+    tokenSaver?: TokenSaverConfigView;
   };
   tiers: { plan: string[]; execute: string[]; utility: string[]; chat: string[] };
   routings: RoutingEntryView[];
@@ -287,6 +297,8 @@ export interface LogRecord {
   effortNote?: string;
   /** Models code withheld from the brain, each with why. Never dropped silently. */
   skipped?: Array<{ model: string; provider: string; reason: string; detail: string }>;
+  /** Estimated prompt tokens the tool-result saver removed before egress. */
+  savedTokens?: number;
   /** Transient upstream failures retried before this turn was recorded. */
   retries?: number;
   error?: string;
@@ -470,6 +482,8 @@ export interface StatsResponse {
   savingsUsd: number;
   savingsPct: number;
   cacheHitRate: number;
+  /** Estimated prompt tokens the tool-result saver kept out of upstream calls. */
+  savedTokens: number;
   unpriced: number;
   byModel: Array<{ model: string; requests: number; costUsd: number; unpriced: number }>;
   byPhase: Array<{ phase: string; requests: number; costUsd: number }>;
@@ -720,6 +734,11 @@ export const api = {
   }) =>
     request<{ models: string[]; error?: string }>("/api/providers/discover", {
       method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  saveTokenSaver: (payload: Partial<TokenSaverConfigView>) =>
+    request<{ tokenSaver: TokenSaverConfigView }>("/api/token-saver", {
+      method: "PUT",
       body: JSON.stringify(payload),
     }),
   modelSync: () => request<ModelSyncResponse>("/api/model-sync"),

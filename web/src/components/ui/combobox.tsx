@@ -9,6 +9,10 @@ export interface ComboboxOption {
   value: string;
   label: string;
   hint?: string;
+  /** Extra tokens the search should match — catalog names, provider labels, price — not rendered. */
+  keywords?: string;
+  /** Structured metadata shown as small badges after the label (provider chips, price, status). */
+  meta?: Array<{ text: string; tone?: "muted" | "warn" | "bad" | "accent" }>;
 }
 
 const INPUT_CLASS =
@@ -16,6 +20,13 @@ const INPUT_CLASS =
 
 const ITEM_CLASS =
   "relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground";
+
+const META_TONE: Record<NonNullable<ComboboxOption["meta"]>[number]["tone"] & string, string> = {
+  muted: "text-muted-foreground",
+  warn: "text-amber-600",
+  bad: "text-destructive",
+  accent: "text-foreground",
+};
 
 type PopupParts = {
   Portal: typeof BaseCombobox.Portal;
@@ -27,20 +38,51 @@ type PopupParts = {
   ItemIndicator: typeof BaseCombobox.ItemIndicator;
 };
 
+function matches(option: ComboboxOption, query: string): boolean {
+  const haystack = `${option.label} ${option.value} ${option.keywords ?? ""}`.toLowerCase();
+  return query
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .every((token) => haystack.includes(token));
+}
+
+function DefaultOptionFace({ option }: { option: ComboboxOption }) {
+  return (
+    <>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-sm">{option.label}</span>
+        {option.hint ? (
+          <span className="truncate text-xs text-muted-foreground">{option.hint}</span>
+        ) : null}
+      </span>
+      {option.meta && option.meta.length > 0 ? (
+        <span className="flex shrink-0 items-center gap-1.5">
+          {option.meta.map((badge, index) => (
+            <span
+              key={`${badge.text}-${index}`}
+              className={cn("whitespace-nowrap text-[10px]", META_TONE[badge.tone ?? "muted"])}
+            >
+              {badge.text}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function SharedPopup({
   parts,
-  options,
   emptyText,
   showCheck,
   render,
 }: {
   parts: PopupParts;
-  options: ComboboxOption[];
   emptyText: string;
   showCheck: boolean;
-  render: (item: string, hint: string) => ReactNode;
+  render: (item: string) => ReactNode;
 }) {
-  const hints = new Map(options.map((option) => [option.value, option.hint]));
   const { Portal, Positioner, Popup, Empty, List, Item, ItemIndicator } = parts;
   return (
     <Portal>
@@ -55,7 +97,7 @@ function SharedPopup({
           <List className="max-h-72 overflow-y-auto p-1">
             {(item: string) => (
               <Item key={item} value={item} className={ITEM_CLASS}>
-                {render(item, hints.get(item) ?? "")}
+                {render(item)}
                 {showCheck ? (
                   <ItemIndicator className="flex size-4 items-center justify-center">
                     <CheckIcon className="size-4" />
@@ -70,7 +112,11 @@ function SharedPopup({
   );
 }
 
-/** Picks exactly one of `options`; the input only ever holds a listed value. */
+/**
+ * Picks exactly one of `options`. The search matches each option's label, value, and
+ * `keywords` — every whitespace-separated token must hit — so a catalog name, provider
+ * label, or price finds the model even when the model id itself would not.
+ */
 export function Combobox({
   id,
   value,
@@ -80,6 +126,7 @@ export function Combobox({
   emptyText = "No results.",
   className,
   disabled,
+  renderOption,
 }: {
   id?: string;
   value?: string;
@@ -89,10 +136,19 @@ export function Combobox({
   emptyText?: string;
   className?: string;
   disabled?: boolean;
+  /** Render one option's face; defaults to label + hint + meta badges. */
+  renderOption?: (option: ComboboxOption) => ReactNode;
 }) {
+  const optionByValue = new Map(options.map((option) => [option.value, option]));
+  const render =
+    renderOption ?? ((option: ComboboxOption) => <DefaultOptionFace option={option} />);
   return (
     <BaseCombobox.Root
       items={options.map((option) => option.value)}
+      filter={(itemValue, query) => {
+        const option = optionByValue.get(itemValue as string);
+        return option !== undefined && matches(option, query);
+      }}
       value={value ?? null}
       onValueChange={(next) => {
         if (typeof next === "string") onChange(next);
@@ -112,15 +168,16 @@ export function Combobox({
       </div>
       <SharedPopup
         parts={BaseCombobox}
-        options={options}
         emptyText={emptyText}
         showCheck
-        render={(item, hint) => (
-          <>
+        render={(item) => {
+          const option = optionByValue.get(item);
+          return option === undefined ? (
             <span className="flex-1 truncate">{item}</span>
-            {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-          </>
-        )}
+          ) : (
+            render(option)
+          );
+        }}
       />
     </BaseCombobox.Root>
   );
@@ -150,6 +207,7 @@ export function Autocomplete({
   className?: string;
   disabled?: boolean;
 }) {
+  const optionByValue = new Map(options.map((option) => [option.value, option]));
   return (
     <BaseAutocomplete.Root
       items={options.map((option) => option.value)}
@@ -170,15 +228,16 @@ export function Autocomplete({
       </div>
       <SharedPopup
         parts={BaseAutocomplete as unknown as PopupParts}
-        options={options}
         emptyText={emptyText}
         showCheck={false}
-        render={(item, hint) => (
-          <>
+        render={(item) => {
+          const option = optionByValue.get(item);
+          return option === undefined ? (
             <span className="flex-1 truncate">{item}</span>
-            {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
-          </>
-        )}
+          ) : (
+            <DefaultOptionFace option={option} />
+          );
+        }}
       />
     </BaseAutocomplete.Root>
   );

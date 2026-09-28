@@ -311,6 +311,7 @@ function RecordMeta({ record }: { record: LogRecord }) {
       <Row label="tokens">
         {record.promptTokens} in · {record.completionTokens} out · {record.cacheReadTokens} cached
         {record.cacheWriteTokens > 0 ? ` · ${record.cacheWriteTokens} written` : ""}
+        {record.savedTokens ? ` · ~${record.savedTokens} saved` : ""}
       </Row>
       <Row label="cost">
         {record.costUsd === null ? "—" : money(record.costUsd)}

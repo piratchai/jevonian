@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `tokenSaver` config for deterministic tool-result compression, in the spirit of [RTK](https://github.com/rtk-ai/rtk). Agents re-send their whole conversation on every turn, and the bulky part is usually prior tool results — test logs, `git status`, long file reads. The saver compresses those outputs inside the outgoing request body (Chat Completions `messages`, Anthropic `tool_result` blocks, Responses `function_call_output` items): dedupe repeated lines into `line × n`, drop noise (npm warnings, download progress, spinner frames), and cap oversized outputs with a "removed N chars" marker so the model can re-run the tool if it still needs the middle. All rules are deterministic — an exact error string or file path survives verbatim. Each turn's ledger row records the estimated tokens kept back (`savedTokens`), and the total is surfaced by `jevonian report`, the `/api/stats` summary, and a new "Tokens saved" card on the Overview. The switch lives on the Routing page and accepts partial updates at `PUT /api/token-saver`; `tokenSaver.enabled: false` sends every body byte-identical.
+
 ## [0.3.2] - 2026-09-27
 
 ### Added

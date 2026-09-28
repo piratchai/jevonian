@@ -7,6 +7,7 @@ import type { OAuthSource } from "./oauth";
 import { hasOAuthCredential } from "./oauth";
 import { configPath } from "./paths";
 import { DEFAULT_PROMPT_POLICY, parsePromptPolicy, type PromptPolicyConfig } from "./prompt-policy";
+import { DEFAULT_TOKEN_SAVER, parseTokenSaver, type TokenSaverConfig } from "./saver";
 import {
   canServeClient,
   normalizeProviderType,
@@ -415,6 +416,11 @@ export interface Config {
   modelSync: ModelSyncConfig;
   /** Outgoing prompt hygiene: built-in rival-prompt signatures plus operator rules. */
   promptPolicy: PromptPolicyConfig;
+  /**
+   * Deterministic compression of prior tool results before a request leaves for the
+   * provider — the RTK-style token saver. `enabled: false` sends every body untouched.
+   */
+  tokenSaver: TokenSaverConfig;
 }
 
 export const DEFAULT_QUOTA_GUARD: QuotaGuardConfig = {
@@ -819,8 +825,15 @@ export function parseConfig(raw: unknown): Config {
   const value = asRecord(raw);
   const listen = asRecord(value.listen);
   const host = typeof listen.host === "string" ? listen.host : "127.0.0.1";
+  // `JEVONIAN_PORT` overrides both the config file and the 8787 default so a dev instance
+  // can bind a scratch port without touching the running service's config on disk.
+  const envPort = Number(process.env.JEVONIAN_PORT);
   const port =
-    typeof listen.port === "number" && Number.isInteger(listen.port) ? listen.port : 8787;
+    Number.isInteger(envPort) && envPort > 0
+      ? envPort
+      : typeof listen.port === "number" && Number.isInteger(listen.port)
+        ? listen.port
+        : 8787;
   const providers = Array.isArray(value.providers) ? value.providers.map(parseProvider) : [];
   const tunnel = parseTunnel(value.tunnel);
   const aliases = asRecord(value.modelAliases);
@@ -840,6 +853,7 @@ export function parseConfig(raw: unknown): Config {
     routing: parseRouting(value.routing),
     modelSync: parseModelSync(value.modelSync),
     promptPolicy: parsePromptPolicy(value.promptPolicy),
+    tokenSaver: parseTokenSaver(value.tokenSaver),
   };
 }
 
@@ -891,6 +905,7 @@ export function writeExampleConfig(): string {
     },
     modelSync: { enabled: true, intervalMinutes: 720 },
     promptPolicy: DEFAULT_PROMPT_POLICY,
+    tokenSaver: DEFAULT_TOKEN_SAVER,
   };
   writeFileSync(path, `${JSON.stringify(example, null, 2)}\n`);
   return path;

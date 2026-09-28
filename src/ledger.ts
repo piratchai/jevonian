@@ -39,6 +39,11 @@ export interface LedgerRecord {
   cache?: import("./routing").CacheAffinity;
   switchPenaltyUsd?: number | null;
   /**
+   * Estimated input tokens the deterministic tool-result saver removed before egress
+   * (`tokenSaver` config). Absent when the saver was off or nothing qualified.
+   */
+  savedTokens?: number;
+  /**
    * Transient upstream failures that were retried before this record was written. Absent when
    * the first attempt succeeded, so a clean turn carries no field at all.
    */

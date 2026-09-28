@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import {
   askJev,
   cloudflareAiRunUrl,
+  consumeAskJevFailure,
   httpQuestions,
+  PLACEHOLDER_BRAIN_KEY,
   normalizeEvaluationResult,
   parseSystemOneResponse,
   routingCriteria,
@@ -88,6 +90,28 @@ describe("parseSystemOneResponse", () => {
     const parsed = parseSystemOneResponse({ answers: { model: {} } });
     expect(parsed.model).toBeUndefined();
     expect(parsed.confidence).toBe(0);
+  });
+
+  it("keeps Jev's reported confidence even when the distribution disagrees", () => {
+    const parsed = parseSystemOneResponse({
+      answers: {
+        model: { choice: "plan", confidence: 0.3, probabilities: { plan: 0.52, execute: 0.48 } },
+      },
+    });
+    expect(parsed.confidence).toBe(0.3);
+  });
+
+  it("reads confidence from the distribution for channels that ask for it", () => {
+    // Kev's `confidence` is a separate calibrated score, not the winning probability.
+    const parsed = parseSystemOneResponse(
+      {
+        answers: {
+          model: { choice: "b", confidence: 0.04, probabilities: { a: 0.48, b: 0.52 } },
+        },
+      },
+      { confidenceFromDistribution: true },
+    );
+    expect(parsed.confidence).toBe(0.52);
   });
 
   it("keeps the effort distribution alongside the effort choice", () => {
@@ -218,6 +242,51 @@ describe("askJev", () => {
     expect(authorization).toBe("Bearer typed-key");
   });
 
+  it("calls a keyless Kev server with a placeholder bearer and its distribution", async () => {
+    let captured: { url: string; authorization: string | null } | undefined;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      captured = {
+        url: String(url),
+        authorization: new Headers(init.headers).get("authorization"),
+      };
+      return new Response(
+        JSON.stringify({
+          model: "kev-latest",
+          answers: {
+            model: {
+              choice: "execute",
+              confidence: 0.05,
+              probabilities: { execute: 0.61, plan: 0.39 },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const verdict = await askJev({
+      brain: { channel: "kev", timeoutMs: 1_000, minConfidence: 0.4 },
+      state: {},
+    });
+    expect(captured).toEqual({
+      url: "http://127.0.0.1:8009/v1/systemone",
+      authorization: `Bearer ${PLACEHOLDER_BRAIN_KEY}`,
+    });
+    expect(verdict?.model).toBe("execute");
+    expect(verdict?.confidence).toBe(0.61);
+  });
+
+  it("explains a 401 from a Kev server that was started with a key", async () => {
+    process.env.JEVONIAN_UPSTREAM_RETRIES = "0";
+    vi.stubGlobal("fetch", async () => new Response("unauthorized", { status: 401 }));
+    const verdict = await askJev({
+      brain: { channel: "kev", timeoutMs: 1_000, minConfidence: 0.4 },
+      state: {},
+    });
+    expect(verdict).toBeUndefined();
+    expect(consumeAskJevFailure()?.error).toContain("KEV_API_KEY");
+    delete process.env.JEVONIAN_UPSTREAM_RETRIES;
+  });
+
   it("returns undefined on upstream errors", async () => {
     process.env.JEVONIAN_UPSTREAM_RETRIES = "0";
     vi.stubGlobal("fetch", async () => new Response("nope", { status: 500 }));
@@ -342,6 +411,15 @@ describe("channels", () => {
     expect(findJevChannel("cloudflare")?.requiresAccountId).toBe(true);
     expect(findJevChannel("cloudflare")?.model).toBe("typesafe/jev");
     expect(JEV_CHANNELS.some((channel) => channel.requiresBaseUrl)).toBe(true);
+    expect(findJevChannel("kev")).toMatchObject({
+      model: "kev-latest",
+      keyOptional: true,
+      compactState: true,
+      confidenceFromDistribution: true,
+    });
+    // Hosted Jev channels keep the full state and Jev's own confidence.
+    expect(findJevChannel("typesafe")?.compactState).toBeUndefined();
+    expect(findJevChannel("typesafe")?.confidenceFromDistribution).toBeUndefined();
   });
 });
 

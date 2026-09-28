@@ -45,6 +45,7 @@ import {
   type RoutingEntryView,
   type RoutingView,
   type StateResponse,
+  type TokenSaverConfigView,
 } from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
@@ -699,6 +700,8 @@ export function RoutingPage() {
   const [canonicals, setCanonicals] = useState<CanonicalModelView[]>([]);
   const [drafts, setDrafts] = useState<RoutingEntryView[]>([]);
   const [picker, setPicker] = useState<Record<string, string>>({});
+  const [saver, setSaver] = useState<TokenSaverConfigView | null>(null);
+  const [saverBusy, setSaverBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -715,6 +718,7 @@ export function RoutingPage() {
       setSaved(state.config.routing);
       setState(state);
       setGuard(state.config.routing.quotaGuard ?? GUARD_FALLBACK);
+      setSaver(state.config.tokenSaver ?? null);
       setDrafts(ensureRoutings(state.config.routing, state.routings ?? []));
       setHealth(quota.health);
       setModels(modelList.models);
@@ -776,21 +780,47 @@ export function RoutingPage() {
     return map;
   }, [state]);
 
+  /**
+   * One searchable row per model a routing could take. The search text covers the id, the
+   * catalog's display name, every serving provider's label, and the price — so "opus",
+   * "openrouter", or "$3" all land on the right row even when the model id would not.
+   */
   const modelOptions = useCallback(
     (routingId: string) => {
       const used = drafts.find((entry) => entry.id === routingId)?.models ?? [];
+      const providerBadges = (modelId: string) =>
+        (providersByModel.get(modelId) ?? []).map((provider) => {
+          const status = statusByProvider.get(provider);
+          const official = officialsByModel.get(modelId)?.has(provider) ?? false;
+          const label = providerDisplayName(provider);
+          const text = `${label}${official ? " ✦" : ""}${status === "exhausted" ? " spent" : status === "low" ? " low" : ""}`;
+          return {
+            text,
+            tone:
+              status === "exhausted"
+                ? ("bad" as const)
+                : status === "low"
+                  ? ("warn" as const)
+                  : ("muted" as const),
+          };
+        });
       return [
         ...canonicals
           .filter((entry) => !used.includes(entry.id))
           .map((entry) => {
-            const providers = providersByModel.get(entry.id) ?? [];
+            const catalogName = catalogNames.get(entry.id);
+            const keywords = [
+              catalogName,
+              ...(providersByModel.get(entry.id) ?? []).map(providerDisplayName),
+            ]
+              .filter(Boolean)
+              .join(" ");
             return {
               value: entry.id,
               label: entry.id,
-              hint:
-                providers.length > 2
-                  ? `${providers.length} providers`
-                  : providers.map((provider) => providerDisplayName(provider)).join(", "),
+              hint: catalogName,
+              keywords,
+              meta: providerBadges(entry.id),
             };
           }),
         ...models
@@ -803,16 +833,21 @@ export function RoutingPage() {
           .map((model) => ({
             value: model.id,
             label: model.id,
-            hint: [
-              providerDisplayName(model.provider),
-              model.price ? `$${model.price.input}/$${model.price.output}` : undefined,
-            ]
-              .filter(Boolean)
-              .join(" · "),
+            hint: model.price ? `$${model.price.input}/$${model.price.output}` : undefined,
+            keywords: providerDisplayName(model.provider),
+            meta: providerBadges(model.id),
           })),
       ];
     },
-    [canonicals, drafts, models, providersByModel],
+    [
+      canonicals,
+      catalogNames,
+      drafts,
+      models,
+      officialsByModel,
+      providersByModel,
+      statusByProvider,
+    ],
   );
 
   const dirty = useMemo(() => {
@@ -823,14 +858,33 @@ export function RoutingPage() {
     return JSON.stringify(current) !== JSON.stringify(previous);
   }, [saved, drafts, guard, state]);
 
+  const persistedById = useMemo(() => {
+    const map = new Map<string, RoutingEntryView>();
+    for (const entry of saved ? ensureRoutings(saved, state?.routings ?? []) : []) {
+      map.set(entry.id, entry);
+    }
+    return map;
+  }, [saved, state]);
+
+  /** Whether one card's drafts differ from what's persisted — drives "Save" vs "Done". */
+  function routingDirty(id: string): boolean {
+    const persisted = persistedById.get(id);
+    const current = drafts.find((entry) => entry.id === id);
+    if (!persisted || !current) return persisted !== current;
+    return JSON.stringify(persisted) !== JSON.stringify(current);
+  }
+
   function updateRouting(id: string, patch: Partial<RoutingEntryView>) {
     setDrafts((current) =>
       current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
     );
   }
 
-  function addModel(routingId: string) {
-    const value = picker[routingId];
+  /**
+   * Append a model by id. The Combobox hands back the picked value on Enter/click, so adding is
+   * one keystroke — no separate commit button, and the input clears itself for the next pick.
+   */
+  function addModel(routingId: string, value: string) {
     if (!value) return;
     setDrafts((current) =>
       current.map((entry) =>
@@ -942,7 +996,26 @@ export function RoutingPage() {
     }
   }
 
-  /** Persist drafts when leaving customize mode (Done, or switching cards). */
+  async function saveSaver(patch: Partial<TokenSaverConfigView>): Promise<void> {
+    if (!saver) return;
+    setSaverBusy(true);
+    setError("");
+    setSaver({ ...saver, ...patch });
+    try {
+      await api.saveTokenSaver(patch);
+    } catch (cause) {
+      setError(String(cause));
+      await load();
+    } finally {
+      setSaverBusy(false);
+    }
+  }
+
+  /**
+   * Leave customize mode. A dirty card hard-blocks the switch — the click is already
+   * pointer-events-none'd by the card's opacity, so this only fires from the focused card's
+   * own buttons. Save commits and closes; Cancel reverts via {@link cancelEditing}.
+   */
   async function commitEditing(nextEditingId: string | null = null): Promise<boolean> {
     if (dirty) {
       const ok = await save();
@@ -951,6 +1024,26 @@ export function RoutingPage() {
     setEditingId(nextEditingId);
     return true;
   }
+
+  /** Drop the edit in place: revert this card's drafts to the saved shape and collapse it. */
+  function cancelEditing(nextEditingId: string | null = null) {
+    if (!saved) return;
+    const persisted = ensureRoutings(saved, state?.routings ?? []);
+    setDrafts(persisted);
+    setGuard(saved.quotaGuard ?? GUARD_FALLBACK);
+    setEditingId(nextEditingId);
+    setError("");
+  }
+
+  /** Keep the last committed edits from vanishing on an accidental close or navigation. */
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   if (!saved || !state) return <RoutingSkeleton />;
 
@@ -1055,7 +1148,7 @@ export function RoutingPage() {
                     "flex flex-col gap-3 rounded-md border p-3 transition-[opacity,box-shadow,background-color]",
                     expanded &&
                       "border-foreground/25 bg-muted/30 shadow-sm ring-1 ring-foreground/10",
-                    editingId && !expanded && "opacity-50",
+                    editingId && !expanded && "pointer-events-none opacity-50",
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -1087,10 +1180,15 @@ export function RoutingPage() {
                               }
                             />
                           </div>
-                          <span className="text-[10px] text-muted-foreground">
-                            <code>jevonian/{routing.id}</code>
-                            {builtin ? " · builtin" : " · custom"}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              <code>jevonian/{routing.id}</code>
+                              {builtin ? " · builtin" : " · custom"}
+                            </span>
+                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-600">
+                              editing{routingDirty(routing.id) ? " · unsaved" : ""}
+                            </span>
+                          </div>
                         </div>
                       ) : (
                         <div>
@@ -1101,17 +1199,8 @@ export function RoutingPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {expanded ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={busy}
-                          onClick={() => void commitEditing(null)}
-                        >
-                          {busy ? "Saving…" : "Done"}
-                        </Button>
-                      ) : (
+                    {!expanded ? (
+                      <div className="flex shrink-0 flex-col items-end gap-1">
                         <Button
                           size="sm"
                           variant="outline"
@@ -1123,18 +1212,8 @@ export function RoutingPage() {
                         >
                           Customize
                         </Button>
-                      )}
-                      {!builtin && expanded ? (
-                        <button
-                          type="button"
-                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => void removeRouting(routing.id)}
-                        >
-                          Delete routing
-                        </button>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-1.5">
@@ -1153,7 +1232,7 @@ export function RoutingPage() {
 
                     {modelList.length === 0 ? (
                       <span className="text-[11px] text-muted-foreground">
-                        {expanded ? "None yet — add a model below." : "None — customize to add"}
+                        {expanded ? "None yet — search to add." : "None — customize to add"}
                       </span>
                     ) : (
                       <>
@@ -1219,26 +1298,53 @@ export function RoutingPage() {
                   </div>
 
                   {expanded ? (
-                    <div className="flex flex-col gap-2 border-t pt-3">
+                    <div className="flex flex-col gap-1.5 border-t pt-3">
                       <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
                         Add model
                       </Label>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Combobox
-                          value={picker[routing.id] ?? ""}
-                          onChange={(value) =>
-                            setPicker((current) => ({ ...current, [routing.id]: value }))
-                          }
-                          options={modelOptions(routing.id)}
-                          placeholder="Search models…"
-                        />
+                      <Combobox
+                        value={picker[routing.id] ?? ""}
+                        onChange={(value) => addModel(routing.id, value)}
+                        options={modelOptions(routing.id)}
+                        placeholder="Search by id, name, provider, or price…"
+                        emptyText="No model matches — check that a provider serves it."
+                      />
+                      <span className="text-[10px] text-muted-foreground">
+                        Enter to add — search matches id, catalog name, provider, price.
+                      </span>
+                      {routingDirty(routing.id) ? (
+                        <span className="text-[10px] font-medium text-amber-600">
+                          Unsaved — Save or Cancel to switch cards.
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {expanded ? (
+                    <div className="flex items-center justify-between gap-2 border-t pt-3">
+                      {!builtin ? (
+                        <button
+                          type="button"
+                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => void removeRouting(routing.id)}
+                        >
+                          Delete routing
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <div className="flex items-center gap-2">
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() => addModel(routing.id)}
-                          disabled={!picker[routing.id]}
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => cancelEditing(null)}
                         >
-                          Add
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={() => void commitEditing(null)} disabled={busy}>
+                          {busy ? "Saving…" : routingDirty(routing.id) ? "Save" : "Done"}
                         </Button>
                       </div>
                     </div>
@@ -1303,6 +1409,86 @@ export function RoutingPage() {
               Configure on the Providers page
             </a>
           </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <CardTitle>Token saver</CardTitle>
+              <CardDescription>
+                {saver?.enabled
+                  ? "Compresses prior tool results before each request leaves — fewer prompt tokens upstream."
+                  : "Off — tool outputs are sent to the provider verbatim."}
+              </CardDescription>
+            </div>
+            <Badge variant={saver?.enabled ? "default" : "outline"}>
+              {saver?.enabled ? "on" : "off"}
+            </Badge>
+          </CardHeader>
+          {saver ? (
+            <CardContent className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Dedupe repeated lines, drop noise (npm warnings, progress), and truncate outputs
+                  beyond {saver.maxChars.toLocaleString()} chars.
+                </span>
+                <Select
+                  value={saver.enabled ? "on" : "off"}
+                  onValueChange={(value) => void saveSaver({ enabled: value === "on" })}
+                  disabled={saverBusy}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="on">on</SelectItem>
+                    <SelectItem value="off">off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {saver.enabled ? (
+                <div className="grid grid-cols-3 gap-2 border-t pt-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Max chars
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={5000}
+                      value={saver.maxChars}
+                      disabled={saverBusy}
+                      onChange={(event) =>
+                        setSaver({ ...saver, maxChars: Number(event.target.value) })
+                      }
+                      onBlur={() => void saveSaver({ maxChars: saver.maxChars })}
+                      className="h-8 text-xs"
+                    />
+                  </label>
+                  <label className="flex items-end gap-1.5 pb-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={saver.dedupeLines}
+                      disabled={saverBusy}
+                      onChange={(event) => void saveSaver({ dedupeLines: event.target.checked })}
+                      className="size-3.5 accent-foreground"
+                    />
+                    dedupe lines
+                  </label>
+                  <label className="flex items-end gap-1.5 pb-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={saver.stripNoise}
+                      disabled={saverBusy}
+                      onChange={(event) => void saveSaver({ stripNoise: event.target.checked })}
+                      className="size-3.5 accent-foreground"
+                    />
+                    strip noise
+                  </label>
+                </div>
+              ) : null}
+            </CardContent>
+          ) : null}
         </Card>
 
         <Card>

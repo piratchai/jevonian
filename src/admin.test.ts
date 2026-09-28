@@ -136,6 +136,30 @@ describe("admin config writes", () => {
     expect(getCredential("brain:custom")).toBe("secret");
   });
 
+  it("applies a channel's confidence default only when a brain moves onto that channel", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, []);
+    const state: AppState = { config: loadConfig() ?? parseConfig({}) };
+    const app = createAdminApp(state);
+    const send = async (method: string, url: string, body: unknown): Promise<void> => {
+      await app.request(url, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    };
+
+    await send("POST", "/brains", { channel: "kev" });
+    let brain = (loadConfig() ?? parseConfig({})).routing.brains[0];
+    expect(brain?.minConfidence).toBe(0.4);
+
+    // A later edit that stays on the channel keeps a value the user tuned.
+    await send("PUT", "/brains/0", { channel: "kev", minConfidence: 0.55 });
+    await send("PUT", "/brains/0", { channel: "kev", timeoutMs: 2_000 });
+    brain = (loadConfig() ?? parseConfig({})).routing.brains[0];
+    expect(brain).toMatchObject({ minConfidence: 0.55, timeoutMs: 2_000 });
+  });
+
   it("serves a log detail with the prompt and brain calls", async () => {
     const requestId = "11111111-2222-3333-4444-555555555555";
     appendRecord({
@@ -432,6 +456,26 @@ describe("admin config writes", () => {
     expect((await post({ models: ["a"], syncModels: null })).status).toBe(200);
     expect(written().providers[0]).not.toHaveProperty("syncModels");
     expect(written().providers[0]?.excludeModels).toEqual(["b"]);
+  });
+
+  it("persists the token-saver toggle", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    const app = createAdminApp({ config: loadConfig() ?? parseConfig({}) });
+    const response = await app.request("/token-saver", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false, maxChars: 5_000 }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { tokenSaver: { enabled: boolean; maxChars: number } };
+    expect(body.tokenSaver.enabled).toBe(false);
+    expect(body.tokenSaver.maxChars).toBe(5_000);
+    const written = JSON.parse(readFileSync(path, "utf8")) as {
+      tokenSaver: { enabled: boolean; maxChars: number };
+    };
+    expect(written.tokenSaver.enabled).toBe(false);
+    expect(written.tokenSaver.maxChars).toBe(5_000);
   });
 
   it("clamps a too-short model-sync interval", async () => {

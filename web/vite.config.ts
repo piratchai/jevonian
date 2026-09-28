@@ -26,11 +26,13 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5173,
+    // Dev ports sit far from the production defaults (8787 api / 5173 web) so `npm run dev`
+    // never collides with a running jevonian instance or another vite dev server.
+    port: Number(process.env.JEVONIAN_WEB_PORT ?? 15174),
     proxy: {
-      "/api": "http://127.0.0.1:8787",
-      "/v1": "http://127.0.0.1:8787",
-      "/healthz": "http://127.0.0.1:8787",
+      "/api": `http://127.0.0.1:${Number(process.env.JEVONIAN_PORT ?? 18888)}`,
+      "/v1": `http://127.0.0.1:${Number(process.env.JEVONIAN_PORT ?? 18888)}`,
+      "/healthz": `http://127.0.0.1:${Number(process.env.JEVONIAN_PORT ?? 18888)}`,
     },
   },
 });

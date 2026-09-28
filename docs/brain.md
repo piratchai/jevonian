@@ -15,6 +15,7 @@ Routing always consults a Jev brain. Code narrows the candidates — dropping pr
 | OpenCode Zen          | `https://opencode.ai/zen/v1/systemone`      | `jev-1.13`          | `OPENCODE_API_KEY`                  |
 | Vercel AI Gateway     | AI SDK `experimental_evaluate`              | `typesafe-ai/jev`   | `AI_GATEWAY_API_KEY`                |
 | Cloudflare Workers AI | `/accounts/{accountId}/ai/run`              | `typesafe/jev`      | `CLOUDFLARE_API_TOKEN` + account ID |
+| Kev (local)           | `http://127.0.0.1:8009/v1/systemone`        | `kev-latest`        | optional (`KEV_API_KEY`)            |
 | Custom                | your SystemOne-compatible URL               | `jev-latest`        | per channel                         |
 
 - Keys are stored per channel in `~/.config/jevonian/credentials.json` (`brain:<channel>`), or referenced through an env var.
@@ -30,6 +31,36 @@ Routing always consults a Jev brain. Code narrows the candidates — dropping pr
 Brains are configured in their own section on the **Providers** page: add as many as you want (`POST /api/brains`), edit or remove any of them (`PUT`/`DELETE /api/brains/:index`), reorder them with the up/down buttons (`POST /api/brains/:index/move`). Each row shows channel, model, key source and context mode, and the form has the channel picker, key entry, confidence threshold, timeout, context (compact/full), and a **Test channel** button. Removing a brain deletes its stored channel key once no other brain uses that channel. Saving routing policy never overwrites the brains; the Routing page shows them and links here.
 
 The Vercel channel calls `experimental_evaluate` from AI SDK 7 through `@ai-sdk/gateway`. The Cloudflare Workers AI channel posts to `/client/v4/accounts/{accountId}/ai/run` with `state` and `questions` wrapped in `input`. Every other channel speaks the System One HTTP API directly.
+
+## Self-hosting with Kev
+
+[Kev](https://github.com/jaredpalmer/kev) is an open-source (Apache-2.0) Jev-like decision model built on Qwen bases, the closest open alternative for the routing-brain job. It serves the same `POST /v1/systemone` contract, so the `kev` channel needs no client changes and no API key unless the server was started with `KEV_API_KEY`.
+
+One command deploys it and makes it the primary brain (you need `git` and [uv](https://docs.astral.sh/uv/)):
+
+```bash
+jevonian kev --start          # clone + install + start kev-4b on :8009 + add the brain
+jevonian stop && jevonian     # restart Jevonian so it reads the new brain
+```
+
+```bash
+jevonian kev --status                           # is it answering?
+jevonian kev --stop                             # stop the server
+jevonian kev --run jaredpalmer/kev-9b --start   # another checkpoint (stop the running one first)
+jevonian kev --start --no-config                # deploy without touching config.json
+```
+
+The command puts the Kev brain first in the failover list and keeps any hosted brains behind it, so Jev only answers when the local server is down. It sets `minConfidence` to 0.4: Kev's calibrated probabilities run lower than Jev's, and the Jev default of 0.6 would mark most correct Kev verdicts low-confidence.
+
+**Why not Ollama.** A Kev checkpoint is a LoRA adapter plus a pointer head that reads option probabilities from one forward pass. A GGUF chat runtime such as Ollama cannot serve that, so Kev runs through its own `kev.serve`: MLX on Apple Silicon, CUDA or ROCm on Linux.
+
+Pick a checkpoint by hardware: `kev-4b` runs on a laptop; `kev-9b` wants about 24GB of memory (it runs on an M-series Mac with enough unified memory); `kev-27b` wants about 80GB. The first start downloads the adapter and its Qwen base once (~8GB for 4B, ~18GB for 9B).
+
+**How it differs from Jev.** Kev's answer `confidence` field is a separate calibrated score rather than the winning option's probability, so Jevonian reads Kev's confidence from its probability distribution. Hosted Jev channels keep using Jev's own `confidence`.
+
+**Context limits.** `kev-4b` and `kev-9b` were trained on short states (~384 tokens). Jevonian sends the `kev` channel a trimmed state (no benchmark tables, flat candidate list, or tool-result bodies). The server accepts up to 65,536 tokens, but the smaller checkpoints lose accuracy on long `fullPrompt` transcripts; use `kev-27b` if you enable `fullPrompt`.
+
+**Limits of the replacement.** On a local M5 Pro with `kev-9b`, most routed turns got a confident verdict. With four or more routings competing, Kev still sometimes answers `none_of_the_above`; the router then falls back to the first routing, the same path it takes for Jev. A larger checkpoint, or fine-tuning with the Kev repo's training pipeline, narrows that gap.
 
 ## Privacy
 
