@@ -438,10 +438,11 @@ function streamResponse(
   meta: RequestMeta,
   headers: Record<string, string>,
   contentType = "text/event-stream",
+  onClientCancel?: () => void,
 ): Response {
   return new Response(
     streamWithKeepalive(stream, {
-      onClientCancel: () => record(meta, 499, emptyUsage(), null, true, "client canceled"),
+      onClientCancel: onClientCancel ?? (() => record(meta, 499, emptyUsage(), null, true, "client canceled")),
     }),
     {
       status: 200,
@@ -1990,6 +1991,15 @@ async function forward(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
+        "text/event-stream",
+        () => {
+          if (usage.output > 0 || usage.input > 0) {
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          } else {
+            record(meta, 499, emptyUsage(), null, true, "client canceled");
+          }
+        },
       );
     }
 
@@ -2068,6 +2078,15 @@ async function forward(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
+        "text/event-stream",
+        () => {
+          if (usage.output > 0 || usage.input > 0) {
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          } else {
+            record(meta, 499, emptyUsage(), null, true, "client canceled");
+          }
+        },
       );
     }
 
@@ -2084,6 +2103,15 @@ async function forward(
             upstream.body?.pipeThrough(transform) ?? null,
             meta,
             decisionHeaders(decision, meta.retries),
+            "text/event-stream",
+            () => {
+              if (usage.output > 0 || usage.input > 0) {
+                const cost = costOf(decision.model, usage, new Date(), decision.provider);
+                record(meta, 200, usage, cost.usd, cost.known);
+              } else {
+                record(meta, 499, emptyUsage(), null, true, "client canceled");
+              }
+            },
           );
         }
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -2217,6 +2245,9 @@ async function forward(
     const usage = emptyUsage();
     const decoder = new TextDecoder();
     let buffer = "";
+    let hasDelivered = false;
+    let finished = false;
+    let charsOut = 0;
 
     const consume = (text: string): void => {
       buffer += text;
@@ -2227,14 +2258,42 @@ async function forward(
         for (const line of event.split("\n")) {
           if (!line.startsWith("data:")) continue;
           const data = line.slice(5).trim();
-          if (data.length === 0 || data === "[DONE]") continue;
+          if (data === "[DONE]") {
+            finished = true;
+            continue;
+          }
+          if (data.length === 0) continue;
           try {
             const parsed = JSON.parse(data) as Record<string, unknown>;
-            if (clientKind === "openai" && parsed.usage !== undefined) {
-              Object.assign(usage, openaiUsage(parsed.usage));
+            if (clientKind === "openai") {
+              if (parsed.usage !== undefined) {
+                Object.assign(usage, openaiUsage(parsed.usage));
+              }
+              const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
+              if (choices && choices.length > 0) {
+                const choice = choices[0];
+                if (choice.delta) {
+                  hasDelivered = true;
+                  const delta = choice.delta as Record<string, unknown>;
+                  if (typeof delta.content === "string") charsOut += delta.content.length;
+                  if (typeof delta.reasoning_content === "string") charsOut += delta.reasoning_content.length;
+                  if (delta.tool_calls) charsOut += JSON.stringify(delta.tool_calls).length;
+                }
+                if (choice.finish_reason) {
+                  hasDelivered = true;
+                  finished = true;
+                }
+              }
             }
             if (clientKind === "anthropic") {
               applyAnthropicEvent(parsed, usage);
+              if (parsed.type === "content_block_delta" || parsed.type === "message_delta") {
+                hasDelivered = true;
+              }
+              if (parsed.type === "message_stop") {
+                hasDelivered = true;
+                finished = true;
+              }
             }
           } catch {
             continue;
@@ -2244,15 +2303,22 @@ async function forward(
       }
     };
 
+    const finalize = (status = 200, error?: string): void => {
+      consume(decoder.decode());
+      if (usage.output === 0 && charsOut > 0) {
+        usage.output = Math.max(1, Math.round(charsOut / 3.5));
+      }
+      const cost = costOf(decision.model, usage, new Date(), decision.provider);
+      record(meta, status, usage, cost.usd, cost.known, error);
+    };
+
     const usageTransform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
         consume(decoder.decode(chunk, { stream: true }));
       },
       flush() {
-        consume(decoder.decode());
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
+        finalize(200);
       },
     });
 
@@ -2265,11 +2331,20 @@ async function forward(
     }
     stream = stream?.pipeThrough(usageTransform) ?? null;
 
+    const onCancel = (): void => {
+      if (finished || hasDelivered) {
+        finalize(200);
+      } else {
+        finalize(499, "client canceled");
+      }
+    };
+
     return streamResponse(
       stream,
       meta,
       decisionHeaders(decision, meta.retries),
       upstream.headers.get("content-type") ?? "text/event-stream",
+      onCancel,
     );
   }
 }

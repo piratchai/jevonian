@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { parseConfig, parseModelEntries, mergeModelEntries } from "./config";
+import { readRecords, resetLedgerCache } from "./ledger";
 import { SessionStore } from "./routing";
 import { createApp } from "./server";
 import {
@@ -425,6 +426,95 @@ describe("OpenAI Chat tool call streaming sanitization", () => {
     const tc = (sanitized.choices as any[])[0].message.tool_calls[0];
     expect(tc.id).toBeUndefined();
     expect(tc.function.name).toBeUndefined();
+  });
+
+  it("records status 200 and retains token usage when client cancels reader after receiving tool calls", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "jevonian-cancel-test-"));
+    const ledgerFile = join(testDir, "ledger.jsonl");
+    const oldDir = process.env.JEVONIAN_DATA_DIR;
+    const oldLedger = process.env.JEVONIAN_LEDGER;
+    process.env.JEVONIAN_DATA_DIR = testDir;
+    process.env.JEVONIAN_LEDGER = ledgerFile;
+    resetLedgerCache();
+
+    try {
+      const config = parseConfig({
+        defaultProvider: "qwen",
+        providers: [
+          {
+            name: "qwen",
+            type: "openai",
+            baseUrl: "https://mock.openai.com/v1",
+            apiKey: "test-key",
+            models: ["qwen3.8-flash"],
+          },
+        ],
+        routing: { mode: "off" },
+      });
+
+      vi.stubGlobal("fetch", async () => {
+        const enc = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              enc.encode(
+                'data: {"id":"chat-1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"shell","arguments":"{\\"cmd\\":\\"ls\\"}"}}]},"finish_reason":null}]}\n\n',
+              ),
+            );
+            controller.enqueue(
+              enc.encode(
+                'data: {"id":"chat-1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":350,"completion_tokens":45,"total_tokens":395}}\n\n',
+              ),
+            );
+            controller.enqueue(enc.encode("data: [DONE]\n\n"));
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      });
+
+      const app = createApp({ config }, new SessionStore(60_000));
+      const response = await app.request("/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "qwen3.8-flash",
+          stream: true,
+          messages: [{ role: "user", content: "run ls" }],
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+
+      // Read the tool call chunks
+      await reader?.read();
+      await reader?.read();
+
+      // Simulate OpenCode canceling the reader to execute the tool locally
+      await reader?.cancel();
+
+      // Wait a brief moment for the cancel transform to complete
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const records = readRecords();
+      expect(records).toHaveLength(1);
+      const record = records[0];
+      expect(record.status).toBe(200);
+      expect(record.promptTokens).toBe(350);
+      expect(record.completionTokens).toBe(45);
+      expect(record.error).toBeUndefined();
+    } finally {
+      if (oldDir === undefined) delete process.env.JEVONIAN_DATA_DIR;
+      else process.env.JEVONIAN_DATA_DIR = oldDir;
+      if (oldLedger === undefined) delete process.env.JEVONIAN_LEDGER;
+      else process.env.JEVONIAN_LEDGER = oldLedger;
+      resetLedgerCache();
+      rmSync(testDir, { recursive: true, force: true });
+    }
   });
 });
 
