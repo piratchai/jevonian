@@ -788,13 +788,23 @@ function applyClaudeCodeSystem(body: Record<string, unknown>): Record<string, un
   const support = anthropicThinkingSupport(model);
 
   if (!support.adaptive) {
+    // `context_management` and `output_config` are adaptive-thinking-only; a legacy model
+    // rejects them outright.
     delete next.context_management;
-    delete next.thinking;
     delete next.output_config;
+    // An `adaptive` thinking shape (Claude 4.6+) must not reach a legacy model. Keep a
+    // legacy-valid `enabled`/`disabled` shape: `withEffort` writes exactly that for these
+    // models, and deleting it here — after `withEffort` ran — would silently discard the
+    // thinking level the router chose.
+    if (asRecord(next.thinking).type === "adaptive") delete next.thinking;
 
     if (Array.isArray(next.messages)) {
       next.messages = next.messages.map((m: unknown) => {
-        if (typeof m === "object" && m !== null && (m as Record<string, unknown>).role === "system") {
+        if (
+          typeof m === "object" &&
+          m !== null &&
+          (m as Record<string, unknown>).role === "system"
+        ) {
           return {
             ...(m as Record<string, unknown>),
             role: "user",
@@ -1459,7 +1469,10 @@ async function forward(
               : {
                   ...body,
                   messages: normalizeOpenAIMessages(
-                    (Array.isArray(body.messages) ? body.messages : []) as Record<string, unknown>[],
+                    (Array.isArray(body.messages) ? body.messages : []) as Record<
+                      string,
+                      unknown
+                    >[],
                   ),
                 };
         return {

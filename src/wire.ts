@@ -339,7 +339,8 @@ export function normalizeOpenAIMessages(
           } else {
             const source = rec.source as Record<string, unknown>;
             if (source.type === "base64" && typeof source.data === "string") {
-              const mediaType = typeof source.media_type === "string" ? source.media_type : "image/png";
+              const mediaType =
+                typeof source.media_type === "string" ? source.media_type : "image/png";
               imageParts.push({
                 type: "image_url",
                 image_url: {
@@ -382,9 +383,7 @@ export function normalizeOpenAIMessages(
         } else if (Array.isArray(rec.content)) {
           contentStr = rec.content
             .map((c) =>
-              typeof c === "string"
-                ? c
-                : (c as Record<string, unknown>).text || JSON.stringify(c),
+              typeof c === "string" ? c : (c as Record<string, unknown>).text || JSON.stringify(c),
             )
             .join("\n");
         } else if (rec.content !== undefined && rec.content !== null) {
@@ -424,15 +423,18 @@ export function normalizeOpenAIMessages(
       }
       out.push(assistantMsg);
     } else if (role === "user") {
+      // Tool results go out before the user text/image. A `tool` message must directly follow
+      // the assistant turn carrying the matching `tool_calls`; strict backends (Qwen, DeepSeek)
+      // reject the sequence when a plain `user` message is interposed between the two.
+      for (const tr of toolResults) {
+        out.push(tr);
+      }
       if (textParts.length > 0 || imageParts.length > 0) {
         if (imageParts.length > 0) {
           out.push({
             ...msg,
             role: "user",
-            content: [
-              ...textParts.map((t) => ({ type: "text", text: t })),
-              ...imageParts,
-            ],
+            content: [...textParts.map((t) => ({ type: "text", text: t })), ...imageParts],
           });
         } else {
           out.push({
@@ -442,18 +444,11 @@ export function normalizeOpenAIMessages(
           });
         }
       }
-      for (const tr of toolResults) {
-        out.push(tr);
-      }
     } else {
       out.push({
         ...msg,
         content:
-          textParts.length > 0
-            ? textParts.join("\n")
-            : imageParts.length > 0
-              ? imageParts
-              : "",
+          textParts.length > 0 ? textParts.join("\n") : imageParts.length > 0 ? imageParts : "",
       });
     }
   }
@@ -471,4 +466,3 @@ export function normalizeOpenAIMessages(
 
   return out;
 }
-
