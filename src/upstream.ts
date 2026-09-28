@@ -111,7 +111,13 @@ import {
 } from "./routing";
 import type { AppEnv } from "./server";
 import { streamWithKeepalive } from "./stream-keepalive";
-import { normalizeOpenAIMessages, planUpstreamWire, upstreamUrlFor } from "./wire";
+import {
+  normalizeOpenAIMessages,
+  planUpstreamWire,
+  sanitizeOpenAIChatResponse,
+  sanitizeOpenAIChatStream,
+  upstreamUrlFor,
+} from "./wire";
 
 interface RequestMeta {
   id: string;
@@ -2107,9 +2113,12 @@ async function forward(
     }
 
     if (!upstreamStream && upstreamKind !== "responses") {
-      const json = (await upstream.json()) as Record<string, unknown>;
+      let json = (await upstream.json()) as Record<string, unknown>;
       if (passbackReasoning && clientKind === "openai") {
         rememberFromChatCompletion(json, passbackMessages, decision.session);
+      }
+      if (clientKind === "openai") {
+        json = sanitizeOpenAIChatResponse(json);
       }
       const usage = clientKind === "openai" ? openaiUsage(json.usage) : anthropicUsage(json.usage);
       const cost = costOf(decision.model, usage, new Date(), decision.provider);
@@ -2250,6 +2259,9 @@ async function forward(
     let stream = upstream.body;
     if (passbackReasoning && clientKind === "openai" && stream) {
       stream = stream.pipeThrough(reasoningCaptureTransform(passbackMessages, decision.session));
+    }
+    if (clientKind === "openai" && stream) {
+      stream = stream.pipeThrough(sanitizeOpenAIChatStream());
     }
     stream = stream?.pipeThrough(usageTransform) ?? null;
 

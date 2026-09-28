@@ -472,3 +472,148 @@ export function normalizeOpenAIMessages(
   return out;
 }
 
+/**
+ * Sanitizes outbound OpenAI Chat Completions SSE streams for OpenAI-compatible clients (like OpenCode).
+ *
+ * Some providers (e.g. Alibaba Cloud Bailian / Qwen, vLLM) send `tool_calls` continuation chunks
+ * with `id: ""` (empty string) instead of omitting the field or leaving it undefined.
+ * Clients like OpenCode evaluate `toolCall.id ?? void 0` which keeps `""` (since `""` is not nullish),
+ * overwriting the tool call id with an empty string and crashing with:
+ * "Error: OpenAI Chat tool call delta is missing id or name".
+ *
+ * This transform cleans up `tool_calls` deltas in SSE chunks:
+ * 1. Strips `id: ""` or whitespace-only `id` from continuation chunks.
+ * 2. Strips `function.name: ""` or whitespace-only `name` from continuation chunks.
+ * 3. Ensures tool call `index` is always a valid number.
+ */
+export function sanitizeOpenAIChatStream(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+
+  const sanitizeEvent = (data: string): string => {
+    if (data === "[DONE]") return data;
+    try {
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object") return data;
+      const choices = parsed.choices;
+      if (!Array.isArray(choices)) return data;
+
+      let changed = false;
+      for (const rawChoice of choices) {
+        const choice = rawChoice as Record<string, unknown>;
+        const delta = choice?.delta as Record<string, unknown> | undefined;
+        if (delta && Array.isArray(delta.tool_calls)) {
+          for (const rawTc of delta.tool_calls) {
+            if (rawTc && typeof rawTc === "object") {
+              const tc = rawTc as Record<string, unknown>;
+              if (typeof tc.index !== "number") {
+                tc.index = 0;
+                changed = true;
+              }
+              if (typeof tc.id === "string" && tc.id.trim() === "") {
+                delete tc.id;
+                changed = true;
+              }
+              const fn = tc.function as Record<string, unknown> | undefined;
+              if (fn && typeof fn.name === "string" && fn.name.trim() === "") {
+                delete fn.name;
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+      return changed ? JSON.stringify(parsed) : data;
+    } catch {
+      return data;
+    }
+  };
+
+  const processChunk = (
+    text: string,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ): void => {
+    buffer += text;
+    let index = buffer.indexOf("\n\n");
+    while (index !== -1) {
+      const block = buffer.slice(0, index);
+      buffer = buffer.slice(index + 2);
+
+      const lines = block.split("\n");
+      const outLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("data:")) {
+          const rawData = line.slice(5).trim();
+          if (rawData.length === 0) {
+            outLines.push(line);
+          } else {
+            outLines.push(`data: ${sanitizeEvent(rawData)}`);
+          }
+        } else {
+          outLines.push(line);
+        }
+      }
+      controller.enqueue(encoder.encode(outLines.join("\n") + "\n\n"));
+      index = buffer.indexOf("\n\n");
+    }
+  };
+
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      processChunk(decoder.decode(chunk, { stream: true }), controller);
+    },
+    flush(controller) {
+      const remaining = decoder.decode();
+      if (remaining.length > 0) {
+        processChunk(remaining, controller);
+      }
+      if (buffer.length > 0) {
+        const lines = buffer.split("\n");
+        const outLines: string[] = [];
+        for (const line of lines) {
+          if (line.startsWith("data:")) {
+            const rawData = line.slice(5).trim();
+            if (rawData.length > 0) {
+              outLines.push(`data: ${sanitizeEvent(rawData)}`);
+            } else {
+              outLines.push(line);
+            }
+          } else {
+            outLines.push(line);
+          }
+        }
+        controller.enqueue(encoder.encode(outLines.join("\n")));
+        buffer = "";
+      }
+    },
+  });
+}
+
+/**
+ * Sanitizes non-streaming OpenAI Chat Completions responses, stripping empty id/name from tool_calls.
+ */
+export function sanitizeOpenAIChatResponse(json: Record<string, unknown>): Record<string, unknown> {
+  const choices = json.choices;
+  if (!Array.isArray(choices)) return json;
+  for (const rawChoice of choices) {
+    const choice = rawChoice as Record<string, unknown>;
+    const msg = choice?.message as Record<string, unknown> | undefined;
+    if (msg && Array.isArray(msg.tool_calls)) {
+      for (const rawTc of msg.tool_calls) {
+        if (rawTc && typeof rawTc === "object") {
+          const tc = rawTc as Record<string, unknown>;
+          if (typeof tc.id === "string" && tc.id.trim() === "") {
+            delete tc.id;
+          }
+          const fn = tc.function as Record<string, unknown> | undefined;
+          if (fn && typeof fn.name === "string" && fn.name.trim() === "") {
+            delete fn.name;
+          }
+        }
+      }
+    }
+  }
+  return json;
+}
+

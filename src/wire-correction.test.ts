@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { parseConfig, parseModelEntries, mergeModelEntries } from "./config";
 import { SessionStore } from "./routing";
 import { createApp } from "./server";
-import { normalizeOpenAIMessages } from "./wire";
+import {
+  normalizeOpenAIMessages,
+  sanitizeOpenAIChatResponse,
+  sanitizeOpenAIChatStream,
+} from "./wire";
 
 describe("model entry parse", () => {
   it("accepts bare strings and { id, wire } objects", () => {
@@ -352,4 +356,76 @@ describe("normalizeOpenAIMessages", () => {
     expect("tool_calls" in result[2]).toBe(false);
   });
 });
+
+describe("OpenAI Chat tool call streaming sanitization", () => {
+  it("strips empty id: '' and name: '' from streaming tool_call deltas", async () => {
+    const rawEvents = [
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_123","type":"function","index":0,"function":{"name":"get_weather","arguments":""}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"","type":"function","index":0,"function":{"arguments":"{\\"city\\": "}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"id":"","type":"function","index":0,"function":{"arguments":"\\"Tokyo\\"}"}}]}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"function":{"arguments":""},"index":0,"type":"function","id":""}]}}]}\n\n',
+      "data: [DONE]\n\n",
+    ].join("");
+
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    const inputStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(rawEvents));
+        controller.close();
+      },
+    });
+
+    const outputStream = inputStream.pipeThrough(sanitizeOpenAIChatStream());
+    const reader = outputStream.getReader();
+    let result = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      result += decoder.decode(value, { stream: true });
+    }
+
+    // Chunk 1 preserves id and name
+    expect(result).toContain('"id":"call_123"');
+    expect(result).toContain('"name":"get_weather"');
+
+    // Chunks 2, 3, 4 strip id: "" so OpenCode does not fail with "tool call delta is missing id or name"
+    const lines = result.split("\n").filter((l) => l.startsWith("data:") && !l.includes("[DONE]"));
+    expect(lines).toHaveLength(4);
+
+    const chunk2 = JSON.parse(lines[1].slice(5));
+    expect(chunk2.choices[0].delta.tool_calls[0].id).toBeUndefined();
+    expect(chunk2.choices[0].delta.tool_calls[0].function.arguments).toBe('{"city": ');
+
+    const chunk3 = JSON.parse(lines[2].slice(5));
+    expect(chunk3.choices[0].delta.tool_calls[0].id).toBeUndefined();
+
+    const chunk4 = JSON.parse(lines[3].slice(5));
+    expect(chunk4.choices[0].delta.tool_calls[0].id).toBeUndefined();
+  });
+
+  it("sanitizes non-streaming responses with empty id or name", () => {
+    const raw = {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            tool_calls: [
+              {
+                id: "",
+                type: "function",
+                function: { name: "", arguments: "{}" },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const sanitized = sanitizeOpenAIChatResponse(raw);
+    const tc = (sanitized.choices as any[])[0].message.tool_calls[0];
+    expect(tc.id).toBeUndefined();
+    expect(tc.function.name).toBeUndefined();
+  });
+});
+
 
