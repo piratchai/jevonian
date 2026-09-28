@@ -356,6 +356,38 @@ describe("normalizeOpenAIMessages", () => {
     });
     expect("tool_calls" in result[2]).toBe(false);
   });
+
+  it("emits tool messages before the user content of the same turn", () => {
+    // A `tool` message must directly follow the assistant `tool_calls`; text/image that shared
+    // the user's content array used to be emitted first, interposing a `user` turn and breaking
+    // strict backends.
+    const input = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "tu9", name: "shot", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu9", content: "captured" },
+          { type: "text", text: "what do you see?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AFTER_TOOL" } },
+        ],
+      },
+    ];
+
+    const result = normalizeOpenAIMessages(input);
+    expect(result.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user"]);
+    expect(result[2]).toEqual({ role: "tool", tool_call_id: "tu9", content: "captured" });
+    expect(result[3]).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "what do you see?" },
+        { type: "image_url" },
+      ],
+    });
+  });
 });
 
 describe("OpenAI Chat tool call streaming sanitization", () => {

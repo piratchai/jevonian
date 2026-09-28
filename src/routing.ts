@@ -672,7 +672,8 @@ function stringifyContent(value: unknown): string {
     return value
       .map((block) => {
         const record = asRecord(block);
-        if (typeof record.text === "string") return record.text.replace(BASE64_IMAGE_DATA, "[image]");
+        if (typeof record.text === "string")
+          return record.text.replace(BASE64_IMAGE_DATA, "[image]");
         if (record.type === "image_url" || record.type === "image") return "[image]";
         return JSON.stringify(record).replace(BASE64_IMAGE_DATA, "[image]");
       })
@@ -1344,6 +1345,14 @@ export async function decideRoute(
     normalizeRoutingId(firstHeader(headers, ["x-jevonian-phase", "x-jevonian-tier"]), config) ??
     (requestedModel === "auto" ? undefined : normalizeRoutingId(requestedModel, config));
 
+  // The thinking level to send upstream. All three sources are resolved before the branch so
+  // the explicit-routing path applies a tier's `effort` too, not just the brain path.
+  const requestedEffort = headerEffort(headers);
+  const brainPicksEffort = config.routing.brainPicksEffort;
+  const defaultEffort = brainEffort(config.routing.defaultEffort);
+  const tierEffortOf = (target: Phase): ReasoningEffort | undefined =>
+    routings.find((entry) => entry.id === target)?.effort;
+
   const previous = store.get(session, now);
   const turns = (previous?.turns ?? 0) + 1;
   const candidatesFor = (target: Phase): TierPick[] => {
@@ -1415,6 +1424,21 @@ export async function decideRoute(
         error: `No models available for routing. Configure routing.routings or add models to a provider.`,
       };
     }
+    // A pinned tier carries its own configured level; failing that the client's header, then the
+    // configured default. Clamped to what the chosen model accepts, exactly as the brain path does.
+    const tierEffort = tierEffortOf(phase);
+    const explicitWanted = tierEffort ?? requestedEffort ?? defaultEffort;
+    const explicitEffort = clampEffort(
+      explicitWanted,
+      effectiveCapabilities(picked.model, config.routing.capacities?.[picked.model]).efforts,
+    );
+    const explicitNote =
+      explicitWanted && explicitEffort && explicitWanted !== explicitEffort
+        ? `clamped "${explicitWanted}" to "${explicitEffort}"`
+        : tierEffort && explicitEffort
+          ? `tier set "${tierEffort}"`
+          : undefined;
+    if (explicitNote) reason = `${reason}:effort-clamped`;
     store.set(session, {
       phase,
       model: picked.model,
@@ -1432,6 +1456,8 @@ export async function decideRoute(
       virtual: true,
       routed: true,
       reason,
+      ...(explicitEffort ? { effort: explicitEffort } : {}),
+      ...(explicitNote ? { effortNote: explicitNote } : {}),
       session,
     };
   }
@@ -1449,9 +1475,6 @@ export async function decideRoute(
   // resolved before the brain sees anything: an exhausted provider is never an option.
   const guard = config.routing.quotaGuard;
   const conversationTokens = requestTokens(body, compactionEstimate);
-  const requestedEffort = headerEffort(headers);
-  const brainPicksEffort = config.routing.brainPicksEffort;
-  const defaultEffort = brainEffort(config.routing.defaultEffort);
   const minEffort = requestedEffort ?? (brainPicksEffort ? undefined : defaultEffort);
 
   type RoutingOffer = {
