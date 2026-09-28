@@ -458,6 +458,26 @@ describe("admin config writes", () => {
     expect(written().providers[0]?.excludeModels).toEqual(["b"]);
   });
 
+  it("persists the token-saver toggle", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    const app = createAdminApp({ config: loadConfig() ?? parseConfig({}) });
+    const response = await app.request("/token-saver", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false, maxChars: 5_000 }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { tokenSaver: { enabled: boolean; maxChars: number } };
+    expect(body.tokenSaver.enabled).toBe(false);
+    expect(body.tokenSaver.maxChars).toBe(5_000);
+    const written = JSON.parse(readFileSync(path, "utf8")) as {
+      tokenSaver: { enabled: boolean; maxChars: number };
+    };
+    expect(written.tokenSaver.enabled).toBe(false);
+    expect(written.tokenSaver.maxChars).toBe(5_000);
+  });
+
   it("clamps a too-short model-sync interval", async () => {
     const path = process.env.JEVONIAN_CONFIG ?? "";
     writeConfig(path, [baseProvider("alpha")]);

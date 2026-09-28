@@ -57,6 +57,7 @@ import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
 import { costOf, type Usage } from "./pricing";
 import { rewritePromptBodies } from "./prompt-policy";
+import { saveTokens } from "./saver";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
@@ -139,6 +140,8 @@ interface RequestMeta {
   keyName?: string;
   /** Transient upstream failures that were retried before this turn was recorded. */
   retries?: number;
+  /** Estimated prompt tokens the tool-result saver removed before egress. */
+  savedTokens?: number;
   /** Set once a ledger row is written so cancel cannot double-record a finished turn. */
   recorded?: boolean;
 }
@@ -347,6 +350,7 @@ function record(
     ...(meta.effortNote ? { effortNote: meta.effortNote } : {}),
     ...(meta.skipped && meta.skipped.length > 0 ? { skipped: meta.skipped } : {}),
     ...(meta.retries ? { retries: meta.retries } : {}),
+    ...(meta.savedTokens ? { savedTokens: meta.savedTokens } : {}),
     ...(error ? { error } : {}),
   });
 }
@@ -1594,6 +1598,16 @@ async function forward(
     // bridge) sees the rewritten text. The Devin wire applies its built-ins again while
     // encoding; both passes are idempotent.
     upstreamBody = rewritePromptBodies(upstreamBody, config.promptPolicy);
+    // The token saver compresses prior tool results on the fully assembled upstream body, so
+    // whichever wire the turn took — chat, Anthropic, Responses, or the Devin fold — shares
+    // the same deterministic filters. The estimate lands on the ledger row written by `record`.
+    if (config.tokenSaver.enabled) {
+      const saved = saveTokens(upstreamBody, upstreamKind, config.tokenSaver);
+      if (saved.stats.savedTokens > 0) {
+        upstreamBody = saved.body;
+        meta.savedTokens = saved.stats.savedTokens;
+      }
+    }
     // DeepSeek / Kimi thinking mode: clients often drop `reasoning_content` after
     // tool calls. Restore it from the previous upstream response before egress.
     const passbackReasoning =

@@ -188,6 +188,7 @@ function report(): void {
   let baselineCost = 0;
   let cacheRead = 0;
   let prompt = 0;
+  let savedTokens = 0;
   let brainDecided = 0;
   const byEffort = new Map<string, { requests: number; cost: number }>();
 
@@ -213,6 +214,7 @@ function report(): void {
     byModel.set(record.model, row);
     cacheRead += record.cacheReadTokens;
     prompt += record.promptTokens;
+    savedTokens += record.savedTokens ?? 0;
     if (record.brain) brainDecided += 1;
     // The level the model was actually sent; "default" means the router applied none.
     const effort = record.effort ?? "default";
@@ -264,6 +266,12 @@ function report(): void {
   console.log(
     `cache hits: ${cacheRead + prompt > 0 ? ((cacheRead / (cacheRead + prompt)) * 100).toFixed(1) : "0.0"}% (${cacheRead} cached tokens)`,
   );
+  if (savedTokens > 0) {
+    console.log(
+      `token saver: ~${savedTokens.toLocaleString()} tokens kept out of prompts` +
+        (prompt > 0 ? ` (${((savedTokens / (prompt + savedTokens)) * 100).toFixed(1)}% of input)` : ""),
+    );
+  }
   console.log(`brain-decided: ${brainDecided}`);
   console.log("");
   console.log("by phase:");

@@ -9,7 +9,7 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 - `jevonian add [provider]` — add or update a provider; interactive picker, live model discovery, auto tiers
 - `jevonian providers` — list configured providers with key source and model count
 - `jevonian remove <provider> [--keep-key]` — remove a provider and its stored key
-- `jevonian report` — spend, cache hit rate, brain-decided turns, and savings vs the baseline model
+- `jevonian report` — spend, cache hit rate, brain-decided turns, savings vs the baseline model, and tokens the tool-result saver removed
 - `jevonian doctor [--network]` — config, providers, tiers, ledger, catalog, pricing health
 - `jevonian models [--refresh]` — discovered models per provider (hits each provider's `/models`)
 - `jevonian models --sync` — append newly discovered model ids into `config.json` (same pass `serve` runs in the background)
@@ -49,7 +49,7 @@ The local server ships a React + Tailwind dashboard:
 
 - `/` — overview: agent endpoint, savings, cache hit rate, tier summary, provider limits
 - `/providers` — add/edit/remove providers, live model discovery, key entry, auth and billing mode, usage & limits, and the routing brain
-- `/routing` — pick the models behind plan / execute / utility / chat, mode, baseline, quota guard and per-provider health
+- `/routing` — pick the models behind plan / execute / utility / chat, mode, baseline, quota guard, the token saver switch, and per-provider health
 - `/clients` — connect ChatGPT or Claude (Desktop + Claude Code together) to this machine's Jevonian
 - `/keys` — generate and revoke Jevonian API keys (`sk-jev-…`, shown once, stored hashed)
 - `/logs` — every proxied request with phase, model, tokens, cache reads, cost, latency, reason; click a row for a detail page with the captured prompt and the routing-brain calls (state + verdict)

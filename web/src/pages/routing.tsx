@@ -45,6 +45,7 @@ import {
   type RoutingEntryView,
   type RoutingView,
   type StateResponse,
+  type TokenSaverConfigView,
 } from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
@@ -699,6 +700,8 @@ export function RoutingPage() {
   const [canonicals, setCanonicals] = useState<CanonicalModelView[]>([]);
   const [drafts, setDrafts] = useState<RoutingEntryView[]>([]);
   const [picker, setPicker] = useState<Record<string, string>>({});
+  const [saver, setSaver] = useState<TokenSaverConfigView | null>(null);
+  const [saverBusy, setSaverBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -715,6 +718,7 @@ export function RoutingPage() {
       setSaved(state.config.routing);
       setState(state);
       setGuard(state.config.routing.quotaGuard ?? GUARD_FALLBACK);
+      setSaver(state.config.tokenSaver ?? null);
       setDrafts(ensureRoutings(state.config.routing, state.routings ?? []));
       setHealth(quota.health);
       setModels(modelList.models);
@@ -989,6 +993,21 @@ export function RoutingPage() {
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function saveSaver(patch: Partial<TokenSaverConfigView>): Promise<void> {
+    if (!saver) return;
+    setSaverBusy(true);
+    setError("");
+    setSaver({ ...saver, ...patch });
+    try {
+      await api.saveTokenSaver(patch);
+    } catch (cause) {
+      setError(String(cause));
+      await load();
+    } finally {
+      setSaverBusy(false);
     }
   }
 
@@ -1390,6 +1409,86 @@ export function RoutingPage() {
               Configure on the Providers page
             </a>
           </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <CardTitle>Token saver</CardTitle>
+              <CardDescription>
+                {saver?.enabled
+                  ? "Compresses prior tool results before each request leaves — fewer prompt tokens upstream."
+                  : "Off — tool outputs are sent to the provider verbatim."}
+              </CardDescription>
+            </div>
+            <Badge variant={saver?.enabled ? "default" : "outline"}>
+              {saver?.enabled ? "on" : "off"}
+            </Badge>
+          </CardHeader>
+          {saver ? (
+            <CardContent className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Dedupe repeated lines, drop noise (npm warnings, progress), and truncate outputs
+                  beyond {saver.maxChars.toLocaleString()} chars.
+                </span>
+                <Select
+                  value={saver.enabled ? "on" : "off"}
+                  onValueChange={(value) => void saveSaver({ enabled: value === "on" })}
+                  disabled={saverBusy}
+                >
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="on">on</SelectItem>
+                    <SelectItem value="off">off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {saver.enabled ? (
+                <div className="grid grid-cols-3 gap-2 border-t pt-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Max chars
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={5000}
+                      value={saver.maxChars}
+                      disabled={saverBusy}
+                      onChange={(event) =>
+                        setSaver({ ...saver, maxChars: Number(event.target.value) })
+                      }
+                      onBlur={() => void saveSaver({ maxChars: saver.maxChars })}
+                      className="h-8 text-xs"
+                    />
+                  </label>
+                  <label className="flex items-end gap-1.5 pb-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={saver.dedupeLines}
+                      disabled={saverBusy}
+                      onChange={(event) => void saveSaver({ dedupeLines: event.target.checked })}
+                      className="size-3.5 accent-foreground"
+                    />
+                    dedupe lines
+                  </label>
+                  <label className="flex items-end gap-1.5 pb-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={saver.stripNoise}
+                      disabled={saverBusy}
+                      onChange={(event) => void saveSaver({ stripNoise: event.target.checked })}
+                      className="size-3.5 accent-foreground"
+                    />
+                    strip noise
+                  </label>
+                </div>
+              ) : null}
+            </CardContent>
+          ) : null}
         </Card>
 
         <Card>

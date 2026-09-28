@@ -57,6 +57,7 @@ import { createKey, hasKeys, listKeysWithUsage, revokeKey, updateKey } from "./k
 import { readRecords, subscribeLedger, type LedgerRecord } from "./ledger";
 import type { ServerLifecycle } from "./lifecycle";
 import { loadModelSyncState, runModelSync } from "./model-sync";
+import { parseTokenSaver } from "./saver";
 import { canonicalModelId, canonicalModels } from "./models";
 import { loadPricingSnapshot } from "./modelsdev";
 import type { OAuthSource } from "./oauth";
@@ -316,6 +317,7 @@ export function createAdminApp(state: AppState): Hono {
           })),
         },
         modelSync: config.modelSync,
+        tokenSaver: config.tokenSaver,
       },
       modelSyncDefaultSources: MODEL_SYNC_DEFAULT_SOURCES,
       tiers: deriveTiers(config),
@@ -950,6 +952,23 @@ export function createAdminApp(state: AppState): Hono {
     });
     if (outcome) state.config = outcome.config ?? state.config;
     return c.json({ ...modelSyncPayload(), ...(outcome ? { result: outcome.result } : {}) });
+  });
+
+  app.put("/token-saver", async (c) => {
+    const body = asRecord(await c.req.json().catch(() => ({})));
+    const config = loadConfig() ?? state.config;
+    const next: Config = {
+      ...config,
+      tokenSaver: parseTokenSaver({
+        ...config.tokenSaver,
+        ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+        ...(typeof body.maxChars === "number" ? { maxChars: body.maxChars } : {}),
+        ...(typeof body.dedupeLines === "boolean" ? { dedupeLines: body.dedupeLines } : {}),
+        ...(typeof body.stripNoise === "boolean" ? { stripNoise: body.stripNoise } : {}),
+      }),
+    };
+    persist(next);
+    return c.json({ tokenSaver: next.tokenSaver });
   });
 
   app.get("/keys", (c) => c.json({ keys: listKeysWithUsage() }));
