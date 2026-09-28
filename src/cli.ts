@@ -23,6 +23,7 @@ import {
   type ProviderType,
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
+import { kevCommand } from "./kev";
 import { readRecords, type LedgerRecord } from "./ledger";
 import { ServerLifecycle } from "./lifecycle";
 import { scheduleModelSync, runModelSync } from "./model-sync";
@@ -1050,6 +1051,8 @@ async function main(): Promise<void> {
     await refreshCommand();
   } else if (command === "quota") {
     await quota("refresh" in flags);
+  } else if (command === "kev") {
+    await kevCommand(flags);
   } else if (command === "update") {
     await updateCommand();
   } else if (command === "stop") {
@@ -1251,7 +1254,7 @@ async function main(): Promise<void> {
     );
   } else {
     console.log(
-      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|update|launch|init]",
+      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]",
     );
     process.exit(1);
   }

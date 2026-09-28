@@ -1,5 +1,5 @@
 import { saveBody } from "./bodies";
-import { askJev, consumeAskJevFailure, type BrainVerdict } from "./brain";
+import { askJev, consumeAskJevFailure, findJevChannel, type BrainVerdict } from "./brain";
 import {
   clampEffort,
   effectiveCapabilities,
@@ -541,6 +541,41 @@ export function fullTranscript(body: Record<string, unknown>, kind: RequestKind)
   const system = typeof body.system === "string" ? body.system : body.instructions;
   const prefix = typeof system === "string" && system.length > 0 ? `[system] ${system}\n` : "";
   return (prefix + lines.join("\n")).slice(0, 400_000);
+}
+
+/**
+ * The state one brain receives: the routing state, plus the transcript when that brain
+ * asked for the full prompt. Channels flagged `compactState` (Kev 4B/9B, trained near 384
+ * state tokens) drop benchmark tables, the flat `candidates` mirror, and tool-result
+ * blobs: that soft evidence pushes a routing payload to 2–4k tokens and buries the fields
+ * the instructions weigh. Jev-sized models keep the full payload.
+ */
+export function brainStateFor(
+  brain: BrainConfig,
+  ready: Record<string, unknown>,
+  transcript: string | undefined,
+): Record<string, unknown> {
+  const state: Record<string, unknown> =
+    brain.fullPrompt && transcript ? { ...ready, transcript } : { ...ready };
+  if (findJevChannel(brain.channel)?.compactState !== true) return state;
+  delete state.candidates;
+  delete state.recent_tool_results;
+  delete state.benchmark_focus;
+  delete state.benchmarks_coverage;
+  if (Array.isArray(state.routings)) {
+    state.routings = state.routings.map((raw) => {
+      const { benchmark_focus: _focus, ...routing } = asRecord(raw);
+      if (!Array.isArray(routing.models)) return routing;
+      return {
+        ...routing,
+        models: routing.models.map((model) => {
+          const { benchmarks: _benchmarks, ...rest } = asRecord(model);
+          return rest;
+        }),
+      };
+    });
+  }
+  return state;
 }
 
 function messageCount(body: Record<string, unknown>): number {
@@ -1604,6 +1639,7 @@ export async function decideRoute(
 
   const wantsTranscript = brains.some((entry) => entry.fullPrompt === true);
   const transcript = wantsTranscript ? fullTranscript(body, kind) : undefined;
+
   // Walk every configured channel once per round. Channel order is failover (typesafe →
   // openrouter), not a second opinion. When every channel fails, repeat the whole round with
   // the same transient backoff as upstream calls — a brief brain outage used to 502 Cursor
@@ -1636,7 +1672,7 @@ export async function decideRoute(
           candidates: flatOffered,
           ...(brainPicksEffort ? {} : { picks_effort: false }),
         };
-        const state = entry.fullPrompt && transcript ? { ...ready, transcript } : ready;
+        const state = brainStateFor(entry, ready, transcript);
         const verdict = await askJev({
           brain: entry,
           state,

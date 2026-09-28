@@ -32,7 +32,7 @@ if (!existsSync(DEV_CONFIG)) {
     const realConfig = join(base, "jevonian", "config.json");
     if (existsSync(realConfig)) {
       const seeded = JSON.parse(readFileSync(realConfig, "utf8"));
-      seeded.listen = { ...(seeded.listen ?? {}), host: "127.0.0.1", port: APP_PORT };
+      seeded.listen = { ...seeded.listen, host: "127.0.0.1", port: APP_PORT };
       if (seeded.tunnel) {
         delete seeded.tunnel.publicPort;
         seeded.tunnel.enabled = false;

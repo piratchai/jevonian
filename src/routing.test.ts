@@ -8,6 +8,7 @@ import { parseConfig } from "./config";
 import { usePriceTable } from "./pricing";
 import {
   applyProviderPreference,
+  brainStateFor as stateForBrain,
   classifyPhase,
   decideRoute,
   deriveRoutings,
@@ -621,6 +622,47 @@ describe("SessionStore", () => {
     });
     expect(store.get("a", 500)).toBeDefined();
     expect(store.get("a", 2_000)).toBeUndefined();
+  });
+});
+
+describe("brainStateFor", () => {
+  const ready = {
+    last_user_message: "fix the bug",
+    recent_tool_results: ["wrote 3 lines"],
+    benchmark_focus: { prefer_boards: ["swe-bench"] },
+    benchmarks_coverage: "full",
+    candidates: [{ model: "m", provider: "p" }],
+    routings: [
+      {
+        id: "execute",
+        benchmark_focus: { prefer_boards: ["swe-bench"] },
+        models: [{ model: "m", provider: "p", benchmarks: { by_board: { "swe-bench": 70 } } }],
+      },
+    ],
+  };
+
+  it("sends hosted Jev channels the full state and the transcript they asked for", () => {
+    const state = stateForBrain(
+      { channel: "typesafe", timeoutMs: 1_000, minConfidence: 0.6, fullPrompt: true },
+      ready,
+      "[user] fix the bug",
+    );
+    expect(state).toEqual({ ...ready, transcript: "[user] fix the bug" });
+  });
+
+  it("trims soft evidence for compact-state channels", () => {
+    const state = stateForBrain(
+      { channel: "kev", timeoutMs: 1_000, minConfidence: 0.4 },
+      ready,
+      undefined,
+    );
+    expect(state).toEqual({
+      last_user_message: "fix the bug",
+      routings: [{ id: "execute", models: [{ model: "m", provider: "p" }] }],
+    });
+    // The input object is shared across brains in one round and must not be mutated.
+    expect(ready.candidates).toHaveLength(1);
+    expect(ready.routings[0]?.models[0]?.benchmarks).toBeDefined();
   });
 });
 

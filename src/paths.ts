@@ -50,6 +50,22 @@ export function leaderboardPath(): string {
   return join(dataDir(), "leaderboard.json");
 }
 
+/** Checkout of the Kev repo that `jevonian kev` installs and serves from. */
+export function kevDir(): string {
+  if (process.env.JEVONIAN_KEV_DIR) return process.env.JEVONIAN_KEV_DIR;
+  return join(dataDir(), "kev");
+}
+
+export function kevPidPath(): string {
+  if (process.env.JEVONIAN_KEV_PID) return process.env.JEVONIAN_KEV_PID;
+  return join(dataDir(), "kev.pid");
+}
+
+export function kevLogPath(): string {
+  if (process.env.JEVONIAN_KEV_LOG) return process.env.JEVONIAN_KEV_LOG;
+  return join(dataDir(), "kev.log");
+}
+
 export function modelSyncStatePath(): string {
   if (process.env.JEVONIAN_MODEL_SYNC_STATE) return process.env.JEVONIAN_MODEL_SYNC_STATE;
   return join(dataDir(), "model-sync.json");

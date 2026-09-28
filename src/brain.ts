@@ -17,7 +17,34 @@ export interface JevChannel {
   hint?: string;
   /** Where to create or copy an API key for this brain channel. */
   keysUrl?: string;
+  /**
+   * The endpoint accepts requests without an API key (e.g. a local Kev server with
+   * KEV_API_KEY unset). When no key is configured, the client sends
+   * {@link PLACEHOLDER_BRAIN_KEY} so TypeSafe-shaped servers still see an Authorization header.
+   */
+  keyOptional?: boolean;
+  /**
+   * Default `minConfidence` for brains on this channel, when it differs from the global
+   * 0.6. Kev's calibrated distribution runs systematically lower than Jev's, so the Jev
+   * threshold marks almost every Kev verdict low-confidence even when the choice is right.
+   */
+  defaultMinConfidence?: number;
+  /**
+   * Read confidence from the winning option's probability instead of the answer's
+   * `confidence` field. Jev reports the two as the same number; Kev's `confidence` is a
+   * separate calibrated score that can sit near 0 while the top option is clearly ahead.
+   */
+  confidenceFromDistribution?: boolean;
+  /**
+   * Send a trimmed routing state: no benchmark tables, no flat `candidates` mirror, no
+   * tool-result blobs. For decision models trained on short states (Kev 4B/9B, ~384 tokens)
+   * that soft evidence crowds out the fields that drive the choice.
+   */
+  compactState?: boolean;
 }
+
+/** Bearer sent to a `keyOptional` channel when no key is configured. */
+export const PLACEHOLDER_BRAIN_KEY = "local";
 
 export const JEV_CHANNELS: JevChannel[] = [
   {
@@ -65,6 +92,19 @@ export const JEV_CHANNELS: JevChannel[] = [
     requiresAccountId: true,
     keysUrl: "https://developers.cloudflare.com/workers-ai/",
     hint: "Account ID from the Cloudflare dashboard overview; API token needs Workers AI permission.",
+  },
+  {
+    id: "kev",
+    label: "Kev (local)",
+    baseUrl: "http://127.0.0.1:8009/v1/systemone",
+    model: "kev-latest",
+    apiKeyEnv: "KEV_API_KEY",
+    keyOptional: true,
+    defaultMinConfidence: 0.4,
+    confidenceFromDistribution: true,
+    compactState: true,
+    keysUrl: "https://github.com/jaredpalmer/kev",
+    hint: "`jevonian kev --start` deploys it, or run `uv run --extra serve python -m kev.serve --run jaredpalmer/kev-4b --port 8009` yourself; no key needed unless KEV_API_KEY is set on the server.",
   },
   {
     id: "custom",
@@ -197,7 +237,10 @@ function usageFrom(raw: unknown): Usage | undefined {
   };
 }
 
-export function parseSystemOneResponse(payload: unknown): {
+export function parseSystemOneResponse(
+  payload: unknown,
+  options: { confidenceFromDistribution?: boolean } = {},
+): {
   model?: string;
   confidence: number;
   probabilities?: Record<string, number>;
@@ -215,9 +258,12 @@ export function parseSystemOneResponse(payload: unknown): {
 
   const probabilities = readProbabilities(modelAnswer.probabilities);
   const probabilityValues = probabilities ? Object.values(probabilities) : [];
-  const confidence =
-    number(modelAnswer.confidence) ??
-    (probabilityValues.length > 0 ? Math.max(...probabilityValues) : choice ? 1 : 0);
+  const topProbability = probabilityValues.length > 0 ? Math.max(...probabilityValues) : undefined;
+  // Jev's `confidence` is authoritative. Channels flagged `confidenceFromDistribution`
+  // (Kev) report a different calibrated score there, so their top probability wins.
+  const confidence = options.confidenceFromDistribution
+    ? (topProbability ?? number(modelAnswer.confidence) ?? (choice ? 1 : 0))
+    : (number(modelAnswer.confidence) ?? topProbability ?? (choice ? 1 : 0));
 
   const usage = usageFrom(body.usage);
   // The effort answer rides in the same response. A freeform call has no effort question, so
@@ -555,15 +601,24 @@ export async function askJev(input: BrainInput): Promise<BrainVerdict | undefine
       }),
       signal: input.signal ?? controller.signal,
     });
+    const channel = findJevChannel(input.brain.channel);
     if (!response.ok) {
       // Surface the real status so serve.log shows "403/402" instead of a silent undefined.
       // TypeSafe's Cloudflare WAF returns 403 HTML; OpenRouter returns 402 when credits are gone.
-      console.warn(`brain ${input.brain.channel} HTTP ${response.status}`);
+      // A keyOptional server that answers 401 was started with a key we were never given.
+      const needsKey =
+        response.status === 401 && channel?.keyOptional && apiKey === PLACEHOLDER_BRAIN_KEY;
+      const error = needsKey
+        ? `HTTP 401: the server requires a key; set ${channel.apiKeyEnv || "an API key"} for this brain`
+        : `HTTP ${response.status}`;
+      console.warn(`brain ${input.brain.channel} ${error}`);
       await response.body?.cancel();
-      return failAsk({ status: response.status, error: `HTTP ${response.status}` });
+      return failAsk({ status: response.status, error });
     }
     const payload = (await response.json()) as unknown;
-    const parsed = parseSystemOneResponse(payload);
+    const parsed = parseSystemOneResponse(payload, {
+      confidenceFromDistribution: channel?.confidenceFromDistribution === true,
+    });
     if (!parsed.model) return failAsk({ error: "empty verdict" });
     return verdictFromParsed({ ...parsed, model: parsed.model });
   } catch (error) {
@@ -644,7 +699,10 @@ function resolveTransport(
     explicitKey ??
     getCredential(brainCredentialName(brain.channel)) ??
     (brain.apiKeyEnv ? process.env[brain.apiKeyEnv] : undefined) ??
-    (channel?.apiKeyEnv ? process.env[channel.apiKeyEnv] : undefined);
+    (channel?.apiKeyEnv ? process.env[channel.apiKeyEnv] : undefined) ??
+    // Local endpoints that serve open requests (Kev without KEV_API_KEY) still receive a
+    // bearer header because TypeSafe-shaped clients always send one.
+    (channel?.keyOptional ? PLACEHOLDER_BRAIN_KEY : undefined);
   if (!apiKey) return undefined;
   return {
     baseUrl: (brain.baseUrl || channel?.baseUrl || "").trim(),

@@ -816,9 +816,12 @@ export function parseConfig(raw: unknown): Config {
   // `JEVONIAN_PORT` overrides both the config file and the 8787 default so a dev instance
   // can bind a scratch port without touching the running service's config on disk.
   const envPort = Number(process.env.JEVONIAN_PORT);
-  const port = Number.isInteger(envPort) && envPort > 0 ? envPort
-    : typeof listen.port === "number" && Number.isInteger(listen.port) ? listen.port
-    : 8787;
+  const port =
+    Number.isInteger(envPort) && envPort > 0
+      ? envPort
+      : typeof listen.port === "number" && Number.isInteger(listen.port)
+        ? listen.port
+        : 8787;
   const providers = Array.isArray(value.providers) ? value.providers.map(parseProvider) : [];
   const tunnel = parseTunnel(value.tunnel);
   const aliases = asRecord(value.modelAliases);

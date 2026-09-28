@@ -15,6 +15,7 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 - `jevonian models --sync` — append newly discovered model ids into `config.json` (same pass `serve` runs in the background)
 - `jevonian pricing [--refresh]` — price table source and size; `--refresh` pulls from models.dev
 - `jevonian quota [--refresh]` — per-provider quota windows, reset times, and 30-day spend
+- `jevonian kev [--start] [--stop] [--status] [--run CHECKPOINT] [--port P] [--no-config]` — deploy a local Kev routing brain: clone the repo to `~/.local/share/jevonian/kev`, `uv sync --extra serve`, optionally start `kev.serve`, then add the Kev brain as the primary brain (skip with `--no-config`); see [brain.md](brain.md#self-hosting-with-kev)
 - `jevonian update [--check]` — check for or install the latest release through the detected package manager
 - `jevonian launch claude [--model M] [--] [args…]` — run Claude Code through Jevonian (Ollama-style env remap)
 

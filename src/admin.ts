@@ -5,7 +5,13 @@ import { streamSSE } from "hono/streaming";
 
 import { computeActivityReport } from "./activity";
 import { loadBody } from "./bodies";
-import { askJev, brainCredentialName, findJevChannel, JEV_CHANNELS } from "./brain";
+import {
+  askJev,
+  brainCredentialName,
+  consumeAskJevFailure,
+  findJevChannel,
+  JEV_CHANNELS,
+} from "./brain";
 import { discoverProviderModels } from "./catalog";
 import { catalogStatus, refreshCatalogCaches } from "./catalog-sync";
 import {
@@ -266,6 +272,7 @@ function brainKeySource(brain: BrainConfig): string {
   if (getCredential(brainCredentialName(brain.channel))) return "credentials";
   const env = brain.apiKeyEnv || channel?.apiKeyEnv;
   if (env && process.env[env]) return `env:${env}`;
+  if (channel?.keyOptional) return "optional";
   return "none";
 }
 
@@ -481,10 +488,14 @@ export function createAdminApp(state: AppState): Hono {
         typeof brainBody.timeoutMs === "number" && brainBody.timeoutMs > 0
           ? brainBody.timeoutMs
           : current.timeoutMs,
+      // An explicit value always wins. Otherwise a brain moving onto a channel with its own
+      // default takes it; an edit that stays on the same channel keeps the stored value.
       minConfidence:
         typeof brainBody.minConfidence === "number"
           ? brainBody.minConfidence
-          : current.minConfidence,
+          : channel !== current.channel || current === DEFAULT_BRAIN
+            ? (channelPreset?.defaultMinConfidence ?? current.minConfidence)
+            : current.minConfidence,
       ...(brainBody.fullPrompt === true ? { fullPrompt: true } : {}),
     };
   };
@@ -672,6 +683,7 @@ export function createAdminApp(state: AppState): Hono {
     } else if (!baseUrl && channelId !== "vercel") {
       return c.json({ ok: false, error: "Set a base URL for this channel." });
     }
+    // keyOptional channels report "optional" here and fall through with a placeholder key.
     if (!apiKey && brainKeySource(brain) === "none") {
       return c.json({ ok: false, error: "Add an API key for this channel." });
     }
@@ -711,9 +723,12 @@ export function createAdminApp(state: AppState): Hono {
     });
     const latencyMs = Date.now() - started;
     if (!verdict) {
+      const failure = consumeAskJevFailure();
       return c.json({
         ok: false,
-        error: "No verdict. Check the endpoint, model, and key.",
+        error: failure?.error
+          ? `No verdict (${failure.error}). Check the endpoint, model, and key.`
+          : "No verdict. Check the endpoint, model, and key.",
         latencyMs,
       });
     }
