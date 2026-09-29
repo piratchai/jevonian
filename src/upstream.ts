@@ -57,7 +57,6 @@ import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
 import { costOf, type Usage } from "./pricing";
 import { rewritePromptBodies } from "./prompt-policy";
-import { saveTokens } from "./saver";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
@@ -109,6 +108,7 @@ import {
   type RouteSkip,
   type SessionStore,
 } from "./routing";
+import { saveTokens } from "./saver";
 import type { AppEnv } from "./server";
 import { streamWithKeepalive } from "./stream-keepalive";
 import {
@@ -442,7 +442,8 @@ function streamResponse(
 ): Response {
   return new Response(
     streamWithKeepalive(stream, {
-      onClientCancel: onClientCancel ?? (() => record(meta, 499, emptyUsage(), null, true, "client canceled")),
+      onClientCancel:
+        onClientCancel ?? (() => record(meta, 499, emptyUsage(), null, true, "client canceled")),
     }),
     {
       status: 200,
@@ -2285,11 +2286,19 @@ async function forward(
               const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
               if (choices && choices.length > 0) {
                 const choice = choices[0];
-                if (choice.delta) {
-                  hasDelivered = true;
-                  const delta = choice.delta as Record<string, unknown>;
+                const delta = choice.delta as Record<string, unknown> | undefined;
+                if (delta) {
+                  // A `role`-only or empty first delta is not delivered content — count only
+                  // fields a client actually renders, so a cancel right after the opener still
+                  // reads as an abandoned request rather than a finished turn.
+                  const isContent =
+                    typeof delta.content === "string" ||
+                    typeof delta.reasoning_content === "string" ||
+                    delta.tool_calls !== undefined;
+                  if (isContent) hasDelivered = true;
                   if (typeof delta.content === "string") charsOut += delta.content.length;
-                  if (typeof delta.reasoning_content === "string") charsOut += delta.reasoning_content.length;
+                  if (typeof delta.reasoning_content === "string")
+                    charsOut += delta.reasoning_content.length;
                   if (delta.tool_calls) charsOut += JSON.stringify(delta.tool_calls).length;
                 }
                 if (choice.finish_reason) {
