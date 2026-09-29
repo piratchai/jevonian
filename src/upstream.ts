@@ -111,7 +111,13 @@ import {
 import { saveTokens, warnSaverUnavailable } from "./saver";
 import type { AppEnv } from "./server";
 import { streamWithKeepalive } from "./stream-keepalive";
-import { planUpstreamWire, upstreamUrlFor } from "./wire";
+import {
+  normalizeOpenAIMessages,
+  planUpstreamWire,
+  sanitizeOpenAIChatResponse,
+  sanitizeOpenAIChatStream,
+  upstreamUrlFor,
+} from "./wire";
 
 interface RequestMeta {
   id: string;
@@ -432,10 +438,12 @@ function streamResponse(
   meta: RequestMeta,
   headers: Record<string, string>,
   contentType = "text/event-stream",
+  onClientCancel?: () => void,
 ): Response {
   return new Response(
     streamWithKeepalive(stream, {
-      onClientCancel: () => record(meta, 499, emptyUsage(), null, true, "client canceled"),
+      onClientCancel:
+        onClientCancel ?? (() => record(meta, 499, emptyUsage(), null, true, "client canceled")),
     }),
     {
       status: 200,
@@ -791,6 +799,38 @@ export function clientEffortOf(
 function applyClaudeCodeSystem(body: Record<string, unknown>): Record<string, unknown> {
   const next = { ...body };
   injectClaudeCodeSystem(next);
+
+  const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
+  const support = anthropicThinkingSupport(model);
+
+  if (!support.adaptive) {
+    // `context_management` and `output_config` are adaptive-thinking-only; a legacy model
+    // rejects them outright.
+    delete next.context_management;
+    delete next.output_config;
+    // An `adaptive` thinking shape (Claude 4.6+) must not reach a legacy model. Keep a
+    // legacy-valid `enabled`/`disabled` shape: `withEffort` writes exactly that for these
+    // models, and deleting it here — after `withEffort` ran — would silently discard the
+    // thinking level the router chose.
+    if (asRecord(next.thinking).type === "adaptive") delete next.thinking;
+
+    if (Array.isArray(next.messages)) {
+      next.messages = next.messages.map((m: unknown) => {
+        if (
+          typeof m === "object" &&
+          m !== null &&
+          (m as Record<string, unknown>).role === "system"
+        ) {
+          return {
+            ...(m as Record<string, unknown>),
+            role: "user",
+          };
+        }
+        return m;
+      });
+    }
+  }
+
   return next;
 }
 
@@ -1518,7 +1558,15 @@ async function forward(
             ? responsesToChatRequest(body, decision.model)
             : clientKind === "anthropic"
               ? anthropicToChatRequest(body, decision.model)
-              : body;
+              : {
+                  ...body,
+                  messages: normalizeOpenAIMessages(
+                    (Array.isArray(body.messages) ? body.messages : []) as Record<
+                      string,
+                      unknown
+                    >[],
+                  ),
+                };
         return {
           project: auth.project ?? "default-cli-project",
           model: decision.model,
@@ -1598,6 +1646,17 @@ async function forward(
     // bridge) sees the rewritten text. The Devin wire applies its built-ins again while
     // encoding; both passes are idempotent.
     upstreamBody = rewritePromptBodies(upstreamBody, config.promptPolicy);
+
+    // OpenAI Chat Completions sanitizer: normalize Anthropic-style blocks (tool_use / tool_result)
+    // inside `content` array into standard OpenAI tool_calls and tool messages.
+    // Also sanitizes invalid array items that cause strict backends (e.g. Alibaba Cloud Model Studio)
+    // to fail with "if content is list. item must be dict and key[type] should in dict".
+    if (upstreamKind === "openai" && Array.isArray(upstreamBody.messages)) {
+      upstreamBody.messages = normalizeOpenAIMessages(
+        upstreamBody.messages as Record<string, unknown>[],
+      );
+    }
+
     // The token saver compresses prior tool results on the fully assembled upstream body, so
     // whichever wire the turn took — chat, Anthropic, Responses, or the Devin fold — gets the
     // same `rtk` filtering. The estimate lands on the ledger row written by `record`.
@@ -1947,6 +2006,15 @@ async function forward(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
+        "text/event-stream",
+        () => {
+          if (usage.output > 0 || usage.input > 0) {
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          } else {
+            record(meta, 499, emptyUsage(), null, true, "client canceled");
+          }
+        },
       );
     }
 
@@ -2025,6 +2093,15 @@ async function forward(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
+        "text/event-stream",
+        () => {
+          if (usage.output > 0 || usage.input > 0) {
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          } else {
+            record(meta, 499, emptyUsage(), null, true, "client canceled");
+          }
+        },
       );
     }
 
@@ -2041,6 +2118,15 @@ async function forward(
             upstream.body?.pipeThrough(transform) ?? null,
             meta,
             decisionHeaders(decision, meta.retries),
+            "text/event-stream",
+            () => {
+              if (usage.output > 0 || usage.input > 0) {
+                const cost = costOf(decision.model, usage, new Date(), decision.provider);
+                record(meta, 200, usage, cost.usd, cost.known);
+              } else {
+                record(meta, 499, emptyUsage(), null, true, "client canceled");
+              }
+            },
           );
         }
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -2070,9 +2156,12 @@ async function forward(
     }
 
     if (!upstreamStream && upstreamKind !== "responses") {
-      const json = (await upstream.json()) as Record<string, unknown>;
+      let json = (await upstream.json()) as Record<string, unknown>;
       if (passbackReasoning && clientKind === "openai") {
         rememberFromChatCompletion(json, passbackMessages, decision.session);
+      }
+      if (clientKind === "openai") {
+        json = sanitizeOpenAIChatResponse(json);
       }
       const usage = clientKind === "openai" ? openaiUsage(json.usage) : anthropicUsage(json.usage);
       const cost = costOf(decision.model, usage, new Date(), decision.provider);
@@ -2171,6 +2260,9 @@ async function forward(
     const usage = emptyUsage();
     const decoder = new TextDecoder();
     let buffer = "";
+    let hasDelivered = false;
+    let finished = false;
+    let charsOut = 0;
 
     const consume = (text: string): void => {
       buffer += text;
@@ -2181,14 +2273,50 @@ async function forward(
         for (const line of event.split("\n")) {
           if (!line.startsWith("data:")) continue;
           const data = line.slice(5).trim();
-          if (data.length === 0 || data === "[DONE]") continue;
+          if (data === "[DONE]") {
+            finished = true;
+            continue;
+          }
+          if (data.length === 0) continue;
           try {
             const parsed = JSON.parse(data) as Record<string, unknown>;
-            if (clientKind === "openai" && parsed.usage !== undefined) {
-              Object.assign(usage, openaiUsage(parsed.usage));
+            if (clientKind === "openai") {
+              if (parsed.usage !== undefined) {
+                Object.assign(usage, openaiUsage(parsed.usage));
+              }
+              const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
+              if (choices && choices.length > 0) {
+                const choice = choices[0];
+                const delta = choice.delta as Record<string, unknown> | undefined;
+                if (delta) {
+                  // A `role`-only or empty first delta is not delivered content — count only
+                  // fields a client actually renders, so a cancel right after the opener still
+                  // reads as an abandoned request rather than a finished turn.
+                  const isContent =
+                    typeof delta.content === "string" ||
+                    typeof delta.reasoning_content === "string" ||
+                    delta.tool_calls !== undefined;
+                  if (isContent) hasDelivered = true;
+                  if (typeof delta.content === "string") charsOut += delta.content.length;
+                  if (typeof delta.reasoning_content === "string")
+                    charsOut += delta.reasoning_content.length;
+                  if (delta.tool_calls) charsOut += JSON.stringify(delta.tool_calls).length;
+                }
+                if (choice.finish_reason) {
+                  hasDelivered = true;
+                  finished = true;
+                }
+              }
             }
             if (clientKind === "anthropic") {
               applyAnthropicEvent(parsed, usage);
+              if (parsed.type === "content_block_delta" || parsed.type === "message_delta") {
+                hasDelivered = true;
+              }
+              if (parsed.type === "message_stop") {
+                hasDelivered = true;
+                finished = true;
+              }
             }
           } catch {
             continue;
@@ -2198,15 +2326,22 @@ async function forward(
       }
     };
 
+    const finalize = (status = 200, error?: string): void => {
+      consume(decoder.decode());
+      if (usage.output === 0 && charsOut > 0) {
+        usage.output = Math.max(1, Math.round(charsOut / 3.5));
+      }
+      const cost = costOf(decision.model, usage, new Date(), decision.provider);
+      record(meta, status, usage, cost.usd, cost.known, error);
+    };
+
     const usageTransform = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
         consume(decoder.decode(chunk, { stream: true }));
       },
       flush() {
-        consume(decoder.decode());
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
+        finalize(200);
       },
     });
 
@@ -2214,13 +2349,25 @@ async function forward(
     if (passbackReasoning && clientKind === "openai" && stream) {
       stream = stream.pipeThrough(reasoningCaptureTransform(passbackMessages, decision.session));
     }
+    if (clientKind === "openai" && stream) {
+      stream = stream.pipeThrough(sanitizeOpenAIChatStream());
+    }
     stream = stream?.pipeThrough(usageTransform) ?? null;
+
+    const onCancel = (): void => {
+      if (finished || hasDelivered) {
+        finalize(200);
+      } else {
+        finalize(499, "client canceled");
+      }
+    };
 
     return streamResponse(
       stream,
       meta,
       decisionHeaders(decision, meta.retries),
       upstream.headers.get("content-type") ?? "text/event-stream",
+      onCancel,
     );
   }
 }

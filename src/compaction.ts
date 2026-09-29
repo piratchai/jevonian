@@ -156,9 +156,24 @@ export const STATE_CONTEXT =
  */
 const TOKEN_PIECES = /[A-Za-z]+|\d+|[^\sA-Za-z\d]/g;
 
+/**
+ * Matches base64 image data in data URIs or Anthropic-style JSON fields.
+ * LLM vision models process images into fixed-size patch tiles (~800–1600 tokens)
+ * rather than parsing millions of base64 ASCII characters as text tokens.
+ */
+export const BASE64_IMAGE_DATA =
+  /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}|"data"\s*:\s*"[A-Za-z0-9+/=]{100,}"/g;
+export const IMAGE_TOKEN_ESTIMATE = 1200;
+
 export function estimateTokens(text: string): number {
-  let tokens = 0;
-  for (const [piece] of text.matchAll(TOKEN_PIECES)) {
+  let imageTokens = 0;
+  const stripped = text.replace(BASE64_IMAGE_DATA, () => {
+    imageTokens += IMAGE_TOKEN_ESTIMATE;
+    return "";
+  });
+
+  let tokens = imageTokens;
+  for (const [piece] of stripped.matchAll(TOKEN_PIECES)) {
     const first = piece.charCodeAt(0);
     if (first >= 48 && first <= 57) tokens += piece.length / 2;
     else if ((first >= 65 && first <= 90) || (first >= 97 && first <= 122)) {
@@ -521,7 +536,8 @@ function historyEntries(
       result: resultNote(call),
     }));
     if (message.text.trim().length === 0 && toolCalls.length === 0) return;
-    const entry: HistoryEntry = { i, role: message.role, text: message.text };
+    const text = message.text.replace(BASE64_IMAGE_DATA, "[image data omitted]");
+    const entry: HistoryEntry = { i, role: message.role, text };
     if (toolCalls.length > 0) entry.tool_calls = toolCalls;
     entries.push(entry);
   });
@@ -538,7 +554,7 @@ export function goalFromMessages(messages: readonly Message[]): string {
         (message.toolResults ?? []).length === 0,
     )
     .slice(-3)
-    .map((message) => truncate(message.text, 500))
+    .map((message) => truncate(message.text.replace(BASE64_IMAGE_DATA, "[image]"), 500))
     .join("\n");
 }
 

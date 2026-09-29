@@ -94,6 +94,14 @@ describe("token estimate", () => {
     const json = JSON.stringify({ file_path: "/Users/x/src/a.ts", old_string: "a = 1;", n: 42 });
     expect(estimateTokens(json)).toBeGreaterThanOrEqual(Math.ceil(json.length / 3));
   });
+
+  it("normalizes base64 images to vision tile token cost rather than millions of text tokens", () => {
+    const hugeBase64 = "data:image/png;base64," + "A".repeat(4_000_000);
+    const tokens = estimateTokens(`User asked: look at this screenshot: ${hugeBase64}`);
+    // Should be ~1200 image tokens + prompt text, far below the unhandled ~2,000,000 text tokens
+    expect(tokens).toBeLessThan(1500);
+    expect(tokens).toBeGreaterThanOrEqual(1200);
+  });
 });
 
 describe("tool call collection", () => {

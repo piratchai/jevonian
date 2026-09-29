@@ -303,6 +303,71 @@ describe("routing with capability constraints", () => {
   });
 });
 
+describe("explicit routing carries the pinned tier's effort", () => {
+  function pinned(effort: string, capacities: Record<string, unknown>) {
+    return parseConfig({
+      defaultProvider: "sub",
+      providers: [
+        {
+          name: "sub",
+          type: "openai",
+          baseUrl: "http://127.0.0.1:1/v1",
+          apiKey: "test",
+          models: ["big-model", "small-model"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        routings: [{ id: "execute", label: "Execute", models: ["big-model", "small-model"], effort }],
+        brains: BRAINS,
+        capacities,
+      },
+    });
+  }
+
+  it("applies the configured level instead of leaving effort unset", async () => {
+    const decision = await decideRoute({
+      config: pinned("high", { "big-model": { efforts: ["low", "medium", "high"] } }),
+      body: { model: "jevonian/execute", messages: [{ role: "user", content: "go" }] },
+      headers: {},
+      store: new SessionStore(60_000),
+      kind: "openai",
+      now: 1_000,
+    });
+    if ("error" in decision) throw new Error(decision.error);
+    expect(decision.phase).toBe("execute");
+    expect(decision.effort).toBe("high");
+    expect(decision.effortNote).toBe('tier set "high"');
+  });
+
+  it("clamps the tier's level to what the chosen model accepts", async () => {
+    const decision = await decideRoute({
+      config: pinned("high", { "big-model": { efforts: ["low", "medium"] } }),
+      body: { model: "jevonian/execute", messages: [{ role: "user", content: "go" }] },
+      headers: {},
+      store: new SessionStore(60_000),
+      kind: "openai",
+      now: 1_000,
+    });
+    if ("error" in decision) throw new Error(decision.error);
+    expect(decision.effort).toBe("medium");
+    expect(decision.effortNote).toBe('clamped "high" to "medium"');
+  });
+
+  it("lets the pinned tier decide over a conflicting client header, as the brain path does", async () => {
+    const decision = await decideRoute({
+      config: pinned("high", { "big-model": { efforts: ["low", "medium", "high"] } }),
+      body: { model: "jevonian/execute", messages: [{ role: "user", content: "go" }] },
+      headers: { "x-jevonian-effort": "low" },
+      store: new SessionStore(60_000),
+      kind: "openai",
+      now: 1_000,
+    });
+    if ("error" in decision) throw new Error(decision.error);
+    expect(decision.effort).toBe("high");
+  });
+});
+
 describe("estimator", () => {
   it("is the calibrated compaction estimator, not a characters-per-token ratio", () => {
     // Two words, so two tokens; a length/4 ratio would also say 2 here, but the point is the
