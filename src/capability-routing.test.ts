@@ -318,7 +318,9 @@ describe("explicit routing carries the pinned tier's effort", () => {
       ],
       routing: {
         mode: "auto",
-        routings: [{ id: "execute", label: "Execute", models: ["big-model", "small-model"], effort }],
+        routings: [
+          { id: "execute", label: "Execute", models: ["big-model", "small-model"], effort },
+        ],
         brains: BRAINS,
         capacities,
       },

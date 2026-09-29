@@ -127,9 +127,7 @@ describe("normalizeOpenAIMessages", () => {
         ],
       },
     ];
-    expect(normalizeOpenAIMessages(input)).toEqual([
-      { role: "user", content: "Line 1\nLine 2" },
-    ]);
+    expect(normalizeOpenAIMessages(input)).toEqual([{ role: "user", content: "Line 1\nLine 2" }]);
   });
 
   it("translates assistant tool_use blocks to OpenAI tool_calls", () => {
@@ -212,9 +210,7 @@ describe("normalizeOpenAIMessages", () => {
     const input = [
       {
         role: "user",
-        content: [
-          { type: "image_url", image_url: { url: "data:image/png;base64,old1" } },
-        ],
+        content: [{ type: "image_url", image_url: { url: "data:image/png;base64,old1" } }],
       },
       {
         role: "assistant",
@@ -222,9 +218,7 @@ describe("normalizeOpenAIMessages", () => {
       },
       {
         role: "user",
-        content: [
-          { type: "image_url", image_url: { url: "data:image/png;base64,old2" } },
-        ],
+        content: [{ type: "image_url", image_url: { url: "data:image/png;base64,old2" } }],
       },
       {
         role: "assistant",
@@ -248,9 +242,7 @@ describe("normalizeOpenAIMessages", () => {
     // The second and third images should be preserved (MAX_IMAGES_TO_KEEP = 2)
     expect(result[2]).toEqual({
       role: "user",
-      content: [
-        { type: "image_url", image_url: { url: "data:image/png;base64,old2" } },
-      ],
+      content: [{ type: "image_url", image_url: { url: "data:image/png;base64,old2" } }],
     });
     expect(result[4]).toEqual({
       role: "user",
@@ -337,9 +329,7 @@ describe("normalizeOpenAIMessages", () => {
       },
       {
         role: "assistant",
-        content: [
-          { type: "text", text: "Checking next file..." },
-        ],
+        content: [{ type: "text", text: "Checking next file..." }],
         tool_calls: [],
       },
     ];
@@ -382,10 +372,7 @@ describe("normalizeOpenAIMessages", () => {
     expect(result[2]).toEqual({ role: "tool", tool_call_id: "tu9", content: "captured" });
     expect(result[3]).toMatchObject({
       role: "user",
-      content: [
-        { type: "text", text: "what do you see?" },
-        { type: "image_url" },
-      ],
+      content: [{ type: "text", text: "what do you see?" }, { type: "image_url" }],
     });
   });
 });
@@ -549,5 +536,3 @@ describe("OpenAI Chat tool call streaming sanitization", () => {
     }
   });
 });
-
-

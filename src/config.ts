@@ -711,9 +711,7 @@ function parseRoutingEntry(raw: unknown, index: number): RoutingEntry {
     parseProviderOrder(value.providers ?? value.providerOrder),
   );
   const effort =
-    typeof value.effort === "string" && isReasoningEffort(value.effort)
-      ? value.effort
-      : undefined;
+    typeof value.effort === "string" && isReasoningEffort(value.effort) ? value.effort : undefined;
   return {
     id,
     label: label.trim(),

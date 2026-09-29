@@ -2,11 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.3.3] - 2026-09-29
 
 ### Added
 
 - `tokenSaver` config for deterministic tool-result compression via [RTK](https://github.com/rtk-ai/rtk) — the Rust Token Killer coding agents already use to compact command output. Agents re-send their whole conversation on every turn, and the bulky part is usually prior tool results — test logs, `git status`, long file reads. The saver pipes each one through `rtk pipe`, which auto-detects the output shape (cargo test, pytest, vitest, grep-like, find-like, mypy, phpunit, ctest, go-test JSON, …) and prints a smaller version on stdout. The rewrite runs inside the outgoing request body on whichever wire the turn takes — Chat Completions `messages`, Anthropic `tool_result` blocks, Responses `function_call_output` items — and a result rtk cannot parse is sent byte-identical. Install `rtk` with `brew install rtk`; the saver ships enabled and quietly does nothing when the binary is missing. Each turn's ledger row records the estimated tokens kept back (`savedTokens`), surfaced by `jevonian report`, the `/api/stats` summary, and a "Tokens saved" card on the Overview. The switch lives on the Routing page and accepts partial updates at `PUT /api/token-saver`; `tokenSaver.enabled: false` sends every body byte-identical.
+- OpenCode (v1 & v2) support: an OpenAI message normalizer reshapes OpenCode's request format so multi-agent turns route cleanly, older screenshots are pruned to prevent multimodal gateway timeouts, and Anthropic URL image sources are accepted in `normalizeOpenAIMessages`.
+- Kev as a self-hosted local brain channel, so routing decisions can run against a local model instead of a hosted provider.
+- Tier effort routing: each routing can pin a reasoning effort (`effort` on the routing entry), applied both when the brain picks the routing and on explicit `jevonian/<id>` routes, clamped to the chosen model's capabilities.
+
+### Changed
+
+- Provider refusals are now routed around until no alternative remains, instead of failing the turn on the first refusal.
+
+### Fixed
+
+- A client disconnect right after the stream opener no longer logs a completed `200` turn: only deltas carrying content, `reasoning_content`, or `tool_calls` count as delivered, and token usage is preserved on cancel instead of a false `499`.
+- OpenAI Chat tool-call stream deltas with empty `id`/`name` are sanitized, and empty `tool_calls` arrays are stripped, fixing `HTTP 400` rejections from strict backends.
+- Tool messages extracted by the wire normalizer are emitted ahead of the user text/image of the same turn, so a tool result still directly follows the assistant `tool_calls` that produced it instead of being interposed after a user message.
+- Long-context compaction now normalizes base64 images in token estimation and sanitizes compaction history.
+- Legacy `thinking` budgets written by `withEffort` are preserved for legacy models; only an adaptive thinking shape is stripped.
+- Dashboard routing edit is hardened and the dev environment is isolated.
 
 ## [0.3.2] - 2026-09-27
 
