@@ -122,7 +122,7 @@ export class ServerLifecycle {
   }
 
   private cancelTracked(): void {
-    for (const cancel of [...this.trackedCancels]) cancel();
+    for (const cancel of this.trackedCancels) cancel();
     this.trackedCancels.clear();
   }
 

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

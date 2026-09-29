@@ -381,11 +381,22 @@ export function normalizeOpenAIMessages(
         if (typeof rec.content === "string") {
           contentStr = rec.content;
         } else if (Array.isArray(rec.content)) {
-          contentStr = rec.content
-            .map((c) =>
-              typeof c === "string" ? c : (c as Record<string, unknown>).text || JSON.stringify(c),
-            )
-            .join("\n");
+          const parts: string[] = [];
+          for (const c of rec.content) {
+            if (typeof c === "string") {
+              parts.push(c);
+            } else if (c && typeof c === "object") {
+              const rec = c as Record<string, unknown>;
+              if (typeof rec.text === "string") {
+                parts.push(rec.text);
+              } else {
+                parts.push(JSON.stringify(c));
+              }
+            } else {
+              parts.push(String(c));
+            }
+          }
+          contentStr = parts.join("\n");
         } else if (rec.content !== undefined && rec.content !== null) {
           contentStr = JSON.stringify(rec.content);
         }

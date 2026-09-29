@@ -156,11 +156,12 @@ const ANSI = {
 } as const;
 
 function stripAnsi(value: string): string {
+  // eslint-disable-next-line no-control-regex -- matching ESC requires a control character
   return value.replace(/\u001B\[[0-9;]*m/g, "");
 }
 
 function visibleWidth(value: string): number {
-  return [...stripAnsi(value)].length;
+  return Array.from(stripAnsi(value)).length;
 }
 
 /**

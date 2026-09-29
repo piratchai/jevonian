@@ -301,7 +301,8 @@ describe("askJev", () => {
   it("posts to Cloudflare Workers AI with account id and an input wrapper", async () => {
     let captured: { url: string; body: unknown } | undefined;
     vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-      captured = { url, body: JSON.parse(String(init.body)) };
+      const rawBody = typeof init.body === "string" ? init.body : JSON.stringify(init.body);
+      captured = { url: String(url), body: JSON.parse(rawBody) };
       return new Response(
         JSON.stringify({
           success: true,
