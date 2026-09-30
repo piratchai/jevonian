@@ -447,7 +447,10 @@ export function createAdminApp(state: AppState): Hono {
 
   app.get("/quota", async (c) => {
     const refresh = c.req.query("refresh") === "1";
-    const quotas = await providerQuotas(state.config, { refresh });
+    // `lazy` is what makes Providers/Routing fast: a stored snapshot answers the read while
+    // the live probes refresh in the background. The explicit "Refresh" button (`refresh=1`)
+    // still blocks on real probes.
+    const quotas = await providerQuotas(state.config, { refresh, lazy: true });
     const guard = state.config.routing.quotaGuard;
     const health = state.config.providers.map((provider) => ({
       ...providerQuotaHealth(provider, { lowPercent: guard.lowPercent }),

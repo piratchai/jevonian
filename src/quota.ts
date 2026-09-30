@@ -1169,36 +1169,119 @@ type LiveQuota =
   | { windows: QuotaWindow[]; plan?: string; note?: string; balance?: ProviderBalance }
   | { error: string };
 
+/**
+ * Ceiling on one provider's live probe.
+ *
+ * A reseller's billing endpoint is the slowest dependency in the dashboard and occasionally
+ * hangs outright — Command Code's answers in 7–21s and sometimes 500s. Unbounded, that one
+ * provider held `/api/quota` open for 14s of a 24s page load, since the dashboard awaits the
+ * slowest of the eight probes.
+ */
+const LIVE_PROBE_TIMEOUT_MS = 4_000;
+
+async function withProbeTimeout<T>(
+  work: Promise<T>,
+  provider: string,
+): Promise<T | { error: string }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<{ error: string }>((resolve) => {
+        timer = setTimeout(
+          () => resolve({ error: `${provider} usage probe timed out` }),
+          LIVE_PROBE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function fetchLive(provider: Provider): Promise<LiveQuota | undefined> {
   try {
-    if (isOpenCodeGo(provider)) return await opencodeGoUsage(provider);
-    if (isCommandCode(provider)) return await commandCodeUsage(provider);
-    if (isAntigravity(provider)) return await antigravityUsage(provider);
-    if (isDevin(provider)) return await devinUsage(provider);
-    if (isDeepSeek(provider)) return await deepseekBalance(provider);
-    if (isOpenRouter(provider)) return await openrouterBalance(provider);
-    if (isMoonshot(provider)) return await moonshotBalance(provider);
-    if (provider.auth === "oauth" && provider.oauthSource === "claude-code") {
-      return await claudeUsage(provider);
-    }
-    if (provider.auth === "oauth" && provider.oauthSource === "codex") {
-      return await codexUsage(provider);
-    }
-    return undefined;
+    const probe = async (): Promise<LiveQuota | undefined> => {
+      if (isOpenCodeGo(provider)) return await opencodeGoUsage(provider);
+      if (isCommandCode(provider)) return await commandCodeUsage(provider);
+      if (isAntigravity(provider)) return await antigravityUsage(provider);
+      if (isDevin(provider)) return await devinUsage(provider);
+      if (isDeepSeek(provider)) return await deepseekBalance(provider);
+      if (isOpenRouter(provider)) return await openrouterBalance(provider);
+      if (isMoonshot(provider)) return await moonshotBalance(provider);
+      if (provider.auth === "oauth" && provider.oauthSource === "claude-code") {
+        return await claudeUsage(provider);
+      }
+      if (provider.auth === "oauth" && provider.oauthSource === "codex") {
+        return await codexUsage(provider);
+      }
+      return undefined;
+    };
+    return await withProbeTimeout(probe(), provider.name);
   } catch (error) {
     return { error: String(error) };
   }
+}
+
+function baseQuota(provider: Provider): Omit<ProviderQuota, "spend"> {
+  return {
+    provider: provider.name,
+    billing: provider.billing,
+    auth: apiKeySource(provider),
+    source: "none",
+    windows: [],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * The best answer available without touching the network: the stored header/live snapshot,
+ * then a provider's configured quota spec estimated from ledger spend.
+ *
+ * `liveError` is threaded through so a failed probe still surfaces its reason alongside the
+ * snapshot it fell back to.
+ */
+function storedQuota(
+  provider: Provider,
+  spend: ProviderSpend,
+  liveError?: string,
+): Omit<ProviderQuota, "spend"> {
+  const base = baseQuota(provider);
+  const header = headerQuotas()[provider.name];
+  if (header && header.windows.length > 0) {
+    const active = header.windows.filter((window) => activeWindow(window, Date.now()));
+    const hasAccount = active.some((window) => window.model === undefined);
+    const estimated = !hasAccount && provider.quota ? specWindows(provider.quota, spend) : [];
+    const staleNote = stalenessNote(header.fetchedAt);
+    return {
+      ...base,
+      source: estimated.length > 0 ? "ledger" : "headers",
+      windows: [...estimated, ...active],
+      fetchedAt: header.fetchedAt,
+      ...(header.plan ? { plan: header.plan } : {}),
+      ...(staleNote && estimated.length === 0 ? { note: staleNote } : {}),
+      ...(liveError ? { error: liveError } : {}),
+    };
+  }
+  if (provider.quota) {
+    const windows = specWindows(provider.quota, spend);
+    if (windows.length > 0) {
+      return {
+        ...base,
+        source: "ledger",
+        windows,
+        ...(liveError ? { error: liveError } : {}),
+      };
+    }
+  }
+  return { ...base, ...(liveError ? { error: liveError } : {}) };
 }
 
 async function buildQuota(
   provider: Provider,
   spend: ProviderSpend,
 ): Promise<Omit<ProviderQuota, "spend">> {
-  const base = {
-    provider: provider.name,
-    billing: provider.billing,
-    auth: apiKeySource(provider),
-  };
+  const base = baseQuota(provider);
   const live = await fetchLive(provider);
   const liveError = live && "error" in live ? live.error : undefined;
   if (live && !("error" in live) && (live.windows.length > 0 || live.balance)) {
@@ -1247,42 +1330,7 @@ async function buildQuota(
       ...(live.balance ? { balance: live.balance } : {}),
     };
   }
-  const header = headerQuotas()[provider.name];
-  if (header && header.windows.length > 0) {
-    const active = header.windows.filter((window) => activeWindow(window, Date.now()));
-    const hasAccount = active.some((window) => window.model === undefined);
-    const estimated = !hasAccount && provider.quota ? specWindows(provider.quota, spend) : [];
-    const staleNote = stalenessNote(header.fetchedAt);
-    return {
-      ...base,
-      source: estimated.length > 0 ? "ledger" : "headers",
-      windows: [...estimated, ...active],
-      fetchedAt: header.fetchedAt,
-      ...(header.plan ? { plan: header.plan } : {}),
-      ...(staleNote && estimated.length === 0 ? { note: staleNote } : {}),
-      ...(liveError ? { error: liveError } : {}),
-    };
-  }
-  if (provider.quota) {
-    const windows = specWindows(provider.quota, spend);
-    if (windows.length > 0) {
-      const quota: Omit<ProviderQuota, "spend"> = {
-        ...base,
-        source: "ledger",
-        windows,
-        fetchedAt: new Date().toISOString(),
-        ...(liveError ? { error: liveError } : {}),
-      };
-      return quota;
-    }
-  }
-  return {
-    ...base,
-    source: "none",
-    windows: [],
-    fetchedAt: new Date().toISOString(),
-    ...(liveError ? { error: liveError } : {}),
-  };
+  return storedQuota(provider, spend, liveError);
 }
 
 interface KnownWindows {
@@ -1437,22 +1485,68 @@ export function providerModelExhausted(
   );
 }
 
+/** One in-flight refresh per provider, so a burst of dashboard loads does not stack probes. */
+const liveRefreshing = new Set<string>();
+
+function refreshLiveInBackground(provider: Provider, spend: ProviderSpend): void {
+  if (liveRefreshing.has(provider.name)) return;
+  liveRefreshing.add(provider.name);
+  void buildQuota(provider, spend)
+    .then((quota) => {
+      liveCache.set(provider.name, { at: Date.now(), quota });
+    })
+    .catch(() => {
+      // A failed probe leaves the previous snapshot; the next request tries again.
+    })
+    .finally(() => {
+      liveRefreshing.delete(provider.name);
+    });
+}
+
+/**
+ * Live quota for every configured provider.
+ *
+ * Probes block by default, which is what `jevonian quota` wants: the operator asked for the
+ * numbers now. `lazy` trades that for latency — a provider without a fresh snapshot answers
+ * from the stored snapshot and the probe runs in the background for the next read.
+ *
+ * The dashboard passes `lazy` because reaching every reseller's billing endpoint inline is
+ * what made Providers and Routing crawl: with eight providers the page waited on the slowest
+ * probe (Command Code, 7–21s), and every reload waited again once the 60s live cache went
+ * cold. Routing never uses this path for the blocking decision — it calls
+ * {@link providerQuotaHealth} → {@link buildQuota}, where a stale answer would send a spent
+ * provider real traffic.
+ */
 export async function providerQuotas(
   config: Config,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; lazy?: boolean } = {},
 ): Promise<ProviderQuota[]> {
   const records = readRecords();
+  const spends = config.providers.map((provider) => spendOf(records, provider.name));
+  const resolved: Array<ProviderQuota | undefined> = config.providers.map((provider, index) => {
+    const spend = spends[index]!;
+    const cached = liveCache.get(provider.name);
+    if (cached && Date.now() - cached.at < liveTtl(provider)) {
+      return {
+        ...cached.quota,
+        windows: withModelRejections(provider.name, cached.quota.windows),
+        spend,
+      };
+    }
+    // An explicit refresh is a "probe now", so it beats the lazy shortcut.
+    if (options.lazy && !options.refresh) {
+      refreshLiveInBackground(provider, spend);
+      return { ...storedQuota(provider, spend), spend };
+    }
+    return undefined;
+  });
+  if (!resolved.includes(undefined)) return resolved as ProviderQuota[];
+
   return Promise.all(
-    config.providers.map(async (provider) => {
-      const spend = spendOf(records, provider.name);
-      const cached = liveCache.get(provider.name);
-      if (!options.refresh && cached && Date.now() - cached.at < liveTtl(provider)) {
-        return {
-          ...cached.quota,
-          windows: withModelRejections(provider.name, cached.quota.windows),
-          spend,
-        };
-      }
+    config.providers.map(async (provider, index) => {
+      const already = resolved[index];
+      if (already) return already;
+      const spend = spends[index]!;
       const quota = await buildQuota(provider, spend);
       liveCache.set(provider.name, { at: Date.now(), quota });
       return { ...quota, spend };
