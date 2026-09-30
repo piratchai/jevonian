@@ -780,6 +780,29 @@ describe("Devin error classification", () => {
     expect(classifyDevinError(500, "ordinary failure").message).toBe("ordinary failure");
   });
 
+  it("reads the free-model limit's prose reset hint", () => {
+    const error = classifyDevinError(
+      0,
+      '{"error":{"code":"unavailable","message":"Reached free model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in 2 hours 37 minutes. (trace ID: 5c0d)"}}',
+    );
+    expect(error.kind).toBe("rate_limit");
+    const ms = Date.parse(error.resetsAt as string) - Date.now();
+    expect(ms).toBeGreaterThan((2 * 60 + 36) * 60_000);
+    expect(ms).toBeLessThanOrEqual((2 * 60 + 37) * 60_000);
+  });
+
+  it.each([
+    ["Your limit will reset in 45 minutes.", 45 * 60_000],
+    ["limit resets in 1 hour and 5 minutes", 65 * 60_000],
+    ["resets in 2 days", 2 * 86_400_000],
+    ["Rate limit reached. Resets in: 3h0m0s", 3 * 3_600_000],
+  ])("parses reset hint %s", (text, expected) => {
+    const error = classifyDevinError(429, text);
+    const ms = Date.parse(error.resetsAt as string) - Date.now();
+    expect(ms).toBeGreaterThan(expected - 5_000);
+    expect(ms).toBeLessThanOrEqual(expected);
+  });
+
   it.each([
     [
       401,
