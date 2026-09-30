@@ -951,6 +951,71 @@ describe("quota headers", () => {
     expect(moonshot?.balance?.amount).toBeCloseTo(12.5);
   });
 
+  it("answers a dashboard read from the stored snapshot and refreshes in the background", async () => {
+    const config = parseConfig({
+      providers: [
+        {
+          name: "opencode-go",
+          type: "openai",
+          baseUrl: "https://opencode.ai/zen/go/v1",
+          apiKey: "test",
+          billing: "subscription",
+          models: ["opencode-go/kimi-k3"],
+        },
+      ],
+    });
+    let resolveProbe: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      resolveProbe = resolve;
+    });
+    let probeStarted = false;
+    vi.stubGlobal("fetch", async () => {
+      probeStarted = true;
+      await held;
+      return new Response(JSON.stringify({ usage: { rolling: { status: "ok", percent: 7 } } }), {
+        status: 200,
+      });
+    });
+
+    // The first read must not wait on the probe: it answers from the stored snapshot (none
+    // yet) and kicks the live refresh off in the background.
+    const first = await providerQuotas(config, { lazy: true });
+    expect(first[0]?.source).toBe("none");
+    expect(probeStarted).toBe(true);
+
+    resolveProbe?.();
+    await vi.waitFor(async () => {
+      const refreshed = await providerQuotas(config, { lazy: true });
+      expect(refreshed[0]?.source).toBe("live");
+      expect(refreshed[0]?.windows[0]?.usedPercent).toBe(7);
+    });
+  });
+
+  it("caps a hanging provider probe so one slow reseller cannot stall the read", async () => {
+    vi.useFakeTimers();
+    try {
+      const config = parseConfig({
+        providers: [
+          {
+            name: "commandcode",
+            type: "openai",
+            baseUrl: "https://api.commandcode.ai/v1",
+            apiKey: "test",
+            models: ["deepseek/deepseek-v4.1-flash"],
+          },
+        ],
+      });
+      // A probe that never settles stands in for a hung billing endpoint.
+      vi.stubGlobal("fetch", () => new Promise(() => {}));
+      const pending = providerQuotas(config, { refresh: true });
+      await vi.advanceTimersByTimeAsync(4_500);
+      const quotas = await pending;
+      expect(quotas[0]?.error).toContain("timed out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats a $0 OpenRouter balance as exhausted for routing", async () => {
     const config = parseConfig({
       providers: [

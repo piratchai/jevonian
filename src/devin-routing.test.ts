@@ -569,6 +569,46 @@ describe("Devin subscription forwarding", () => {
     });
   });
 
+  it("benches only the model on a free-model rate limit, until the prose reset time", async () => {
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("GetChatMessage")) {
+        const trailer = encodeConnectFrame(
+          encoder.encode(
+            JSON.stringify({
+              error: {
+                code: "unavailable",
+                message:
+                  "Reached free model rate limit. Upgrade to Max for higher limits, or switch to a different model. Your limit will reset in 2 hours 37 minutes.",
+              },
+            }),
+          ),
+          2,
+        );
+        return new Response(chunkedStream(trailer), { status: 200 });
+      }
+      if (url.includes("backup.example")) {
+        return Response.json({
+          id: "chatcmpl-backup",
+          choices: [{ message: { role: "assistant", content: "backup" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+      }
+      return new Response(`unexpected ${url}`, { status: 500 });
+    });
+    const response = await request(
+      "/v1/chat/completions",
+      { messages: [{ role: "user", content: "hi" }] },
+      config(true),
+    );
+    expect(response.headers.get("x-jevonian-provider")).toBe("backup");
+    const windows = headerQuotas()["devin-subscription"]?.windows ?? [];
+    expect(windows).toHaveLength(1);
+    expect(windows[0]).toMatchObject({ model: MODEL, status: "rejected" });
+    const ms = Date.parse(windows[0]?.resetsAt as string) - Date.now();
+    expect(ms).toBeGreaterThan(2 * 3_600_000);
+  });
+
   it("folds a non-stream Anthropic reply with thinking, tools and exclusive usage", async () => {
     routeFetch(responseFrames({ tool: true, thinking: true }));
     const response = await request("/v1/messages", {

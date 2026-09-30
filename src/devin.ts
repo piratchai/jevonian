@@ -613,16 +613,31 @@ const KIND_DEFAULT_MESSAGE: Record<DevinErrorKind, string> = {
 /** Max reset window honoured from a "Resets in: 3h0m0s" hint. */
 const MAX_RESET_MS = 7 * 24 * 3_600_000;
 
-/** Parses Go `time.Duration` reset hints ("Resets in: 3h0m0s", "resets in 45s") into ms. */
+/**
+ * Parses reset hints into ms. Accepts Go `time.Duration` spelling ("Resets in: 3h0m0s",
+ * "resets in 45s") and the prose the free-model limit uses ("Your limit will reset in
+ * 2 hours 37 minutes").
+ */
 function resetDurationMs(text: string): number | undefined {
-  const match = /resets? in[:\s]+((?:\d+h)?(?:\d+m(?!s))?(?:\d+(?:\.\d+)?s)?)/i.exec(text);
-  const duration = match?.[1];
+  // Every unit is optional, so this matches "" on prose; `||` lets the prose arm take over.
+  const compact =
+    /resets? in[:\s]+((?:\d+h)?(?:\d+m(?!s))?(?:\d+(?:\.\d+)?s)?)/i.exec(text)?.[1] || undefined;
+  const prose = compact
+    ? undefined
+    : /resets? in[:\s]+((?:\d+\s*(?:days?|hours?|hrs?|minutes?|mins?|seconds?|secs?)[\s,]*(?:and\s+)?)+)/i.exec(
+        text,
+      )?.[1];
+  const duration = compact || prose;
   if (!duration) return undefined;
-  const hours = /(\d+)h/.exec(duration)?.[1];
-  const minutes = /(\d+)m(?!s)/.exec(duration)?.[1];
-  const seconds = /(\d+(?:\.\d+)?)s/.exec(duration)?.[1];
-  const ms =
-    Number(hours ?? 0) * 3_600_000 + Number(minutes ?? 0) * 60_000 + Number(seconds ?? 0) * 1000;
+  const unit = (pattern: RegExp): number => Number(pattern.exec(duration)?.[1] ?? 0);
+  const ms = compact
+    ? unit(/(\d+)h/) * 3_600_000 +
+      unit(/(\d+)m(?!s)/) * 60_000 +
+      Number(/(\d+(?:\.\d+)?)s/.exec(duration)?.[1] ?? 0) * 1000
+    : unit(/(\d+)\s*days?/i) * 86_400_000 +
+      unit(/(\d+)\s*(?:hours?|hrs?)/i) * 3_600_000 +
+      unit(/(\d+)\s*(?:minutes?|mins?)/i) * 60_000 +
+      unit(/(\d+)\s*(?:seconds?|secs?)/i) * 1000;
   return ms > 0 ? Math.min(ms, MAX_RESET_MS) : undefined;
 }
 

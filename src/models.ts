@@ -288,7 +288,19 @@ export function canonicalVariants(
  * alias-pinned variants first, then providers in config order. Clients read this to see both
  * who can serve a model and who wins the turn.
  */
+const canonicalCache = new WeakMap<Config, CanonicalModel[]>();
+
+/**
+ * Every canonical id with the providers that can serve it.
+ *
+ * `canonicalVariants` answers one id at a time and each call scans every provider model plus
+ * the alias index — so building the full list for the model picker costs about a second per
+ * request on a ~780-model config. The answer only depends on the config, and admin edits
+ * swap in a fresh `Config` object rather than mutating this one, so it is cached per config.
+ */
 export function canonicalModels(config: Config): CanonicalModel[] {
+  const cached = canonicalCache.get(config);
+  if (cached) return cached;
   const ids = new Set<string>();
   for (const provider of config.providers) {
     for (const model of provider.models) {
@@ -297,10 +309,12 @@ export function canonicalModels(config: Config): CanonicalModel[] {
     }
   }
   for (const id of aliasIndex(config).keys()) ids.add(id);
-  return [...ids]
+  const result = [...ids]
     .sort((left, right) => left.localeCompare(right))
     .map((id) => ({ id, variants: canonicalVariants(config, id), ...identityLabels(id) }))
     .filter((entry) => entry.variants.length > 0);
+  canonicalCache.set(config, result);
+  return result;
 }
 
 /** The catalog's label and brand line for a canonical id, when the catalog names one. */

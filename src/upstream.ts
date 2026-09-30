@@ -1099,7 +1099,11 @@ function devinShouldFailover(error: DevinStreamError): boolean {
  */
 function markDevinRefusal(provider: Provider, error: DevinStreamError, model: string): void {
   const cooldown = new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString();
-  const modelScoped = /\b(?:for this model|for the model)\b/i.test(error.message);
+  // "Reached free model rate limit" caps the free tier only; paid models on the same account
+  // keep working, so benching the whole provider would strand them for hours.
+  const modelScoped = /\b(?:for this model|for the model|free model rate limit)\b/i.test(
+    error.message,
+  );
   switch (error.kind) {
     case "quota":
       markProviderSpent(provider, {
