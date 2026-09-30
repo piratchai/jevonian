@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.4] - 2026-09-30
+
+### Changed
+
+- The Providers and Routing pages open in about a third of a second instead of 20+ seconds. Both pages already fetched their data in parallel, so the wait was server-side: `GET /api/quota` probed every configured provider's billing endpoint inline, and with eight providers the page waited on the slowest one — 7–21s for a single reseller — paying it again on most reloads because the live cache only lasts 60s. The dashboard now answers from the last snapshot and refreshes in the background, and each probe has a timeout so one hanging service cannot hold the page open. Routing is unaffected: failover decisions still probe inline, `jevonian quota` still blocks, and the Refresh button still blocks on live probes.
+- The Routing page's model list no longer rebuilds on every request. Building the canonical list re-scanned all ~780 provider models once per id, about a second each time the page opened; the result depends only on the config, so it is now computed once per config.
+
+### Fixed
+
+- Devin's free-model rate limit now cools down only the affected model. `Reached free model rate limit` was treated like an account-wide quota failure, which parked the whole `devin-subscription` provider for hours even though the paid models on the same account still worked.
+- Devin reset hints written as prose (`Your limit will reset in 2 hours 37 minutes`) are now parsed, so the cooldown matches the real reset window instead of falling back to the default.
+
 ## [0.3.3] - 2026-09-29
 
 ### Added
