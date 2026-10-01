@@ -1299,8 +1299,7 @@ export function cacheAffinityKeep(input: {
   // dropped it — so there is nothing to keep to, whatever the cache says.
   if (
     !input.candidates.some(
-      (candidate) =>
-        candidate.provider === previous.provider && candidate.model === previous.model,
+      (candidate) => candidate.provider === previous.provider && candidate.model === previous.model,
     )
   ) {
     return { ...keep, reason: "gone" };

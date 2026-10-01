@@ -12,9 +12,7 @@ import {
 
 const NOW = 1_000_000;
 
-function session(
-  cache?: Partial<NonNullable<SessionState["cache"]>>,
-): SessionState {
+function session(cache?: Partial<NonNullable<SessionState["cache"]>>): SessionState {
   return {
     phase: "plan",
     provider: "warm",

@@ -244,8 +244,20 @@ describe("cache affinity keeps a conversation where it was answered", () => {
     parseConfig({
       defaultProvider: "a",
       providers: [
-        { name: "a", type: "openai", baseUrl: "http://127.0.0.1:1/v1", apiKey: "test", models: ["m"] },
-        { name: "b", type: "openai", baseUrl: "http://127.0.0.1:2/v1", apiKey: "test", models: ["m"] },
+        {
+          name: "a",
+          type: "openai",
+          baseUrl: "http://127.0.0.1:1/v1",
+          apiKey: "test",
+          models: ["m"],
+        },
+        {
+          name: "b",
+          type: "openai",
+          baseUrl: "http://127.0.0.1:2/v1",
+          apiKey: "test",
+          models: ["m"],
+        },
       ],
       routing: {
         mode: "auto",
@@ -339,7 +351,11 @@ describe("cache affinity keeps a conversation where it was answered", () => {
     expect(second.status).toBe(200);
     expect(second.headers.get("x-jevonian-provider")).toBe("a");
     expect(second.headers.get("x-jevonian-cache-keep")).toBe("turn");
-    expect(readRecords().filter((r) => r.kind !== "brain").at(-1)?.cacheKeep).toBe("turn");
+    expect(
+      readRecords()
+        .filter((r) => r.kind !== "brain")
+        .at(-1)?.cacheKeep,
+    ).toBe("turn");
   });
 
   it("honours an explicit affinity=off request", async () => {
