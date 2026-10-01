@@ -123,6 +123,7 @@ function isOAuthSource(value: string): value is OAuthSource {
     value === "codex" ||
     value === "antigravity" ||
     value === "devin" ||
+    value === "cursor" ||
     value === "static"
   );
 }
@@ -577,7 +578,7 @@ async function addProvider(): Promise<void> {
   }
   if (!id) {
     console.error(
-      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|static] [--billing subscription]",
+      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin|cursor] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|cursor|static] [--billing subscription]",
     );
     process.exit(1);
   }
@@ -590,7 +591,8 @@ async function addProvider(): Promise<void> {
     flags.type === "responses" ||
     flags.type === "both" ||
     flags.type === "gemini" ||
-    flags.type === "devin"
+    flags.type === "devin" ||
+    flags.type === "cursor"
       ? flags.type
       : (preset?.type ?? meta?.type ?? "openai");
   let apiKeyEnv = flags.env ?? preset?.apiKeyEnv ?? meta?.env[0] ?? "";
@@ -598,7 +600,7 @@ async function addProvider(): Promise<void> {
   const flagSource = flags["oauth-source"];
   if (flagSource !== undefined && !isOAuthSource(flagSource)) {
     console.error(
-      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, or static.`,
+      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, cursor, or static.`,
     );
     process.exit(1);
   }
@@ -622,6 +624,22 @@ async function addProvider(): Promise<void> {
     console.error("Devin wire requires --oauth-source devin (or static).");
     process.exit(1);
   }
+  // A Cursor sign-in only works on Cursor's own Connect-RPC wire.
+  if (oauthSource === "cursor") {
+    if (flags.type !== undefined && type !== "cursor") {
+      console.error("Cursor credentials require --type cursor.");
+      process.exit(1);
+    }
+    type = "cursor";
+  }
+  if (type === "cursor" && auth !== "oauth") {
+    console.error("Cursor wire requires --auth oauth --oauth-source cursor (or static).");
+    process.exit(1);
+  }
+  if (type === "cursor" && oauthSource !== "cursor" && oauthSource !== "static") {
+    console.error("Cursor wire requires --oauth-source cursor (or static).");
+    process.exit(1);
+  }
   const billing: ProviderBilling =
     flags.billing === "api"
       ? "api"
@@ -639,13 +657,14 @@ async function addProvider(): Promise<void> {
     }
     name = await ask("Provider name", name === "custom" ? "my-provider" : name);
     baseUrl = await ask("Base URL (OpenAI-, Anthropic-, or Responses-compatible)", baseUrl);
-    const typed = await ask("Protocol type (openai/anthropic/responses/both/gemini/devin)", type);
+    const typed = await ask("Protocol type (openai/anthropic/responses/both/gemini/devin/cursor)", type);
     type =
       typed === "anthropic" ||
       typed === "responses" ||
       typed === "both" ||
       typed === "gemini" ||
-      typed === "devin"
+      typed === "devin" ||
+      typed === "cursor"
         ? typed
         : "openai";
     if (!apiKeyEnv) apiKeyEnv = await ask("Environment variable name for the key (optional)");
@@ -675,7 +694,9 @@ async function addProvider(): Promise<void> {
           ? "Using Codex credentials from ~/.codex (run `codex` to sign in)."
           : oauthSource === "devin"
             ? "Using Devin credentials from ~/.local/share/devin (run `devin auth login` to sign in)."
-            : "Using Antigravity credentials from the IDE / `agy` (run `agy` to sign in).",
+            : oauthSource === "cursor"
+              ? "Using Cursor credentials from cursor-agent (run `cursor-agent login` to sign in)."
+              : "Using Antigravity credentials from the IDE / `agy` (run `agy` to sign in).",
     );
   }
 

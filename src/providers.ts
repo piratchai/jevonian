@@ -182,6 +182,17 @@ export const PRESETS: ProviderPreset[] = [
     hint: "Sign in with `devin auth login`; Jevonian reads ~/.local/share/devin/credentials.toml.",
     billing: "subscription",
   },
+  {
+    id: "cursor-subscription",
+    name: "Cursor",
+    type: "cursor",
+    baseUrl: "https://api2.cursor.sh",
+    auth: "oauth",
+    oauthSource: "cursor",
+    keysUrl: "https://cursor.com/install",
+    hint: "Install Cursor's CLI and sign in with `cursor-agent login`; Jevonian reads its keychain entry or auth.json.",
+    billing: "subscription",
+  },
 ];
 
 export function findPreset(id: string): ProviderPreset | undefined {

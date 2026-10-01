@@ -86,8 +86,10 @@ export function normalizeProviderType(type: ProviderType, baseUrl: string): Prov
 /** Native wire support — no translation. */
 export function providerSpeaks(provider: Provider, wire: ProviderType): boolean {
   if (provider.type === "both") return wire === "openai" || wire === "anthropic";
-  // Gemini and Devin wrap their own envelopes around a Chat Completions body.
-  if (provider.type === "gemini" || provider.type === "devin") return wire === "openai";
+  // Gemini, Devin and Cursor wrap their own envelopes around a Chat Completions body.
+  if (provider.type === "gemini" || provider.type === "devin" || provider.type === "cursor") {
+    return wire === "openai";
+  }
   if (wire === "openai") return provider.type === "openai" || provider.type === "responses";
   return provider.type === wire;
 }
@@ -99,8 +101,9 @@ export function providerSpeaks(provider: Provider, wire: ProviderType): boolean 
  */
 export function canServeClient(provider: Provider, client: ClientWire): boolean {
   if (providerSpeaks(provider, client)) return true;
-  // Devin's wire module takes a Chat Completions body, so every client can be folded onto it.
-  if (provider.type === "devin") return true;
+  // Devin's and Cursor's wire modules take a Chat Completions body, so every client can be
+  // folded onto it.
+  if (provider.type === "devin" || provider.type === "cursor") return true;
   if (client === "anthropic" && provider.type === "openai") return true;
   // Chat Completions clients → Claude Code OAuth / other Anthropic-only hosts.
   if (client === "openai" && provider.type === "anthropic") return true;
@@ -141,6 +144,7 @@ export function inferModelWires(provider: Provider, modelId: string): UpstreamWi
       return ["responses"];
     case "gemini":
     case "devin":
+    case "cursor":
     case "openai":
       return ["openai"];
     case "both": {
@@ -183,9 +187,10 @@ export function planUpstreamWire(input: {
       bridge: client === "responses" ? "to-openai" : "none",
     };
   }
-  if (provider.type === "devin") {
-    // Devin's Connect-RPC envelope is built from a Chat Completions body; Anthropic and
-    // Responses clients fold onto that body first, and the reply is translated back.
+  if (provider.type === "devin" || provider.type === "cursor") {
+    // Devin's and Cursor's Connect-RPC envelopes are built from a Chat Completions body;
+    // Anthropic and Responses clients fold onto that body first, and the reply is translated
+    // back.
     return { wire: "openai", bridge: client === "openai" ? "none" : "to-openai" };
   }
   if (provider.type === "responses") {

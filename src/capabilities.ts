@@ -1,3 +1,4 @@
+import { loadCursorCatalog } from "./cursor-catalog";
 import { devinModelMeta } from "./devin-catalog";
 import { canonicalModelId } from "./models";
 import { loadCapabilities } from "./modelsdev";
@@ -97,9 +98,21 @@ export function modelCapabilities(model: string): ModelCapabilities {
   const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
   const catalog = index.get(model) ?? index.get(tail) ?? index.get(canonicalModelId(model));
   const devin = devinCapabilities(model);
-  // A models.dev row with no limits (or only one of them) must not hide Devin's more
-  // specific limits. Where both state the same field, models.dev remains authoritative.
-  return { ...devin, ...catalog };
+  const cursor = cursorCapabilities(model);
+  // A models.dev row with no limits (or only one of them) must not hide Devin's or Cursor's
+  // more specific limits. Where both state the same field, models.dev remains authoritative.
+  return { ...devin, ...cursor, ...catalog };
+}
+
+/** Cursor ids ("claude-opus-5.5", "grok-4.7") use the window Cursor's own list stated. */
+function cursorCapabilities(model: string): ModelCapabilities | undefined {
+  const file = loadCursorCatalog();
+  if (!file) return undefined;
+  const id = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const entry =
+    file.models.find((item) => item.id === id) ?? file.raw.find((item) => item.id === id);
+  if (!entry || entry.context <= 0) return undefined;
+  return { contextWindow: entry.context };
 }
 
 /** Devin-only ids fall back to the window and output cap Devin's own catalog states. */

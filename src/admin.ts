@@ -164,7 +164,8 @@ function parseType(value: unknown): ProviderType {
     value === "responses" ||
     value === "both" ||
     value === "gemini" ||
-    value === "devin"
+    value === "devin" ||
+    value === "cursor"
   ) {
     return value;
   }
@@ -181,6 +182,7 @@ function parseOAuthSource(value: unknown): OAuthSource | undefined {
     value === "codex" ||
     value === "antigravity" ||
     value === "devin" ||
+    value === "cursor" ||
     value === "static"
   )
     return value;

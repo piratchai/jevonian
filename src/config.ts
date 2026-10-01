@@ -22,7 +22,14 @@ export const providerSupports = providerSpeaks;
 export const providerAcceptsClient = canServeClient;
 
 export type { ModelEntry, UpstreamWire };
-export type ProviderType = "openai" | "anthropic" | "responses" | "both" | "gemini" | "devin";
+export type ProviderType =
+  | "openai"
+  | "anthropic"
+  | "responses"
+  | "both"
+  | "gemini"
+  | "devin"
+  | "cursor";
 export type ProviderAuth = "api-key" | "oauth";
 export type ProviderBilling = "api" | "subscription";
 
@@ -80,6 +87,7 @@ export const MODEL_SYNC_DEFAULT_SOURCES: readonly OAuthSource[] = [
   "claude-code",
   "antigravity",
   "devin",
+  "cursor",
 ];
 
 export function providerSyncsByDefault(provider: Pick<Provider, "oauthSource">): boolean {
@@ -524,10 +532,11 @@ function parseProviderType(value: unknown, index: number): ProviderType {
     type !== "responses" &&
     type !== "both" &&
     type !== "gemini" &&
-    type !== "devin"
+    type !== "devin" &&
+    type !== "cursor"
   ) {
     throw new Error(
-      `providers[${index}].type must be "openai", "anthropic", "responses", "both", "gemini", or "devin"`,
+      `providers[${index}].type must be "openai", "anthropic", "responses", "both", "gemini", "devin", or "cursor"`,
     );
   }
   return type;
@@ -544,6 +553,7 @@ function parseOAuthSource(value: unknown): OAuthSource | undefined {
     value === "codex" ||
     value === "antigravity" ||
     value === "devin" ||
+    value === "cursor" ||
     value === "static"
   )
     return value;
