@@ -1098,7 +1098,10 @@ async function codexUsage(
   provider: Provider,
 ): Promise<{ windows: QuotaWindow[]; plan?: string; note?: string } | { error: string }> {
   if (provider.auth !== "oauth" || provider.oauthSource !== "codex") return { windows: [] };
-  const resolved = await resolveOAuthToken({ source: "codex" });
+  const resolved = await resolveOAuthToken({
+    source: "codex",
+    ...(provider.login ? { login: provider.login } : {}),
+  });
   if ("error" in resolved) return { error: resolved.error };
   const url = process.env.JEVONIAN_CODEX_USAGE_URL ?? "https://chatgpt.com/backend-api/wham/usage";
   const response = await fetch(url, {

@@ -2057,7 +2057,7 @@ async function forward(
         provider.oauthSource &&
         provider.oauthSource !== "static"
       ) {
-        invalidateOAuthToken(provider.oauthSource);
+        invalidateOAuthToken(provider.oauthSource, provider.login);
         const refreshed = await resolveProviderAuth(provider, upstreamKind);
         if (!refreshed.error) {
           auth = refreshed;

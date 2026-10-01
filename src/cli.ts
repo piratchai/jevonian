@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { serve } from "@hono/node-server";
 
@@ -20,6 +22,7 @@ import {
   type Provider,
   type ProviderAuth,
   type ProviderBilling,
+  type ProviderLogin,
   type ProviderType,
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
@@ -537,6 +540,58 @@ function modelsFromSnapshot(providerName: string): string[] {
   ].sort();
 }
 
+/**
+ * A provider's local sign-in from the command line, for a second account of the same agent:
+ *
+ *   jevonian add claude-subscription --name claude-work --login-home ~/.claude-work
+ *
+ * A login only means something for an OAuth source — an API key is already per provider — so
+ * naming one without `--auth oauth` is refused rather than silently ignored.
+ */
+function loginFromFlags(
+  flags: Record<string, string>,
+  auth: ProviderAuth,
+  baseUrl: string,
+): ProviderLogin | undefined {
+  const home = flags["login-home"]?.trim();
+  const credentialsPath = flags["login-file"]?.trim();
+  const keychain = flags["login-keychain"]?.trim();
+  const label = flags["login-label"]?.trim();
+  if (!home && !credentialsPath && !keychain && !label) return undefined;
+  if (auth !== "oauth") {
+    console.error(
+      "--login-home / --login-file / --login-keychain describe a local sign-in, which only an OAuth provider reads. Add --auth oauth, or drop them and use --key.",
+    );
+    process.exit(1);
+  }
+  const colon = keychain ? keychain.indexOf(":") : -1;
+  const keychainService = keychain
+    ? colon >= 0
+      ? keychain.slice(0, colon).trim()
+      : keychain
+    : undefined;
+  const keychainAccount = colon >= 0 ? keychain.slice(colon + 1).trim() : undefined;
+  // Each source keeps its sign-in somewhere specific; a `login.file` is the file to read, a
+  // `login.home` the directory it usually lives in. Guessing between them would read a path
+  // that does not exist and look like a missing sign-in instead of a wrong flag.
+  const expanded = home ? expandHome(home) : undefined;
+  void baseUrl;
+  return {
+    ...(label ? { label } : {}),
+    ...(expanded ? { home: expanded } : {}),
+    ...(credentialsPath ? { credentialsPath: expandHome(credentialsPath) } : {}),
+    ...(keychainService ? { keychainService } : {}),
+    ...(keychainAccount ? { keychainAccount } : {}),
+  };
+}
+
+/** `~` and `~/…` as the user's home, so a shell-quoted flag does not depend on the shell. */
+function expandHome(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  return path;
+}
+
 async function addProvider(): Promise<void> {
   const config = ensureConfig();
   const interactive = isInteractive() && !("yes" in flags);
@@ -578,12 +633,12 @@ async function addProvider(): Promise<void> {
   }
   if (!id) {
     console.error(
-      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin|cursor] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|cursor|static] [--billing subscription]",
+      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin|cursor] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|cursor|static] [--billing subscription] [--name NAME] [--login-home DIR|--login-file PATH] [--login-keychain SERVICE[:ACCOUNT]] [--login-label LABEL]",
     );
     process.exit(1);
   }
 
-  let name = preset?.id ?? id;
+  let name = flags.name ?? preset?.id ?? id;
   let baseUrl = flags["base-url"] ?? preset?.baseUrl ?? meta?.api ?? "";
   let type: ProviderType =
     flags.type === "anthropic" ||
@@ -647,6 +702,9 @@ async function addProvider(): Promise<void> {
         ? "subscription"
         : (preset?.billing ?? "api");
 
+  // A second account of the same agent: the same preset, pointed at another local sign-in, under
+  // a name of its own so it gets its own quota window, fallback place, and ledger rows.
+  const login = loginFromFlags(flags, auth, baseUrl);
   const unknown = !preset && !meta;
   if (!baseUrl) {
     if (!interactive) {
@@ -709,6 +767,7 @@ async function addProvider(): Promise<void> {
     baseUrl: normalizeBaseUrl(baseUrl),
     auth,
     ...(oauthSource ? { oauthSource } : {}),
+    ...(login ? { login } : {}),
     billing,
     ...(apiKey ? { apiKey } : {}),
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
@@ -757,6 +816,7 @@ async function addProvider(): Promise<void> {
     baseUrl: normalizeBaseUrl(baseUrl),
     auth,
     ...(oauthSource ? { oauthSource } : {}),
+    ...(login ? { login } : {}),
     billing,
     ...(apiKey ? {} : apiKeyEnv ? { apiKeyEnv } : {}),
     models: models.map((id) => ({ id })),
@@ -794,6 +854,13 @@ async function addProvider(): Promise<void> {
   console.log(
     `  auth: ${auth === "oauth" ? `oauth (${oauthSource ?? "static"})` : apiKey ? `stored in ${credentialsPath()} (0600)` : apiKeyEnv ? `env ${apiKeyEnv}` : "none"}`,
   );
+  if (login) {
+    const where =
+      login.credentialsPath ??
+      login.home ??
+      (login.keychainService ? `keychain:${login.keychainService}` : undefined);
+    console.log(`  login: ${login.label ? `${login.label} — ` : ""}${where ?? "agent default"}`);
+  }
   console.log(`  billing: ${billing}`);
   for (const entry of config.routing.routings) {
     if (entry.models[0]) console.log(`  ${entry.id}: ${entry.models.join(", ")}`);
@@ -812,8 +879,13 @@ function listProviders(): void {
     const source = apiKeySource(provider);
     const key =
       source === "none" && provider.apiKeyEnv ? `missing (${provider.apiKeyEnv})` : source;
+    // The sign-in is what tells two accounts of one agent apart, so a second one is named here
+    // rather than left for `config` to reveal.
+    const account = provider.login
+      ? ` account=${provider.login.label ?? provider.login.credentialsPath ?? provider.login.home ?? provider.login.keychainService ?? "custom"}`
+      : "";
     console.log(
-      `${pad(provider.name, 24)} ${pad(`${provider.type}${provider.billing === "subscription" ? "/sub" : ""}`, 14)} ${pad(provider.baseUrl, 46)} key=${key} models=${provider.models.length}`,
+      `${pad(provider.name, 24)} ${pad(`${provider.type}${provider.billing === "subscription" ? "/sub" : ""}`, 14)} ${pad(provider.baseUrl, 46)} key=${key}${account} models=${provider.models.length}`,
     );
   }
 }

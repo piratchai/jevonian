@@ -15,6 +15,23 @@ export interface ProviderQuotaSpecView {
   monthlyUsd?: number;
 }
 
+/**
+ * The local sign-in a provider reads, when it is not the agent's own — a second account of the
+ * same agent on the same machine. Every field is optional; absent means the agent's own sign-in.
+ */
+export interface ProviderLoginView {
+  /** Who this account belongs to, as the list shows it ("work", an email, …). */
+  label?: string;
+  /** Directory the agent keeps this sign-in in (`~/.claude-work`, `~/.codex-work`, …). */
+  home?: string;
+  /** Path to the credential file, in place of the one the source would read. */
+  credentialsPath?: string;
+  /** macOS keychain service the sign-in is stored under. */
+  keychainService?: string;
+  /** macOS keychain account the sign-in is stored under. */
+  keychainAccount?: string;
+}
+
 export interface ProviderView {
   name: string;
   type: ProviderTypeView;
@@ -22,6 +39,8 @@ export interface ProviderView {
   apiKeyEnv?: string;
   auth?: ProviderAuthView;
   oauthSource?: string;
+  /** The local sign-in this provider reads; absent means the agent's own. */
+  login?: ProviderLoginView;
   billing?: ProviderBillingView;
   quota?: ProviderQuotaSpecView;
   keySource: string;
@@ -719,6 +738,8 @@ export const api = {
     apiKeyEnv?: string;
     auth?: ProviderAuthView;
     oauthSource?: string;
+    /** `null` clears the local sign-in so the provider reads the agent's own again. */
+    login?: ProviderLoginView | null;
     billing?: ProviderBillingView;
     quota?: ProviderQuotaSpecView;
     models?: string[];

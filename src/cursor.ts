@@ -19,6 +19,18 @@ import { promisify } from "node:util";
 import type { Usage } from "./pricing";
 import { sanitizeBuiltinPrompt } from "./prompt-policy";
 
+/**
+ * Which local sign-in to read, when it is not the agent's own — a second Cursor account on the
+ * same machine. Structurally `LoginSpec` from ./oauth, declared here so the wire module does
+ * not have to import the oauth it is read by.
+ */
+export interface CursorLogin {
+  home?: string;
+  credentialsPath?: string;
+  keychainService?: string;
+  keychainAccount?: string;
+}
+
 export const CURSOR_DEFAULT_BASE_URL = "https://api2.cursor.sh";
 /** Agent API used when the server config cannot name a region-specific one. */
 export const CURSOR_AGENT_FALLBACK = "https://agentn.global.api5.cursor.sh";
@@ -297,28 +309,30 @@ function isCursorAgent(path: string): boolean {
 }
 
 /** Where `cursor-agent` keeps its sign-in away from a Mac's keychain. */
-export function cursorAuthPath(): string {
+export function cursorAuthPath(login?: CursorLogin): string {
   const override = process.env.JEVONIAN_CURSOR_AUTH;
   if (override && override.trim().length > 0) return override.trim();
+  if (login?.credentialsPath) return login.credentialsPath;
   const home = homedir();
   if (process.platform === "win32") {
-    const dir = process.env.APPDATA ?? join(home, "AppData", "Roaming");
-    return join(dir, "Cursor", "auth.json");
+    const dir =
+      login?.home ?? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Cursor");
+    return join(dir, "auth.json");
   }
-  if (process.platform === "darwin") return join(home, ".cursor", "auth.json");
-  const dir = process.env.XDG_CONFIG_HOME ?? join(home, ".config");
-  return join(dir, "cursor", "auth.json");
+  if (process.platform === "darwin") return join(login?.home ?? join(home, ".cursor"), "auth.json");
+  const dir = login?.home ?? join(process.env.XDG_CONFIG_HOME ?? join(home, ".config"), "cursor");
+  return join(dir, "auth.json");
 }
 
-async function readKeychainToken(): Promise<string | undefined> {
+async function readKeychainToken(login?: CursorLogin): Promise<string | undefined> {
   if (process.platform !== "darwin") return undefined;
   try {
     const { stdout } = await execFileAsync("security", [
       "find-generic-password",
       "-s",
-      "cursor-access-token",
+      login?.keychainService ?? "cursor-access-token",
       "-a",
-      "cursor-user",
+      login?.keychainAccount ?? "cursor-user",
       "-w",
     ]);
     const token = stdout.trim();
@@ -328,8 +342,8 @@ async function readKeychainToken(): Promise<string | undefined> {
   }
 }
 
-function readAuthFileToken(): string | undefined {
-  const path = cursorAuthPath();
+function readAuthFileToken(login?: CursorLogin): string | undefined {
+  const path = cursorAuthPath(login);
   if (!existsSync(path)) return undefined;
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as { accessToken?: unknown };
@@ -342,12 +356,12 @@ function readAuthFileToken(): string | undefined {
 }
 
 /** The access token `cursor-agent` signed in with, or "". */
-export async function readCursorToken(): Promise<string> {
+export async function readCursorToken(login?: CursorLogin): Promise<string> {
   if (process.platform === "darwin") {
-    const keychain = await readKeychainToken();
+    const keychain = await readKeychainToken(login);
     if (keychain) return keychain;
   }
-  return readAuthFileToken() ?? "";
+  return readAuthFileToken(login) ?? "";
 }
 
 /** Expiry of a JWT, or undefined when it does not say. */
@@ -375,8 +389,8 @@ let refreshing: Promise<string> | undefined;
  * The token to call Cursor's API with. A token about to run out is renewed by
  * `cursor-agent status`, which renews whenever it runs.
  */
-export async function cursorToken(): Promise<string> {
-  const token = await readCursorToken();
+export async function cursorToken(login?: CursorLogin): Promise<string> {
+  const token = await readCursorToken(login);
   if (tokenFresh(token)) return token;
   const path = cursorExecutable();
   if (path !== "") {
@@ -386,13 +400,13 @@ export async function cursorToken(): Promise<string> {
       } catch {
         // A failed status still often renews; the re-read below decides.
       }
-      return readCursorToken();
+      return readCursorToken(login);
     })();
     const renewed = await refreshing;
     refreshing = undefined;
     if (renewed !== "") return renewed;
   }
-  const latest = await readCursorToken();
+  const latest = await readCursorToken(login);
   if (latest === "") {
     throw new Error(
       "Cursor isn't signed in; run `cursor-agent login`, or point JEVONIAN_CURSOR_AUTH at an auth.json.",

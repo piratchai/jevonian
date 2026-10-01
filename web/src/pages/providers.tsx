@@ -32,6 +32,7 @@ import {
   type PriceInfo,
   type ProviderAuthView,
   type ProviderBillingView,
+  type ProviderLoginView,
   type ProviderQuotaView,
   type ProviderTypeView,
   type QuotaHealthView,
@@ -67,6 +68,10 @@ export function ProvidersPage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("");
+  const [loginLabel, setLoginLabel] = useState("");
+  const [loginHome, setLoginHome] = useState("");
+  const [loginFile, setLoginFile] = useState("");
+  const [loginKeychain, setLoginKeychain] = useState("");
   const [quotaFiveHour, setQuotaFiveHour] = useState("");
   const [quotaWeekly, setQuotaWeekly] = useState("");
   const [quotaMonthly, setQuotaMonthly] = useState("");
@@ -140,6 +145,10 @@ export function ProvidersPage() {
     setBaseUrl(preset.baseUrl);
     setApiKey("");
     setApiKeyEnv(preset.apiKeyEnv ?? "");
+    setLoginLabel("");
+    setLoginHome("");
+    setLoginFile("");
+    setLoginKeychain("");
     setQuotaFiveHour("");
     setQuotaWeekly("");
     setQuotaMonthly("");
@@ -289,6 +298,7 @@ export function ProvidersPage() {
         apiKeyEnv: apiKeyEnv || undefined,
         auth,
         oauthSource: auth === "oauth" ? oauthSource : undefined,
+        login: loginPayload(),
         billing,
         quota: Object.keys(quota).length > 0 ? quota : undefined,
         models: selected,
@@ -377,6 +387,7 @@ export function ProvidersPage() {
     apiKeyEnv?: string;
     auth?: ProviderAuthView;
     oauthSource?: string;
+    login?: ProviderLoginView;
     billing?: ProviderBillingView;
     quota?: { fiveHourUsd?: number; weeklyUsd?: number; monthlyUsd?: number };
     models: string[];
@@ -391,6 +402,16 @@ export function ProvidersPage() {
     setBaseUrl(provider.baseUrl);
     setApiKey("");
     setApiKeyEnv(provider.apiKeyEnv ?? "");
+    setLoginLabel(provider.login?.label ?? "");
+    setLoginHome(provider.login?.home ?? "");
+    setLoginFile(provider.login?.credentialsPath ?? "");
+    setLoginKeychain(
+      provider.login?.keychainService
+        ? provider.login.keychainAccount
+          ? `${provider.login.keychainService}:${provider.login.keychainAccount}`
+          : provider.login.keychainService
+        : "",
+    );
     setQuotaFiveHour(provider.quota?.fiveHourUsd ? String(provider.quota.fiveHourUsd) : "");
     setQuotaWeekly(provider.quota?.weeklyUsd ? String(provider.quota.weeklyUsd) : "");
     setQuotaMonthly(provider.quota?.monthlyUsd ? String(provider.quota.monthlyUsd) : "");
@@ -419,6 +440,45 @@ export function ProvidersPage() {
   };
 
   const needsApiKey = auth === "api-key" || oauthSource === "static";
+
+  /**
+   * Whether this credential source keeps its sign-in somewhere a `login` can point at. A stored
+   * token (`static`) has no local sign-in to redirect, so the account fields stay hidden.
+   */
+  const loginSource = auth === "oauth" && oauthSource !== "static";
+  const loginSourceName =
+    oauthSource === "codex"
+      ? "Codex"
+      : oauthSource === "antigravity"
+        ? "Antigravity"
+        : oauthSource === "devin"
+          ? "Devin"
+          : "Claude Code";
+
+  /** Assemble the `login` payload; `null` clears an existing one, `undefined` sends nothing. */
+  function loginPayload(): ProviderLoginView | null | undefined {
+    const label = loginLabel.trim();
+    const home = loginHome.trim();
+    const credentialsPath = loginFile.trim();
+    const keychain = loginKeychain.trim();
+    const colon = keychain.indexOf(":");
+    const keychainService = keychain
+      ? colon >= 0
+        ? keychain.slice(0, colon).trim()
+        : keychain
+      : "";
+    const keychainAccount = colon >= 0 ? keychain.slice(colon + 1).trim() : "";
+    const hasAny = Boolean(label || home || credentialsPath || keychainService || keychainAccount);
+    if (!loginSource) return editing ? null : undefined;
+    if (!hasAny) return editing ? null : undefined;
+    return {
+      ...(label ? { label } : {}),
+      ...(home ? { home } : {}),
+      ...(credentialsPath ? { credentialsPath } : {}),
+      ...(keychainService ? { keychainService } : {}),
+      ...(keychainAccount ? { keychainAccount } : {}),
+    };
+  }
 
   if (error && !state) return <p className="text-sm text-destructive">{error}</p>;
   if (!state) return <ProvidersSkeleton />;
@@ -526,6 +586,15 @@ export function ProvidersPage() {
                     <Badge variant={provider.keySource === "none" ? "destructive" : "secondary"}>
                       {provider.keySource}
                     </Badge>
+                    {provider.login ? (
+                      <span className="ml-1.5 text-[11px] text-muted-foreground">
+                        {provider.login.label ??
+                          provider.login.home ??
+                          provider.login.credentialsPath ??
+                          provider.login.keychainService ??
+                          "account"}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell>{provider.models.length}</TableCell>
                   <TableCell className="whitespace-nowrap text-right">
@@ -770,6 +839,56 @@ export function ProvidersPage() {
                 hint={helpPreset?.hint}
                 linkLabel={auth === "oauth" ? "How to sign in" : "Get an API key"}
               />
+              {loginSource ? (
+                <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
+                  <div>
+                    <p className="text-xs font-medium">Second account (optional)</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Point this provider at another local {loginSourceName} sign-in — a work and a
+                      home account can each have their own quota, fallback place, and ledger. Blank
+                      reads the agent&apos;s own sign-in.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="loginLabel">Label</Label>
+                      <Input
+                        id="loginLabel"
+                        placeholder="work"
+                        value={loginLabel}
+                        onChange={(event) => setLoginLabel(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="loginHome">Config dir</Label>
+                      <Input
+                        id="loginHome"
+                        placeholder="~/.claude-work"
+                        value={loginHome}
+                        onChange={(event) => setLoginHome(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="loginFile">Credential file</Label>
+                      <Input
+                        id="loginFile"
+                        placeholder="/path/to/credentials.json"
+                        value={loginFile}
+                        onChange={(event) => setLoginFile(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="loginKeychain">Keychain</Label>
+                      <Input
+                        id="loginKeychain"
+                        placeholder="service[:account]"
+                        value={loginKeychain}
+                        onChange={(event) => setLoginKeychain(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <span className="text-[11px] text-muted-foreground">
                 Secrets stay on this machine; a blank API key keeps the stored value when editing.
               </span>
