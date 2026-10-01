@@ -366,3 +366,78 @@ describe("codex auth safety", () => {
     expect(existsSync(authPath())).toBe(false);
   });
 });
+
+describe("codex config.toml surgical editing", () => {
+  let home: string;
+  let codexDir: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "jev-codex-toml-"));
+    codexDir = join(home, ".codex");
+    mkdirSync(codexDir, { recursive: true });
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("JEVONIAN_DATA_DIR", join(home, "data"));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  const configPath = () => join(codexDir, "config.toml");
+
+  it("rewrites only the managed keys and keeps comments and tables", () => {
+    const original = [
+      "# my careful setup",
+      'model = "gpt-5.6-sol"',
+      'approval_policy = "on-request"',
+      "",
+      "[mcp_servers.thing]",
+      'command = "thing"',
+      "",
+      "# trailing comment",
+      "",
+    ].join("\n");
+    writeFileSync(configPath(), original);
+
+    applyChatGpt({ port: 8787, models: ["jevonian/auto"] });
+
+    const written = readFileSync(configPath(), "utf8");
+    // Comments and unrelated keys survive untouched.
+    expect(written).toContain("# my careful setup");
+    expect(written).toContain('approval_policy = "on-request"');
+    expect(written).toContain("[mcp_servers.thing]");
+    expect(written).toContain("# trailing comment");
+    // Managed keys are set at the root.
+    expect(written).toContain('model = "jevonian/auto"');
+    expect(written).toContain('openai_base_url = "http://127.0.0.1:8787/v1"');
+    expect(written).toContain("model_catalog_json =");
+    // The old value was replaced, not duplicated.
+    expect(written.match(/^model = /gm)?.length).toBe(1);
+  });
+
+  it("restores the exact original bytes after connect", () => {
+    const original = '# keep\nmodel = "gpt-5.6-sol"\n\n[section]\nkey = "v"\n';
+    writeFileSync(configPath(), original);
+
+    applyChatGpt({ port: 8787, models: ["jevonian/auto"] });
+    restoreChatGpt();
+
+    expect(readFileSync(configPath(), "utf8")).toBe(original);
+  });
+
+  it("strips only managed keys when no restore state exists", () => {
+    const original = '# keep\nmodel = "gpt-5.6-sol"\n';
+    writeFileSync(configPath(), original);
+
+    applyChatGpt({ port: 8787, models: ["jevonian/auto"] });
+    // Simulate a lost restore state, as if Jevonian's data dir were cleared.
+    rmSync(join(home, "data"), { recursive: true, force: true });
+    restoreChatGpt();
+
+    const written = readFileSync(configPath(), "utf8");
+    expect(written).toContain("# keep");
+    expect(written).not.toContain("openai_base_url");
+    expect(written).not.toContain("model_catalog_json");
+  });
+});

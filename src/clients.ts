@@ -11,6 +11,7 @@ import {
   restoreClaudeCode,
 } from "./claude-code";
 import { claudeGatewayProfileModels } from "./claude-gateway";
+import { applyJsoncEdits, type JsoncEdit } from "./jsonc";
 import { dataDir } from "./paths";
 
 export type ClientId = "chatgpt" | "claude";
@@ -111,6 +112,37 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+/**
+ * Sets top-level keys in a JSONC file in place, so the user's comments, key order,
+ * and formatting survive. Creates the file (as plain JSON) when it does not exist yet.
+ * Use this for any config a person may keep comments in — Claude Desktop's configs,
+ * the third-party profile — instead of `readJson` + `writeJson`, which is a full
+ * reformat. Arrays (e.g. the meta entry list) still go through `writeJson`.
+ */
+function writeJsoncTopLevel(path: string, values: Record<string, unknown>): void {
+  const original = readText(path);
+  if (original.length === 0) {
+    writeJson(path, values);
+    return;
+  }
+  const edits: JsoncEdit[] = Object.entries(values).map(([key, value]) => ({
+    path: [key],
+    value,
+  }));
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, applyJsoncEdits(original, edits), "utf8");
+}
+
+/** Removes top-level keys from a JSONC file in place, leaving everything else intact. */
+function removeJsoncTopLevel(path: string, keys: string[]): void {
+  const original = readText(path);
+  if (original.length === 0) return;
+  const edits: JsoncEdit[] = keys.map((key) => ({ path: [key], value: undefined }));
+  const next = applyJsoncEdits(original, edits);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, next, "utf8");
+}
+
 export function stateDir(): string {
   return join(dataDir(), "clients");
 }
@@ -194,11 +226,18 @@ function setTomlRootString(text: string, key: string, value: string): string {
 function removeTomlRootValue(text: string, key: string): string {
   const lines = text.split("\n");
   const kept: string[] = [];
-  for (const line of lines) {
+  let reachedTable = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (reachedTable) {
+      kept.push(line);
+      continue;
+    }
     const trimmed = line.trim();
     if (trimmed.startsWith("[")) {
-      kept.push(...lines.slice(lines.indexOf(line)));
-      break;
+      reachedTable = true;
+      kept.push(line);
+      continue;
     }
     const match = /^([A-Za-z0-9_-]+)\s*=/.exec(trimmed);
     if (match && match[1] === key) continue;
@@ -683,13 +722,13 @@ export function applyClaudeDesktop(options: ApplyOptions): ApplyResult {
 
   const baseUrl = `http://127.0.0.1:${options.port}`;
 
-  // Enable third-party deployment mode so Claude reads the Claude-3p profile.
+  // Enable third-party deployment mode so Claude reads the Claude-3p profile. Surgical:
+  // only `deploymentMode` changes, so comments and other keys in these configs survive.
   for (const path of [paths.desktopConfig, paths.normalConfig]) {
-    const config = readJson(path);
-    config.deploymentMode = "3p";
-    writeJson(path, config);
+    writeJsoncTopLevel(path, { deploymentMode: "3p" });
   }
 
+  // The meta file holds an entry list (an array), which is rewritten whole.
   const meta = readJson(paths.meta);
   meta.appliedId = paths.profileId;
   const entries = Array.isArray(meta.entries)
@@ -701,29 +740,29 @@ export function applyClaudeDesktop(options: ApplyOptions): ApplyResult {
   meta.entries = [...entries, { id: paths.profileId, name: "Jevonian" }];
   writeJson(paths.meta, meta);
 
-  const profile = readJson(paths.profile);
-  profile.inferenceProvider = "gateway";
-  profile.inferenceGatewayBaseUrl = baseUrl;
-  // Claude authenticates to the loopback gateway with a placeholder key; the
-  // real upstream credentials stay in Jevonian.
-  profile.inferenceGatewayApiKey = MANAGED_MARKER;
-  profile.inferenceGatewayAuthScheme = "bearer";
-  profile.deploymentDisplayName = "Jevonian";
-  profile.chatTabEnabled = true;
   // Claude cannot show Jevonian's aliases: its picker only offers Anthropic
   // model ids it ships a profile for. So the profile lists Jevonian's models
   // under Claude ids it accepts, and Jevonian translates them back on the way
   // in. Declaring the list also switches off model discovery, which is what the
   // app's own setup error recommends when a gateway list would not parse.
-  profile.inferenceModels = claudeGatewayProfileModels(options.models);
-  profile.modelDiscoveryEnabled = false;
-  profile.disableDeploymentModeChooser = true;
-  // Cowork opens links and fetches context on Jevonian's behalf, so its egress
-  // allowance has to span the hosts a session may touch.
-  profile.coworkEgressAllowedHosts = ["*"];
-  profile.disableEssentialTelemetry = true;
-  profile.disableNonessentialTelemetry = true;
-  writeJson(paths.profile, profile);
+  writeJsoncTopLevel(paths.profile, {
+    inferenceProvider: "gateway",
+    inferenceGatewayBaseUrl: baseUrl,
+    // Claude authenticates to the loopback gateway with a placeholder key; the
+    // real upstream credentials stay in Jevonian.
+    inferenceGatewayApiKey: MANAGED_MARKER,
+    inferenceGatewayAuthScheme: "bearer",
+    deploymentDisplayName: "Jevonian",
+    chatTabEnabled: true,
+    inferenceModels: claudeGatewayProfileModels(options.models),
+    modelDiscoveryEnabled: false,
+    disableDeploymentModeChooser: true,
+    // Cowork opens links and fetches context on Jevonian's behalf, so its egress
+    // allowance has to span the hosts a session may touch.
+    coworkEgressAllowedHosts: ["*"],
+    disableEssentialTelemetry: true,
+    disableNonessentialTelemetry: true,
+  });
 
   return {
     target: claudeStatus(options.port),
@@ -789,18 +828,18 @@ export function restoreClaudeDesktop(): void {
       writeFileSync(path, original, "utf8");
     }
   } else if (process.platform === "darwin" && existsSync(paths.profile)) {
-    // No captured state: clear only the keys this integration wrote.
-    const config = readJson(paths.desktopConfig);
-    config.deploymentMode = "1p";
-    writeJson(paths.desktopConfig, config);
+    // No captured state: clear only the keys this integration wrote, surgically.
+    // `deploymentMode` goes back to Claude's own default rather than being removed,
+    // so a value the user had is not silently dropped.
+    writeJsoncTopLevel(paths.desktopConfig, { deploymentMode: "1p" });
 
-    const profile = readJson(paths.profile);
-    delete profile.inferenceProvider;
-    delete profile.inferenceGatewayBaseUrl;
-    delete profile.inferenceGatewayApiKey;
-    delete profile.inferenceGatewayAuthScheme;
-    delete profile.deploymentDisplayName;
-    writeJson(paths.profile, profile);
+    removeJsoncTopLevel(paths.profile, [
+      "inferenceProvider",
+      "inferenceGatewayBaseUrl",
+      "inferenceGatewayApiKey",
+      "inferenceGatewayAuthScheme",
+      "deploymentDisplayName",
+    ]);
   }
 
   clearRestoreState("claude");
