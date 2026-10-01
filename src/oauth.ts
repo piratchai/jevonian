@@ -8,6 +8,34 @@ import { retryingFetch } from "./retry";
 
 export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "static";
 
+/**
+ * Which local sign-in to read, when it is not the agent's own — a second account of the same
+ * agent on the same machine. Structurally `ProviderLogin`, declared here so this module does
+ * not have to import the config it is parsed into.
+ */
+export interface LoginSpec {
+  home?: string;
+  credentialsPath?: string;
+  keychainService?: string;
+  keychainAccount?: string;
+}
+
+/**
+ * Identifies a login for the token cache. The source alone is not enough: two providers may
+ * read two accounts of the same source, and they must not share one cached token.
+ */
+function loginKey(source: OAuthSource, login: LoginSpec | undefined): string {
+  if (!login) return source;
+  const parts = [
+    login.home ?? "",
+    login.credentialsPath ?? "",
+    login.keychainService ?? "",
+    login.keychainAccount ?? "",
+  ];
+  if (parts.every((part) => part === "")) return source;
+  return `${source}\u0000${parts.join("\u0000")}`;
+}
+
 export const CLAUDE_CODE_SYSTEM_PROMPT =
   "You are Claude Code, Anthropic's official CLI for Claude.";
 
@@ -58,13 +86,14 @@ function fresh(token: OAuthToken): boolean {
   return token.expiresAt === undefined || token.expiresAt - Date.now() > REFRESH_SKEW_MS;
 }
 
-async function readKeychain(service: string): Promise<string | undefined> {
+async function readKeychain(service: string, account?: string): Promise<string | undefined> {
   if (process.platform !== "darwin") return undefined;
   try {
     const { stdout } = await execFileAsync("security", [
       "find-generic-password",
       "-s",
       service,
+      ...(account ? ["-a", account] : []),
       "-w",
     ]);
     const value = stdout.trim();
@@ -96,15 +125,19 @@ async function writeKeychain(
   }
 }
 
-function claudeCredentialsPath(): string {
+function claudeCredentialsPath(login?: LoginSpec): string {
+  // The source's own override wins over a provider login: an explicit environment is a
+  // deliberate local choice, and a login only names a second account in the usual layout.
   if (process.env.JEVONIAN_CLAUDE_CREDENTIALS) return process.env.JEVONIAN_CLAUDE_CREDENTIALS;
-  const base = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  if (login?.credentialsPath) return login.credentialsPath;
+  const base = process.env.CLAUDE_CONFIG_DIR ?? login?.home ?? join(homedir(), ".claude");
   return join(base, ".credentials.json");
 }
 
-async function readClaudeCredential(): Promise<StoredCredential | undefined> {
-  const path = claudeCredentialsPath();
-  const explicit = Boolean(process.env.JEVONIAN_CLAUDE_CREDENTIALS);
+async function readClaudeCredential(login?: LoginSpec): Promise<StoredCredential | undefined> {
+  const path = claudeCredentialsPath(login);
+  const explicit =
+    Boolean(process.env.JEVONIAN_CLAUDE_CREDENTIALS) || Boolean(login?.credentialsPath);
   if (existsSync(path)) {
     try {
       const data = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -121,29 +154,33 @@ async function readClaudeCredential(): Promise<StoredCredential | undefined> {
       return undefined;
     }
   }
-  if (explicit) return undefined;
-  const value = await readKeychain("Claude Code-credentials");
+  // A login that names its own file or directory does not fall back to the keychain: that
+  // would serve the wrong account's token under the right account's name.
+  if (explicit || login?.home) return undefined;
+  const service = login?.keychainService ?? "Claude Code-credentials";
+  const value = await readKeychain(service, login?.keychainAccount);
   if (!value) return undefined;
   try {
     const data = JSON.parse(value) as Record<string, unknown>;
     return {
       data,
-      save: (next) => writeKeychain("Claude Code-credentials", JSON.stringify(next)),
-      label: "keychain:Claude Code-credentials",
+      save: (next) => writeKeychain(service, JSON.stringify(next), login?.keychainAccount),
+      label: `keychain:${service}`,
     };
   } catch {
     return undefined;
   }
 }
 
-function codexAuthPath(): string {
+function codexAuthPath(login?: LoginSpec): string {
   if (process.env.JEVONIAN_CODEX_AUTH) return process.env.JEVONIAN_CODEX_AUTH;
-  const base = process.env.CODEX_HOME ?? join(homedir(), ".codex");
+  if (login?.credentialsPath) return login.credentialsPath;
+  const base = process.env.CODEX_HOME ?? login?.home ?? join(homedir(), ".codex");
   return join(base, "auth.json");
 }
 
-function readCodexCredential(): StoredCredential | undefined {
-  const path = codexAuthPath();
+function readCodexCredential(login?: LoginSpec): StoredCredential | undefined {
+  const path = codexAuthPath(login);
   if (!existsSync(path)) return undefined;
   try {
     const data = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -176,8 +213,8 @@ function parseKeyringPayload(value: string): Record<string, unknown> | undefined
   }
 }
 
-async function readAntigravityCredential(): Promise<StoredCredential | undefined> {
-  const override = process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
+async function readAntigravityCredential(login?: LoginSpec): Promise<StoredCredential | undefined> {
+  const override = login?.credentialsPath ?? process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
   if (override && override.trim().length > 0) {
     const path = override.trim();
     if (!existsSync(path)) return undefined;
@@ -197,13 +234,15 @@ async function readAntigravityCredential(): Promise<StoredCredential | undefined
     }
   }
   if (process.platform !== "darwin") return undefined;
+  const service = login?.keychainService ?? ANTIGRAVITY_KEYCHAIN_SERVICE;
+  const account = login?.keychainAccount ?? ANTIGRAVITY_KEYCHAIN_ACCOUNT;
   try {
     const { stdout } = await execFileAsync("security", [
       "find-generic-password",
       "-s",
-      ANTIGRAVITY_KEYCHAIN_SERVICE,
+      service,
       "-a",
-      ANTIGRAVITY_KEYCHAIN_ACCOUNT,
+      account,
       "-w",
     ]);
     const data = parseKeyringPayload(stdout);
@@ -212,11 +251,11 @@ async function readAntigravityCredential(): Promise<StoredCredential | undefined
       data,
       save: (next) =>
         writeKeychain(
-          ANTIGRAVITY_KEYCHAIN_SERVICE,
+          service,
           `go-keyring-base64:${Buffer.from(JSON.stringify(next)).toString("base64")}`,
-          ANTIGRAVITY_KEYCHAIN_ACCOUNT,
+          account,
         ),
-      label: `keychain:${ANTIGRAVITY_KEYCHAIN_SERVICE}/${ANTIGRAVITY_KEYCHAIN_ACCOUNT}`,
+      label: `keychain:${service}/${account}`,
     };
   } catch {
     return undefined;
@@ -268,8 +307,8 @@ async function refreshAntigravity(
   }
 }
 
-async function resolveAntigravity(): Promise<OAuthToken | OAuthFailure> {
-  const credential = await readAntigravityCredential();
+async function resolveAntigravity(login?: LoginSpec): Promise<OAuthToken | OAuthFailure> {
+  const credential = await readAntigravityCredential(login);
   if (!credential) {
     return {
       error:
@@ -337,13 +376,16 @@ export function resolveAntigravityProject(): string {
  * `JEVONIAN_DEVIN_CREDENTIALS` wins; otherwise `%APPDATA%\devin` on Windows and
  * `$XDG_DATA_HOME/devin` (default `~/.local/share/devin`) elsewhere.
  */
-export function devinCredentialsPath(): string {
+export function devinCredentialsPath(login?: LoginSpec): string {
   const override = process.env.JEVONIAN_DEVIN_CREDENTIALS;
   if (override && override.trim().length > 0) return override.trim();
+  if (login?.credentialsPath) return login.credentialsPath;
   if (process.platform === "win32") {
+    if (login?.home) return join(login.home, "credentials.toml");
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
     return join(appData, "devin", "credentials.toml");
   }
+  if (login?.home) return join(login.home, "credentials.toml");
   const xdg = process.env.XDG_DATA_HOME;
   const base = xdg && xdg.trim().length > 0 ? xdg.trim() : join(homedir(), ".local", "share");
   return join(base, "devin", "credentials.toml");
@@ -380,8 +422,8 @@ export function parseFlatToml(text: string): Record<string, string> {
   return result;
 }
 
-function readDevinCredential(): Record<string, string> | undefined {
-  const path = devinCredentialsPath();
+function readDevinCredential(login?: LoginSpec): Record<string, string> | undefined {
+  const path = devinCredentialsPath(login);
   if (!existsSync(path)) return undefined;
   try {
     return parseFlatToml(readFileSync(path, "utf8"));
@@ -394,8 +436,8 @@ function readDevinCredential(): Record<string, string> | undefined {
  * Devin session tokens do not expire and there is no refresh flow: when the server rejects
  * one, the user signs in again with `devin auth login` and the next resolve re-reads the file.
  */
-function resolveDevin(): Promise<OAuthToken | OAuthFailure> {
-  const data = readDevinCredential();
+function resolveDevin(login?: LoginSpec): Promise<OAuthToken | OAuthFailure> {
+  const data = readDevinCredential(login);
   if (!data) {
     return Promise.resolve({
       error:
@@ -413,8 +455,8 @@ function resolveDevin(): Promise<OAuthToken | OAuthFailure> {
 }
 
 /** Devin API server from credentials.toml (`api_server_url`), or the public default. */
-export function resolveDevinServerUrl(): string {
-  const value = readDevinCredential()?.api_server_url?.trim();
+export function resolveDevinServerUrl(login?: LoginSpec): string {
+  const value = readDevinCredential(login)?.api_server_url?.trim();
   return value && value.length > 0 ? value.replace(/\/+$/, "") : DEVIN_DEFAULT_SERVER_URL;
 }
 
@@ -450,8 +492,8 @@ async function refreshClaude(refreshToken: string): Promise<RefreshedClaude | un
   }
 }
 
-async function resolveClaude(): Promise<OAuthToken | OAuthFailure> {
-  const credential = await readClaudeCredential();
+async function resolveClaude(login?: LoginSpec): Promise<OAuthToken | OAuthFailure> {
+  const credential = await readClaudeCredential(login);
   if (!credential) {
     return {
       error:
@@ -528,8 +570,8 @@ async function refreshCodex(refreshToken: string): Promise<RefreshedCodex | unde
   }
 }
 
-async function resolveCodex(): Promise<OAuthToken | OAuthFailure> {
-  const credential = readCodexCredential();
+async function resolveCodex(login?: LoginSpec): Promise<OAuthToken | OAuthFailure> {
+  const credential = readCodexCredential(login);
   if (!credential) {
     return {
       error: "Codex credentials not found. Sign in with `codex` first, or set JEVONIAN_CODEX_AUTH.",
@@ -581,33 +623,50 @@ async function resolveCodex(): Promise<OAuthToken | OAuthFailure> {
   };
 }
 
-export function invalidateOAuthToken(source: OAuthSource): void {
+/**
+ * Drops a cached token so the next resolve re-reads the sign-in — the account was refused, or
+ * signed in again. Passing the login limits it to that account; omitting it clears every login
+ * of the source, which is what a caller who does not know which one failed wants.
+ */
+export function invalidateOAuthToken(source: OAuthSource, login?: LoginSpec): void {
+  if (login) {
+    cache.delete(loginKey(source, login));
+    return;
+  }
   cache.delete(source);
+  const prefix = `${source}\u0000`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
 }
 
 /**
  * Reports whether the local credential file for a live OAuth source exists and holds a token.
  * Used for status display only; it never hits the network.
  */
-export function hasOAuthCredential(source: OAuthSource): boolean {
+export function hasOAuthCredential(source: OAuthSource, login?: LoginSpec): boolean {
   if (source === "static") return false;
-  if (source === "codex") return readCodexCredential() !== undefined;
-  if (source === "devin") return Boolean(readDevinCredential()?.windsurf_api_key?.trim());
+  if (source === "codex") return readCodexCredential(login) !== undefined;
+  if (source === "devin") return Boolean(readDevinCredential(login)?.windsurf_api_key?.trim());
   if (source === "antigravity") {
-    const override = process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
+    const override = login?.credentialsPath ?? process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
     if (override && existsSync(override.trim())) return true;
+    // Keychain-backed, and a named service cannot be checked without reading it; the best an
+    // existence check can say on macOS is "maybe", which is what the default said already.
     return process.platform === "darwin";
   }
   if (process.env.JEVONIAN_CLAUDE_CREDENTIALS) {
     return existsSync(process.env.JEVONIAN_CLAUDE_CREDENTIALS);
   }
-  if (existsSync(claudeCredentialsPath())) return true;
+  if (existsSync(claudeCredentialsPath(login))) return true;
+  // Otherwise the sign-in may be in the keychain, where an existence check cannot reach it.
   return process.platform === "darwin";
 }
 
 export function resolveOAuthToken(options: {
   source: OAuthSource;
   staticToken?: string;
+  login?: LoginSpec;
 }): Promise<OAuthToken | OAuthFailure> {
   if (options.source === "static") {
     if (!options.staticToken) {
@@ -615,24 +674,28 @@ export function resolveOAuthToken(options: {
     }
     return Promise.resolve({ token: options.staticToken });
   }
-  const cached = cache.get(options.source);
+  // Keyed by login, not just source: two providers may read two accounts of one agent, and
+  // sharing one cached token would serve the wrong account's quota window.
+  const key = loginKey(options.source, options.login);
+  const cached = cache.get(key);
   if (cached && fresh(cached)) return Promise.resolve(cached);
-  const inflight = pending.get(options.source);
+  const inflight = pending.get(key);
   if (inflight) return inflight;
-  const resolve =
+  const login = options.login;
+  const resolve = (): Promise<OAuthToken | OAuthFailure> =>
     options.source === "claude-code"
-      ? resolveClaude
+      ? resolveClaude(login)
       : options.source === "codex"
-        ? resolveCodex
+        ? resolveCodex(login)
         : options.source === "devin"
-          ? resolveDevin
-          : resolveAntigravity;
+          ? resolveDevin(login)
+          : resolveAntigravity(login);
   const task = resolve().then((result) => {
-    if (!("error" in result)) cache.set(options.source, result);
+    if (!("error" in result)) cache.set(key, result);
     return result;
   });
-  pending.set(options.source, task);
-  void task.finally(() => pending.delete(options.source));
+  pending.set(key, task);
+  void task.finally(() => pending.delete(key));
   return task;
 }
 

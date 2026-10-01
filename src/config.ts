@@ -32,6 +32,34 @@ export interface ProviderQuotaSpec {
   monthlyUsd?: number;
 }
 
+/**
+ * Which local sign-in a provider reads, when it is not the agent's own.
+ *
+ * One machine may hold two accounts of the same agent — work and home — where the CLI keeps
+ * both, and each is worth its own provider: its own quota window, its own place in the
+ * fallback order, its own spend in the ledger. Since a provider's identity already carries all
+ * of that, a second account is just a second provider pointed at the second sign-in.
+ *
+ * Every field is optional and every default is the agent's own sign-in, so a provider that
+ * names no login behaves exactly as it did before.
+ */
+export interface ProviderLogin {
+  /** Who this account belongs to, as the dashboard shows it: "work", an email, … */
+  label?: string;
+  /**
+   * Directory the agent keeps its sign-in in, in place of its usual one — `~/.claude-work` for
+   * a second Claude Code login, `~/.codex-work` for a second Codex one. The source's own
+   * environment override still wins.
+   */
+  home?: string;
+  /** Path to the credential file, in place of the one the source would read. */
+  credentialsPath?: string;
+  /** macOS keychain service the sign-in is stored under, when it is not the usual one. */
+  keychainService?: string;
+  /** macOS keychain account the sign-in is stored under, when it is not the usual one. */
+  keychainAccount?: string;
+}
+
 export interface Provider {
   name: string;
   type: ProviderType;
@@ -42,6 +70,8 @@ export interface Provider {
   oauthSource?: OAuthSource;
   billing: ProviderBilling;
   quota?: ProviderQuotaSpec;
+  /** The local sign-in this provider reads; absent means the agent's own. */
+  login?: ProviderLogin;
   /** Model ids with optional per-model wire pins. Bare strings in JSON become `{ id }`. */
   models: ModelEntry[];
   injectStreamUsage: boolean;
@@ -583,6 +613,7 @@ function parseProvider(raw: unknown, index: number): Provider {
   const oauthSource = auth === "oauth" ? parseOAuthSource(value.oauthSource) : undefined;
   const quota = parseQuota(value.quota);
   const excludeModels = stringArray(value.excludeModels);
+  const login = parseProviderLogin(value.login, index);
   return {
     name,
     type,
@@ -593,6 +624,7 @@ function parseProvider(raw: unknown, index: number): Provider {
     ...(oauthSource ? { oauthSource } : {}),
     billing: value.billing === "subscription" ? "subscription" : "api",
     ...(quota ? { quota } : {}),
+    ...(login ? { login } : {}),
     models: parseModelEntries(value.models),
     injectStreamUsage: value.injectStreamUsage !== false,
     ...(headers ? { headers } : {}),
@@ -603,6 +635,49 @@ function parseProvider(raw: unknown, index: number): Provider {
         : {}),
     ...(excludeModels.length > 0 ? { excludeModels } : {}),
   };
+}
+
+/** Trimmed, non-empty string from a record field, or undefined. */
+function textField(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * A provider's local sign-in. Every field is optional; a login object that names nothing is
+ * dropped rather than kept as an empty marker, so a provider either reads a sign-in of its own
+ * or the agent's, never a blank that means neither.
+ */
+export function parseProviderLogin(raw: unknown, index = 0): ProviderLogin | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = asRecord(raw);
+  const label = textField(value.label);
+  const home = textField(value.home);
+  const credentialsPath = textField(value.credentialsPath);
+  const keychainService = textField(value.keychainService);
+  const keychainAccount = textField(value.keychainAccount);
+  const login: ProviderLogin = {
+    ...(label ? { label } : {}),
+    ...(home ? { home } : {}),
+    ...(credentialsPath ? { credentialsPath } : {}),
+    ...(keychainService ? { keychainService } : {}),
+    ...(keychainAccount ? { keychainAccount } : {}),
+  };
+  if (Object.keys(login).length === 0) return undefined;
+  if (home && !home.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(home)) {
+    throw new Error(`providers[${index}].login.home must be an absolute path, not "${home}"`);
+  }
+  if (
+    credentialsPath &&
+    !credentialsPath.startsWith("/") &&
+    !/^[A-Za-z]:[\\/]/.test(credentialsPath)
+  ) {
+    throw new Error(
+      `providers[${index}].login.credentialsPath must be an absolute path, not "${credentialsPath}"`,
+    );
+  }
+  return login;
 }
 
 function parseBrain(raw: unknown): BrainConfig {
@@ -928,7 +1003,9 @@ export type ApiKeySource = "inline" | "credentials" | `env:${string}` | `oauth:$
 
 export function apiKeySource(provider: Provider): ApiKeySource {
   if (provider.auth === "oauth" && provider.oauthSource && provider.oauthSource !== "static") {
-    return hasOAuthCredential(provider.oauthSource) ? `oauth:${provider.oauthSource}` : "none";
+    return hasOAuthCredential(provider.oauthSource, provider.login)
+      ? `oauth:${provider.oauthSource}`
+      : "none";
   }
   if (provider.apiKey) return "inline";
   if (getCredential(provider.name)) {

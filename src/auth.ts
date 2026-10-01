@@ -113,7 +113,10 @@ export async function resolveProviderAuth(
 
   if (provider.auth === "oauth") {
     if (provider.oauthSource && provider.oauthSource !== "static") {
-      const resolved = await resolveOAuthToken({ source: provider.oauthSource });
+      const resolved = await resolveOAuthToken({
+        source: provider.oauthSource,
+        ...(provider.login ? { login: provider.login } : {}),
+      });
       if ("error" in resolved) return { headers: {}, error: resolved.error };
       token = resolved.token;
       accountId = resolved.accountId;

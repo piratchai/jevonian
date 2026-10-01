@@ -38,6 +38,7 @@ import {
   mergeModelEntries,
   MODEL_SYNC_DEFAULT_SOURCES,
   parseModelSync,
+  parseProviderLogin,
   parseTunnel,
   providerModelIds,
   providerSyncsModels,
@@ -47,6 +48,7 @@ import {
   type Provider,
   type ProviderAuth,
   type ProviderBilling,
+  type ProviderLogin,
   type ProviderQuotaSpec,
   type ProviderType,
   type QuotaGuardConfig,
@@ -227,6 +229,7 @@ function providerPayload(
 ): Provider {
   const auth = parseAuth(body.auth);
   const oauthSource = auth === "oauth" ? parseOAuthSource(body.oauthSource) : undefined;
+  const login = loginFromBody(body.login, previous);
   const quota = parseQuota(body.quota);
   const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   const apiKeyEnv = typeof body.apiKeyEnv === "string" ? body.apiKeyEnv.trim() : "";
@@ -254,6 +257,7 @@ function providerPayload(
     baseUrl,
     auth,
     ...(oauthSource ? { oauthSource } : {}),
+    ...(login ? { login } : {}),
     billing: parseBilling(body.billing),
     ...(quota ? { quota } : {}),
     ...(apiKey ? {} : apiKeyEnv ? { apiKeyEnv } : {}),
@@ -266,6 +270,16 @@ function providerPayload(
         : {}),
     ...(excludeModels ? { excludeModels } : {}),
   };
+}
+
+/**
+ * The provider's local sign-in from the dashboard. `null` clears it — the provider goes back to
+ * reading the agent's own sign-in. An absent field keeps whatever the file already had, so a
+ * form that never touched the account fields cannot silently drop an account.
+ */
+function loginFromBody(raw: unknown, previous?: Provider): ProviderLogin | undefined {
+  if (raw === undefined) return previous?.login;
+  return parseProviderLogin(raw);
 }
 
 function brainKeySource(brain: BrainConfig): string {
@@ -300,6 +314,7 @@ export function createAdminApp(state: AppState): Hono {
           apiKeyEnv: provider.apiKeyEnv,
           auth: provider.auth,
           oauthSource: provider.oauthSource,
+          ...(provider.login ? { login: provider.login } : {}),
           billing: provider.billing,
           quota: provider.quota,
           keySource: apiKeySource(provider),
