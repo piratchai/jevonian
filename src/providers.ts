@@ -196,9 +196,11 @@ export const PRESETS: ProviderPreset[] = [
   {
     id: "jevonian-remote",
     name: "Jevonian (another machine)",
-    // The other instance speaks the OpenAI surface; `/v1` is its routed entry point.
+    // The other instance speaks the OpenAI surface; `/v1` is its routed entry point. The port
+    // is the LAN listener's default (`listen.port` 8787 + 2), not the loopback-only tunnel
+    // surface on `listen.port + 1`, which a peer cannot reach.
     type: "both",
-    baseUrl: "http://192.168.1.10:8788/v1",
+    baseUrl: "http://192.168.1.10:8789/v1",
     apiKeyEnv: "JEVONIAN_REMOTE_KEY",
     auth: "api-key",
     hint: "Run Jevonian on the other machine with `--lan`, then use its LAN /v1 URL and a Jevonian API key from that dashboard. The LAN surface is key-protected and never exposes the dashboard.",
