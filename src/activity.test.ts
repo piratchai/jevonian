@@ -10,16 +10,22 @@ import { appendRecord, resetLedgerCache } from "./ledger";
 describe("activity report", () => {
   let tempDir: string;
   const previousDataDir = process.env.JEVONIAN_DATA_DIR;
+  // JEVONIAN_LEDGER overrides the data dir, so a shell that exports it (the smoke script does)
+  // would leak the real ledger's records in here. Point it at the temp dir too.
+  const previousLedger = process.env.JEVONIAN_LEDGER;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "jev-activity-test-"));
     process.env.JEVONIAN_DATA_DIR = tempDir;
+    process.env.JEVONIAN_LEDGER = join(tempDir, "ledger.jsonl");
     resetLedgerCache();
   });
 
   afterEach(() => {
     if (previousDataDir === undefined) delete process.env.JEVONIAN_DATA_DIR;
     else process.env.JEVONIAN_DATA_DIR = previousDataDir;
+    if (previousLedger === undefined) delete process.env.JEVONIAN_LEDGER;
+    else process.env.JEVONIAN_LEDGER = previousLedger;
     resetLedgerCache();
     rmSync(tempDir, { recursive: true, force: true });
   });
