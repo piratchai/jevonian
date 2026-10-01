@@ -192,6 +192,12 @@ export interface PhaseSignals {
   hasToolResults: boolean;
   hasTools: boolean;
   recentToolResults: string[];
+  /**
+   * The agent is handing tool results back rather than the user speaking again — a request in
+   * the middle of a turn. Cache affinity needs the distinction: moving mid-turn would send the
+   * whole conversation to someone new for the rest of it.
+   */
+  withinTurn: boolean;
 }
 
 export function extractUserQuery(text: string): string {
@@ -633,6 +639,8 @@ export interface RouteDecision {
   cache?: CacheAffinity;
   /** Difference from the model that served the previous turn; positive means switching costs more. */
   switchPenaltyUsd?: number | null;
+  /** Why the conversation stayed where it was answered, or moved, when affinity had a say. */
+  cacheKeep?: CacheKeepReason;
 }
 
 export interface RouteSkip {
@@ -743,6 +751,7 @@ export function classifyPhase(body: Record<string, unknown>, kind: RequestKind):
     hasToolResults,
     hasTools: tools.length > 0,
     recentToolResults,
+    withinTurn: hasToolResults,
   };
 }
 
@@ -1200,6 +1209,133 @@ export function resolveSessionKey(
 
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 
+/**
+ * Tokens the vendor read from its own cache that make a conversation worth keeping where it is.
+ * A handful of tokens is noise — a system prompt is cached whether or not the conversation was
+ * — but a thousand of them is the conversation itself, and re-sending it elsewhere pays for all
+ * of it again.
+ */
+export const CACHE_WORTH_TOKENS = 1024;
+
+/** How a conversation's affinity is decided, per magpie's vocabulary. */
+export type CacheAffinityMode = "auto" | "session" | "turn" | "off";
+
+export const CACHE_AFFINITY_MODES: readonly CacheAffinityMode[] = [
+  "auto",
+  "session",
+  "turn",
+  "off",
+];
+
+export function isCacheAffinityMode(value: string): value is CacheAffinityMode {
+  return (CACHE_AFFINITY_MODES as readonly string[]).includes(value);
+}
+
+/** Why a conversation was kept where it was, or was not. */
+export type CacheKeepReason =
+  /** Affinity is off: every turn routes afresh. */
+  | "off"
+  /** Nobody has answered this conversation yet. */
+  | "first"
+  /** Whoever answered it is no longer a candidate. */
+  | "gone"
+  /** Pinned for the whole session, whatever the cache says. */
+  | "session"
+  /** Mid-turn: the agent is handing tool results back. */
+  | "turn"
+  /** A measured cache read worth keeping. */
+  | "cache"
+  /** The user spoke again and the mode only keeps within a turn. */
+  | "new-turn"
+  /** The vendor read too little from its cache to be worth staying for. */
+  | "no-cache"
+  /** It read enough, but long enough ago that the vendor has dropped it. */
+  | "cold";
+
+export interface CacheKeep {
+  keep: boolean;
+  reason: CacheKeepReason;
+  /** Tokens the vendor read from its cache on the last answer, when it said. */
+  cacheRead: number;
+  /** When that answer was. */
+  at?: number;
+}
+
+/**
+ * Whether the conversation should stay with whoever answered it last.
+ *
+ * What the vendor cached of the conversation is read again on every request it serves, and
+ * sent afresh — and paid for in full — on every request it does not. So a conversation stays
+ * where it was answered while the vendor's own numbers say it is worth staying: it read enough
+ * of its cache to prove the prefix is warm, and not long enough ago that it has dropped it.
+ * That is a measurement, not a guess, which is why code decides it instead of the brain.
+ *
+ * Within a turn it always stays, however little was read: the agent is handing tool results
+ * back, the prefix is still being built, and moving mid-turn would send the whole conversation
+ * to someone new for the rest of it. A `session` mode drops the measurement entirely and stays
+ * for as long as the conversation lives; `turn` keeps a turn and lets each new one route afresh.
+ */
+export function cacheAffinityKeep(input: {
+  previous: SessionState | undefined;
+  mode: CacheAffinityMode;
+  /** The agent is handing tool results back rather than the user speaking again. */
+  withinTurn: boolean;
+  /** The candidates that can actually take this turn, in the order routing put them. */
+  candidates: TierPick[];
+  now: number;
+  cacheTtlMs?: number;
+}): CacheKeep {
+  const { previous, mode } = input;
+  if (mode === "off") return { keep: false, reason: "off", cacheRead: 0 };
+  const observation = previous?.cache;
+  if (!previous || !observation) return { keep: false, reason: "first", cacheRead: 0 };
+  const keep: CacheKeep = {
+    keep: false,
+    reason: "first",
+    cacheRead: observation.cacheReadTokens,
+    at: observation.at,
+  };
+  // Whoever answered is gone from the pool — its provider was removed, or the quota guard
+  // dropped it — so there is nothing to keep to, whatever the cache says.
+  if (
+    !input.candidates.some(
+      (candidate) =>
+        candidate.provider === previous.provider && candidate.model === previous.model,
+    )
+  ) {
+    return { ...keep, reason: "gone" };
+  }
+  if (mode === "session") return { ...keep, keep: true, reason: "session" };
+  if (input.withinTurn) return { ...keep, keep: true, reason: "turn" };
+  if (mode === "turn") return { ...keep, reason: "new-turn" };
+  if (observation.cacheReadTokens < CACHE_WORTH_TOKENS) return { ...keep, reason: "no-cache" };
+  const ttl = Math.max(1, input.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
+  if (input.now - observation.at >= ttl) return { ...keep, reason: "cold" };
+  return { ...keep, keep: true, reason: "cache" };
+}
+
+/**
+ * Puts whoever answered last first, when {@link cacheAffinityKeep} says to.
+ *
+ * A preference, not a restriction: routing still decides who leads when nobody has answered,
+ * and the rest of the pool stays behind the kept candidate for the brain to choose from. A
+ * candidate the guard already dropped is not here to keep, and one the capability filter later
+ * skips is skipped as any other would be.
+ */
+export function applyCacheKeep(
+  picks: TierPick[],
+  previous: SessionState | undefined,
+  keep: CacheKeep,
+): TierPick[] {
+  if (!keep.keep || !previous || picks.length < 2) return picks;
+  const at = picks.findIndex(
+    (candidate) => candidate.provider === previous.provider && candidate.model === previous.model,
+  );
+  if (at <= 0) return picks;
+  const picked = picks[at] as TierPick;
+  return [picked, ...picks.slice(0, at), ...picks.slice(at + 1)];
+}
+
 function cacheAffinity(input: {
   previous: SessionState | undefined;
   candidate: TierPick;
@@ -1497,9 +1633,36 @@ export async function decideRoute(
 
   const previous = store.get(session, now);
   const turns = (previous?.turns ?? 0) + 1;
+
+  // Cache affinity, measured: a conversation stays where it was answered while the vendor's own
+  // numbers say its cache is worth staying for — within a turn always, and across turns while
+  // the last answer read enough of the vendor's cache and not long enough ago that it has
+  // dropped it. Code decides, not the brain: it is a measurement, not a judgement.
+  const keepMode = firstHeader(headers, ["x-jevonian-affinity"]);
+  const affinityMode: CacheAffinityMode =
+    keepMode && isCacheAffinityMode(keepMode) ? keepMode : "auto";
+  let keepApplied = false;
+  let keepReason: CacheKeepReason | undefined;
+  const keepOrder = (picks: TierPick[]): TierPick[] => {
+    const verdict = cacheAffinityKeep({
+      previous,
+      mode: affinityMode,
+      withinTurn: signals.withinTurn,
+      candidates: picks,
+      now,
+      cacheTtlMs: input.cacheTtlMs,
+    });
+    if (verdict.keep) keepApplied = true;
+    // The first pool that can take the turn names why it was or was not kept; later pools
+    // the explicit routing widened to would only say "gone" for a longer path.
+    if (keepReason === undefined) keepReason = verdict.reason;
+    return applyCacheKeep(picks, previous, verdict);
+  };
   const candidatesFor = (target: Phase): TierPick[] => {
     const entry = routings.find((routing) => routing.id === target);
-    return entry ? resetOrder(routingCandidates(config, entry, kind)) : [];
+    // Keep after order: a conversation the cache says to stay puts whoever answered first again,
+    // whatever their windows say — the cost of leaving a warm cache is already measured.
+    return entry ? keepOrder(resetOrder(routingCandidates(config, entry, kind))) : [];
   };
   const candidateExhausted = (candidate: TierPick): boolean => {
     const provider = config.providers.find((entry) => entry.name === candidate.provider);
@@ -1566,6 +1729,7 @@ export async function decideRoute(
         error: `No models available for routing. Configure routing.routings or add models to a provider.`,
       };
     }
+    if (keepApplied && keepReason) reason = `${reason}:cache-${keepReason}`;
     // A pinned tier carries its own configured level; failing that the client's header, then the
     // configured default. Clamped to what the chosen model accepts, exactly as the brain path does.
     const tierEffort = tierEffortOf(phase);
@@ -1600,6 +1764,7 @@ export async function decideRoute(
       reason,
       ...(explicitEffort ? { effort: explicitEffort } : {}),
       ...(explicitNote ? { effortNote: explicitNote } : {}),
+      ...(keepReason !== undefined ? { cacheKeep: keepReason } : {}),
       session,
     };
   }
@@ -1759,6 +1924,9 @@ export async function decideRoute(
     has_tools: signals.hasTools,
     consecutive_failures: signals.consecutiveFailures,
     ...(previous ? { previous_model: previous.model, previous_routing: previous.phase } : {}),
+    // Told, not decided: a warm cache keeps the conversation where it was answered, but the
+    // brain still weighs every candidate. A routing with nothing to route to is its own answer.
+    ...(keepReason !== undefined ? { cache_keep: keepReason } : {}),
     session_turns: turns,
     message_count: messageCount(body),
     ...(includeBenchmarkHints
@@ -1962,6 +2130,7 @@ export async function decideRoute(
   if (chosen.canonical) reason = `${reason}:canonical:${chosen.canonical}`;
   if (chosenCandidate?.cache.state === "hot") reason = `${reason}:cache-hot`;
   if (chosenCandidate?.cache.state === "stale") reason = `${reason}:cache-stale`;
+  if (keepApplied && keepReason) reason = `${reason}:cache-${keepReason}`;
 
   const tierEffort = routings.find((entry) => entry.id === phase)?.effort;
   const wanted = tierEffort ?? (brainPicksEffort ? brainEffort(best?.verdict.effort) : undefined);
@@ -2008,6 +2177,7 @@ export async function decideRoute(
     ...(chosenCandidate?.switchPenaltyUsd === undefined
       ? {}
       : { switchPenaltyUsd: chosenCandidate.switchPenaltyUsd }),
+    ...(keepReason !== undefined ? { cacheKeep: keepReason } : {}),
   };
 }
 

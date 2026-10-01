@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import { parseConfig } from "./config";
 import { readRecords } from "./ledger";
-import { resetQuotaCache } from "./quota";
+import { captureQuotaHeaders, resetQuotaCache } from "./quota";
 import { SessionStore } from "./routing";
 import { createApp } from "./server";
 
@@ -237,4 +237,135 @@ it("feeds successful upstream cache usage into the next routing consultation", a
       .filter((r) => r.kind !== "brain")
       .at(-1)?.cache?.state,
   ).toBe("hot");
+});
+
+describe("cache affinity keeps a conversation where it was answered", () => {
+  const twoProviders = () =>
+    parseConfig({
+      defaultProvider: "a",
+      providers: [
+        { name: "a", type: "openai", baseUrl: "http://127.0.0.1:1/v1", apiKey: "test", models: ["m"] },
+        { name: "b", type: "openai", baseUrl: "http://127.0.0.1:2/v1", apiKey: "test", models: ["m"] },
+      ],
+      routing: {
+        mode: "auto",
+        tiers: { plan: ["m"], execute: ["m"] },
+        providers: { m: ["a", "b"] },
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY" }],
+      },
+    });
+
+  /** Seeds one provider's 7-day window: the one that renews sooner wins reset-aware order. */
+  function seedRenewal(name: string, hours: number): void {
+    captureQuotaHeaders(
+      {
+        name,
+        type: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        auth: "oauth",
+        oauthSource: "claude-code",
+        models: [],
+      } as never,
+      new Headers({
+        "anthropic-ratelimit-unified-7d-utilization": "5",
+        "anthropic-ratelimit-unified-7d-reset": String(
+          Math.floor(Date.now() / 1000) + hours * 3_600,
+        ),
+      }),
+    );
+  }
+
+  function appWith(store: SessionStore) {
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      if (String(url).includes("systemone")) {
+        const body = JSON.parse((init.body as string) ?? "{}") as Record<string, unknown>;
+        // Follow the offered order: the brain keeps whatever routing put first, which is what
+        // the router already decided for affinity. This isolates the keep from the brain.
+        const routings = ((body.state as Record<string, unknown>)?.routings ?? []) as Array<{
+          id: string;
+        }>;
+        return Response.json({
+          answers: { model: { choice: routings[0]?.id ?? "plan", confidence: 0.9 } },
+        });
+      }
+      return Response.json({
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 90 },
+        },
+      });
+    });
+    return createApp({ config: twoProviders() } as never, store);
+  }
+
+  const midTurn = {
+    model: "auto",
+    messages: [
+      { role: "user", content: "fix it" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "1", type: "function", function: { name: "f", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "1", content: "ok" },
+    ],
+  };
+
+  it("keeps the answering provider across a turn when its cache was worth staying for", async () => {
+    const store = new SessionStore(600_000);
+    // Turn one: "a" renews soonest, so reset-aware order sends the first request there.
+    seedRenewal("a", 2);
+    seedRenewal("b", 100);
+    const app = appWith(store);
+    const first = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "aff" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "fix it" }] }),
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-jevonian-provider")).toBe("a");
+
+    // "a"'s window renews, so a fresh route would now move the turn to "b". The conversation
+    // is mid-turn and "a" read 90 tokens of the vendor's cache, so it must stay there.
+    seedRenewal("a", 120);
+    seedRenewal("b", 1);
+    const second = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "aff" },
+      body: JSON.stringify(midTurn),
+    });
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-jevonian-provider")).toBe("a");
+    expect(second.headers.get("x-jevonian-cache-keep")).toBe("turn");
+    expect(readRecords().filter((r) => r.kind !== "brain").at(-1)?.cacheKeep).toBe("turn");
+  });
+
+  it("honours an explicit affinity=off request", async () => {
+    const store = new SessionStore(600_000);
+    seedRenewal("a", 2);
+    seedRenewal("b", 100);
+    const app = appWith(store);
+    await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-session-id": "off" },
+      body: JSON.stringify({ model: "auto", messages: [{ role: "user", content: "fix it" }] }),
+    });
+    // The cache is warm on "a", but the caller said not to stay for it: the turn follows the
+    // resets instead, which now favour "b".
+    seedRenewal("a", 120);
+    seedRenewal("b", 1);
+    const second = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "off",
+        "x-jevonian-affinity": "off",
+      },
+      body: JSON.stringify(midTurn),
+    });
+    expect(second.headers.get("x-jevonian-cache-keep")).toBe("off");
+    expect(second.headers.get("x-jevonian-provider")).toBe("b");
+  });
 });

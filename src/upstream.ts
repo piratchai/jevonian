@@ -135,6 +135,8 @@ interface RequestMeta {
   usageKind?: RequestKind;
   cache?: RouteDecision["cache"];
   switchPenaltyUsd?: number | null;
+  /** Why the conversation stayed where it was answered, or moved (cache affinity). */
+  cacheKeep?: RouteDecision["cacheKeep"];
   brain?: string;
   confidence?: number;
   canonical?: string;
@@ -343,6 +345,7 @@ function record(
     ...(meta.keyId ? { keyId: meta.keyId } : {}),
     ...(meta.keyName ? { keyName: meta.keyName } : {}),
     ...(meta.cache ? { cache: meta.cache } : {}),
+    ...(meta.cacheKeep ? { cacheKeep: meta.cacheKeep } : {}),
     ...(meta.switchPenaltyUsd === undefined ? {} : { switchPenaltyUsd: meta.switchPenaltyUsd }),
     ...(meta.billing === "subscription" ? { billing: meta.billing } : {}),
     ...(meta.requestedModel ? { requestedModel: meta.requestedModel } : {}),
@@ -386,6 +389,7 @@ function decisionMeta(
     reason: decision.reason,
     cache: decision.cache,
     switchPenaltyUsd: decision.switchPenaltyUsd,
+    ...(decision.cacheKeep ? { cacheKeep: decision.cacheKeep } : {}),
     ...(decision.brain ? { brain: decision.brain } : {}),
     ...(decision.confidence === undefined ? {} : { confidence: decision.confidence }),
     ...(decision.canonical ? { canonical: decision.canonical } : {}),
@@ -405,6 +409,7 @@ function decisionHeaders(decision: RouteDecision, retries = 0): Record<string, s
     // Reported only when the turn needed one, so a healthy response stays uncluttered.
     ...(retries > 0 ? { "x-jevonian-retries": String(retries) } : {}),
     ...(decision.cache ? { "x-jevonian-cache-state": decision.cache.state } : {}),
+    ...(decision.cacheKeep ? { "x-jevonian-cache-keep": decision.cacheKeep } : {}),
     ...(decision.brain ? { "x-jevonian-brain": decision.brain } : {}),
     ...(decision.brainChannel ? { "x-jevonian-brain-channel": decision.brainChannel } : {}),
     ...(decision.canonical ? { "x-jevonian-canonical": decision.canonical } : {}),

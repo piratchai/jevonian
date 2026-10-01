@@ -37,6 +37,8 @@ export interface LedgerRecord {
   skipped?: Array<{ model: string; provider: string; reason: string; detail: string }>;
   /** Probabilistic routing estimate, not the measured hit rate for this response. */
   cache?: import("./routing").CacheAffinity;
+  /** Why the conversation stayed where it was answered, or moved (cache affinity). */
+  cacheKeep?: import("./routing").CacheKeepReason;
   switchPenaltyUsd?: number | null;
   /**
    * Estimated input tokens the tool-result saver removed before egress (`tokenSaver`
