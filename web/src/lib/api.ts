@@ -70,6 +70,8 @@ export interface BrainChannelView {
 export interface QuotaGuardView {
   enabled: boolean;
   lowPercent: number;
+  /** Order candidates so the allowance that renews soonest is used first. */
+  resetAware: boolean;
 }
 
 export interface ModelCapacityView {

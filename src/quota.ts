@@ -1468,9 +1468,52 @@ export function providerQuotaHealth(
   };
 }
 
+/** One window of an account's allowance, as choosing between candidates needs it. */
+export interface AccountWindow {
+  /** Window length in minutes; 0 when the label does not say. */
+  spanMinutes: number;
+  /** Share of the window used, 0–100. */
+  usedPercent: number;
+  /** When the window refills, epoch ms; 0 when it does not say. */
+  resetsAt: number;
+}
+
+/** "5h" / "7d" as minutes; another label does not say, so 0. */
+function spanMinutesOf(label: string): number {
+  const match = /^(\d+)([hd])$/.exec(label.trim());
+  if (!match?.[1] || !match[2]) return 0;
+  const value = Number(match[1]);
+  return match[2] === "d" ? value * 1440 : value * 60;
+}
+
+/**
+ * The account-wide windows of a provider's allowance, longest first, as the vendor last said
+ * it. Choosing between candidates that can all take the turn needs what each account has left
+ * and when that refills; reset-aware routing is what reads it.
+ *
+ * Windows that count a single model are left out: they never stop the whole account, only that
+ * model, which {@link providerModelExhausted} answers for. A window whose reset has passed is
+ * empty again, so it is left out too.
+ */
+export function accountWindows(provider: Provider, now = Date.now()): AccountWindow[] {
+  const spend = spendOf(ledgerRecords(now), provider.name);
+  const out: AccountWindow[] = [];
+  for (const window of knownWindows(provider, now, spend).windows) {
+    if (window.model !== undefined || !activeWindow(window, now)) continue;
+    const resets = window.resetsAt ? Date.parse(window.resetsAt) : 0;
+    out.push({
+      spanMinutes: spanMinutesOf(window.label),
+      usedPercent: Math.min(100, Math.max(0, window.usedPercent ?? 0)),
+      resetsAt: Number.isNaN(resets) ? 0 : resets,
+    });
+  }
+  // The longest window leads: a week's allowance outlives the five hours inside it, so it is
+  // the week that decides when an account can take a turn again.
+  return out.sort((left, right) => right.spanMinutes - left.spanMinutes);
+}
+
 /** True when either the shared quota or this exact model's active window is exhausted. */
-export function providerModelExhausted(
-  provider: Provider,
+export function providerModelExhausted(  provider: Provider,
   model: string,
   options: { lowPercent?: number; now?: number } = {},
 ): boolean {

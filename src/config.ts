@@ -212,6 +212,12 @@ export interface BrainConfig {
 export interface QuotaGuardConfig {
   enabled: boolean;
   lowPercent: number;
+  /**
+   * Order candidates so the allowance that renews soonest goes first. What an account has left
+   * is lost when its window resets, while one renewing later keeps its quota, so spending the
+   * near-reset account first wastes less. Off keeps the configured order everywhere.
+   */
+  resetAware: boolean;
 }
 
 /**
@@ -426,6 +432,7 @@ export interface Config {
 export const DEFAULT_QUOTA_GUARD: QuotaGuardConfig = {
   enabled: true,
   lowPercent: 10,
+  resetAware: true,
 };
 
 export const DEFAULT_BRAIN: BrainConfig = {
@@ -669,6 +676,7 @@ function parseQuotaGuard(raw: unknown): QuotaGuardConfig {
       typeof lowPercent === "number" && lowPercent >= 0 && lowPercent <= 100
         ? lowPercent
         : DEFAULT_QUOTA_GUARD.lowPercent,
+    resetAware: value.resetAware !== false,
   };
 }
 
@@ -897,7 +905,7 @@ export function writeExampleConfig(): string {
       },
       sessionTtlMinutes: 720,
       baselineModel: "deepseek-v4-pro",
-      quotaGuard: { enabled: true, lowPercent: 10 },
+      quotaGuard: { enabled: true, lowPercent: 10, resetAware: true },
       brains: [],
       brainPicksEffort: true,
     },

@@ -201,6 +201,8 @@ function parseQuotaGuard(value: unknown, fallback: QuotaGuardConfig): QuotaGuard
       typeof lowPercent === "number" && lowPercent >= 0 && lowPercent <= 100
         ? lowPercent
         : fallback.lowPercent,
+    resetAware:
+      typeof record.resetAware === "boolean" ? record.resetAware : fallback.resetAware,
   };
 }
 

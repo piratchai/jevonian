@@ -12,12 +12,14 @@ import {
 import { BASE64_IMAGE_DATA, estimateTokens as compactionTokens } from "./compaction";
 import {
   BUILTIN_ROUTING_IDS,
+  DEFAULT_QUOTA_GUARD,
   isBuiltinRoutingId,
   isRoutingId,
   providerHasModel,
   providerModelIds,
   type BrainConfig,
   type Config,
+  type Provider,
   type RoutingEntry,
   type RoutingTiers,
 } from "./config";
@@ -26,6 +28,7 @@ import { appendRecord } from "./ledger";
 import { canonicalVariants } from "./models";
 import { costOf, isDeepSeekPeak, priceFor, type Usage } from "./pricing";
 import {
+  accountWindows,
   captureUsageLimit,
   providerModelExhausted,
   providerQuotaHealth,
@@ -922,6 +925,126 @@ export function tierCandidates(config: Config, tier: string[], kind?: RequestKin
   return tier.flatMap((model) => tierEntryCandidates(config, model, kind));
 }
 
+/** How a candidate's allowance stands, as reset-aware ordering reads it. */
+interface QuotaStanding {
+  /** Share of the fullest window used, 0–100. */
+  used: number;
+  /** When the windows that count the turn refill, longest window first; 0 when not stated. */
+  renews: number[];
+  spent: boolean;
+  low: boolean;
+}
+
+/**
+ * A cache of what each provider's allowance stands at, shared across every ordering a single
+ * turn does. `providerQuotaHealth` reads the ledger and the header snapshot, so asking it for
+ * the same account once per routing would pay that cost a dozen times a turn for one answer.
+ */
+export type QuotaStandingCache = Map<string, QuotaStanding>;
+
+function standingOf(
+  provider: Provider,
+  model: string,
+  now: number,
+  lowPercent: number,
+  cache?: QuotaStandingCache,
+): QuotaStanding {
+  // Keyed by model too: a window that counts only one model makes two models of one account
+  // read differently, which is exactly what this must not flatten.
+  const key = `${provider.name}/${model}`;
+  const cached = cache?.get(key);
+  if (cached) return cached;
+  const health = providerQuotaHealth(provider, { lowPercent, now });
+  const windows = accountWindows(provider, now);
+  let used = health.usedPercent ?? 0;
+  for (const window of windows) used = Math.max(used, window.usedPercent);
+  const standing: QuotaStanding = {
+    used,
+    renews: windows.map((window) => window.resetsAt),
+    spent:
+      health.status === "exhausted" ||
+      providerModelExhausted(provider, model, { lowPercent, now }),
+    low: health.status === "low",
+  };
+  cache?.set(key, standing);
+  return standing;
+}
+
+/** Which of two renewal lists comes first, the longest window leading, compared to the hour. */
+function earlierRenewal(left: number[], right: number[]): number {
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const a = Math.floor((left[i] ?? 0) / 3_600_000);
+    const b = Math.floor((right[i] ?? 0) / 3_600_000);
+    if (a === b) continue;
+    // A window that does not say when it renews waits behind one that does.
+    if (a === 0 || b === 0) return b === 0 ? -1 : 1;
+    return a < b ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Orders candidates so the allowance that renews soonest is used first.
+ *
+ * What an account has left is lost when its window resets, while one renewing later keeps its
+ * quota — so spending the near-reset account first wastes less of what was paid for. Among
+ * candidates with room the soonest renewal leads, and the longest window decides what "soonest"
+ * means: a week's allowance outlives the five hours inside it. Times in the same hour are
+ * alike, so a few minutes do not reorder, and candidates alike in both keep their configured
+ * order, which keeps the vendor's prompt cache warm. Room comes before low, and low before
+ * spent: an account with nothing left is only used when nothing else can take the turn.
+ */
+export function orderByQuotaReset(
+  picks: TierPick[],
+  config: Config,
+  options: { now?: number; lowPercent?: number; cache?: QuotaStandingCache } = {},
+): TierPick[] {
+  if (picks.length < 2) return picks;
+  const now = options.now ?? Date.now();
+  const lowPercent = options.lowPercent ?? DEFAULT_QUOTA_GUARD.lowPercent;
+  const by = new Map(config.providers.map((provider) => [provider.name, provider]));
+  const local = new Map<string, QuotaStanding>();
+  const of = (pick: TierPick): QuotaStanding => {
+    const provider = by.get(pick.provider);
+    if (!provider) return { used: 0, renews: [], spent: false, low: false };
+    return standingOf(provider, pick.model, now, lowPercent, options.cache ?? local);
+  };
+  const fine: TierPick[] = [];
+  const low: TierPick[] = [];
+  const spent: TierPick[] = [];
+  for (const pick of picks) {
+    const standing = of(pick);
+    if (standing.spent) spent.push(pick);
+    else if (standing.low) low.push(pick);
+    else fine.push(pick);
+  }
+  fine.sort((left, right) => earlierRenewal(of(left).renews, of(right).renews));
+  const byUsed = (left: TierPick, right: TierPick): number => of(left).used - of(right).used;
+  low.sort(byUsed);
+  spent.sort(byUsed);
+  return [...fine, ...low, ...spent];
+}
+
+/** {@link orderByQuotaReset} for the providers that serve one model, as the pinned path holds them. */
+function orderProvidersByReset(
+  providers: Provider[],
+  model: string,
+  config: Config,
+  options: { now?: number; lowPercent?: number; cache?: QuotaStandingCache } = {},
+): Provider[] {
+  if (providers.length < 2) return providers;
+  const by = new Map(providers.map((provider) => [provider.name, provider]));
+  const ordered = orderByQuotaReset(
+    providers.map((provider) => ({ provider: provider.name, model })),
+    config,
+    options,
+  );
+  return ordered.flatMap((pick) => {
+    const provider = by.get(pick.provider);
+    return provider ? [provider] : [];
+  });
+}
+
 /**
  * A candidate paired with what it can actually do. Routing needs this before the brain sees
  * anything: offering a model whose window cannot hold the conversation, or that cannot think
@@ -1253,6 +1376,18 @@ export async function decideRoute(
   const pinned = config.providers.some((candidate) => providerHasModel(candidate, requestedModel));
   const virtual = isVirtualModel(requestedModel, config) && !pinned;
   const session = resolveSessionKey(body, headers);
+  // Reset-aware ordering, when the guard is on: the allowance that renews soonest leads, so
+  // less of what was paid for goes to waste. Applied to every candidate list the turn chooses
+  // from, so the brain and a pinned routing see the same preference.
+  const standCache: QuotaStandingCache = new Map();
+  const resetOrder = (picks: TierPick[]): TierPick[] =>
+    config.routing.quotaGuard.enabled && config.routing.quotaGuard.resetAware
+      ? orderByQuotaReset(picks, config, {
+          now,
+          lowPercent: config.routing.quotaGuard.lowPercent,
+          cache: standCache,
+        })
+      : picks;
 
   if (!virtual) {
     // A pinned model is not a routing decision: no brain runs, so there is no phase to claim.
@@ -1260,10 +1395,18 @@ export async function decideRoute(
       providerHasModel(candidate, requestedModel),
     );
     const guard = config.routing.quotaGuard;
-    const byWire = matches.find((candidate) => canServeClient(candidate, kind)) ?? matches[0];
+    const ordered =
+      guard.enabled && guard.resetAware
+        ? orderProvidersByReset(matches, requestedModel, config, {
+            now,
+            lowPercent: guard.lowPercent,
+            cache: standCache,
+          })
+        : matches;
+    const byWire = ordered.find((candidate) => canServeClient(candidate, kind)) ?? ordered[0];
     const exact =
-      guard.enabled && matches.length > 1
-        ? (matches.find((candidate) => {
+      guard.enabled && ordered.length > 1
+        ? (ordered.find((candidate) => {
             if (!canServeClient(candidate, kind)) return false;
             const status = providerQuotaHealth(candidate, {
               lowPercent: guard.lowPercent,
@@ -1285,7 +1428,7 @@ export async function decideRoute(
       };
     }
 
-    const variants = canonicalVariants(config, requestedModel, kind);
+    const variants = resetOrder(canonicalVariants(config, requestedModel, kind));
     if (variants.length > 0) {
       const guard = config.routing.quotaGuard;
       const acceptable = guard.enabled
@@ -1357,7 +1500,7 @@ export async function decideRoute(
   const turns = (previous?.turns ?? 0) + 1;
   const candidatesFor = (target: Phase): TierPick[] => {
     const entry = routings.find((routing) => routing.id === target);
-    return entry ? routingCandidates(config, entry, kind) : [];
+    return entry ? resetOrder(routingCandidates(config, entry, kind)) : [];
   };
   const candidateExhausted = (candidate: TierPick): boolean => {
     const provider = config.providers.find((entry) => entry.name === candidate.provider);

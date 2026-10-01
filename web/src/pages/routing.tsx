@@ -51,7 +51,7 @@ import { providerDisplayName } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
 const BUILTIN_IDS = new Set(["plan", "execute", "utility", "chat"]);
-const GUARD_FALLBACK: QuotaGuardView = { enabled: true, lowPercent: 10 };
+const GUARD_FALLBACK: QuotaGuardView = { enabled: true, lowPercent: 10, resetAware: true };
 
 /**
  * What actually decides a turn. The brain picks the routing; each card is a scenario pool
@@ -1577,6 +1577,25 @@ export function RoutingPage() {
                   <span className="text-[11px] text-muted-foreground">
                     Below this share a provider is treated as thin; spent providers are skipped only
                     when an alternative exists.
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="guardResetAware">Reset-aware order</Label>
+                  <Select
+                    value={guard.resetAware ? "on" : "off"}
+                    onValueChange={(value) => setGuard({ ...guard, resetAware: value === "on" })}
+                  >
+                    <SelectTrigger id="guardResetAware" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="on">on — spend the soonest-renewing allowance first</SelectItem>
+                      <SelectItem value="off">off — keep the configured order</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[11px] text-muted-foreground">
+                    What an account has left is lost when its window resets, so the one renewing
+                    soonest goes first. Off keeps prompt caches warm by never reordering.
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
