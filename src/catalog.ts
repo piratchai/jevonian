@@ -125,7 +125,11 @@ async function discoverCursorModels(provider: Provider, fetchedAt: string): Prom
       };
     }
     // Keep Cursor's own ids too: they are what maps a chosen effort onto the id Cursor expects.
-    return { provider: provider.name, models: saveCursorCatalog(raw).models.map((m) => m.id), fetchedAt };
+    return {
+      provider: provider.name,
+      models: saveCursorCatalog(raw).models.map((m) => m.id),
+      fetchedAt,
+    };
   } catch (error) {
     return {
       provider: provider.name,

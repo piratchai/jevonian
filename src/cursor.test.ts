@@ -12,25 +12,28 @@ import {
 
 describe("parseCursorAbout", () => {
   it("reads the email and plan from the CLI's JSON", () => {
-    expect(
-      parseCursorAbout('{"subscriptionTier":"pro","userEmail":"me@work.dev"}'),
-    ).toEqual({ user: "me@work.dev", plan: "pro" });
+    expect(parseCursorAbout('{"subscriptionTier":"pro","userEmail":"me@work.dev"}')).toEqual({
+      user: "me@work.dev",
+      plan: "pro",
+    });
   });
 
   it("skips an update notice printed before the JSON", () => {
-    const out = "\u001b[32mUpdate available\u001b[0m\n{\"userEmail\":\"a@b.c\",\"subscriptionTier\":\"free\"}";
+    const out =
+      '\u001b[32mUpdate available\u001b[0m\n{"userEmail":"a@b.c","subscriptionTier":"free"}';
     expect(parseCursorAbout(out)).toEqual({ user: "a@b.c", plan: "free" });
   });
 
   it("returns undefined when nobody is named", () => {
-    expect(parseCursorAbout("{\"subscriptionTier\":\"pro\"}")).toBeUndefined();
+    expect(parseCursorAbout('{"subscriptionTier":"pro"}')).toBeUndefined();
     expect(parseCursorAbout("not json")).toBeUndefined();
   });
 });
 
 describe("parseCursorModels", () => {
   it("reads `id - Name` lines and strips ANSI and zero-width spaces", () => {
-    const out = "claude-opus-5.5-high - Claude Opus 5.5 1M\n\u001b[1mgrok-4.7-low\u001b[0m - Grok 4.7\u200b (default)\n";
+    const out =
+      "claude-opus-5.5-high - Claude Opus 5.5 1M\n\u001b[1mgrok-4.7-low\u001b[0m - Grok 4.7\u200b (default)\n";
     expect(parseCursorModels(out).map((m) => m.id)).toEqual([
       "claude-opus-5.5-high",
       "grok-4.7-low",
@@ -96,9 +99,9 @@ describe("classifyCursorError", () => {
     expect(
       classifyCursorError(403, '{"message":"This region is not yet available for your team"}').kind,
     ).toBe("region");
-    expect(classifyCursorError(401, '{"code":"unauthenticated","message":"token expired"}').kind).toBe(
-      "auth",
-    );
+    expect(
+      classifyCursorError(401, '{"code":"unauthenticated","message":"token expired"}').kind,
+    ).toBe("auth");
   });
 
   it("falls back to the status text for a body it cannot parse", () => {

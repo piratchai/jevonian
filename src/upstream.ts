@@ -1410,7 +1410,10 @@ function cursorErrorResponse(
       { status, headers },
     );
   }
-  return Response.json({ error: { type, code: error.kind, message: error.message } }, { status, headers });
+  return Response.json(
+    { error: { type, code: error.kind, message: error.message } },
+    { status, headers },
+  );
 }
 
 /**

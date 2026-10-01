@@ -4,9 +4,8 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
-import { retryingFetch } from "./retry";
-
 import { cursorAuthPath, cursorToken } from "./cursor";
+import { retryingFetch } from "./retry";
 
 export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "cursor" | "static";
 

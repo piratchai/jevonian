@@ -30,7 +30,9 @@ function modelOf(raw: unknown): CursorModel | undefined {
   if (id.length === 0) return undefined;
   const name = typeof value.name === "string" ? value.name : id;
   const context =
-    typeof value.context === "number" && value.context > 0 ? value.context : cursorContext(id, name);
+    typeof value.context === "number" && value.context > 0
+      ? value.context
+      : cursorContext(id, name);
   return { id, name, context };
 }
 
@@ -98,11 +100,7 @@ export function resetCursorCatalog(): void {
  * nearest. Fast, when asked, comes from the family's fast variant. An id Cursor itself listed
  * (an agent set to it before) is kept, its effort and fast taken as it has them.
  */
-export function cursorModelId(
-  model: string,
-  effort: string | undefined,
-  fast: boolean,
-): string {
+export function cursorModelId(model: string, effort: string | undefined, fast: boolean): string {
   const file = loadCursorCatalog();
   if (!file) return model;
   const families = new Map<string, Map<string, string>>();
@@ -115,7 +113,8 @@ export function cursorModelId(
     }
     if (!by.has(level)) by.set(level, entry.id);
   }
-  const at = (family: string, level: string): string | undefined => families.get(family)?.get(level);
+  const at = (family: string, level: string): string | undefined =>
+    families.get(family)?.get(level);
 
   // An id Cursor listed is used as it is, but its effort and speed follow the request.
   const own = splitCursorId(model);

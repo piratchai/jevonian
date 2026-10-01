@@ -210,10 +210,10 @@ export function ProvidersPage() {
         : auth === "oauth" && oauthSource === "antigravity"
           ? "gemini"
           : auth === "oauth" && oauthSource === "devin"
-          ? "devin"
-          : auth === "oauth" && oauthSource === "cursor"
-            ? "cursor"
-            : undefined;
+            ? "devin"
+            : auth === "oauth" && oauthSource === "cursor"
+              ? "cursor"
+              : undefined;
   const lockedBy =
     oauthSource === "codex"
       ? "Codex"

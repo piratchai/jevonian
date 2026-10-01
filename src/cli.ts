@@ -657,7 +657,10 @@ async function addProvider(): Promise<void> {
     }
     name = await ask("Provider name", name === "custom" ? "my-provider" : name);
     baseUrl = await ask("Base URL (OpenAI-, Anthropic-, or Responses-compatible)", baseUrl);
-    const typed = await ask("Protocol type (openai/anthropic/responses/both/gemini/devin/cursor)", type);
+    const typed = await ask(
+      "Protocol type (openai/anthropic/responses/both/gemini/devin/cursor)",
+      type,
+    );
     type =
       typed === "anthropic" ||
       typed === "responses" ||

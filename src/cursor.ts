@@ -16,8 +16,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { sanitizeBuiltinPrompt } from "./prompt-policy";
 import type { Usage } from "./pricing";
+import { sanitizeBuiltinPrompt } from "./prompt-policy";
 
 export const CURSOR_DEFAULT_BASE_URL = "https://api2.cursor.sh";
 /** Agent API used when the server config cannot name a region-specific one. */
@@ -183,7 +183,13 @@ function pbValue(value: unknown): Uint8Array {
     const keys = Object.keys(value as Record<string, unknown>).sort();
     const struct = new Pb();
     for (const key of keys) {
-      struct.bytes(1, new Pb().str(1, key).bytes(2, pbValue((value as Record<string, unknown>)[key])).build());
+      struct.bytes(
+        1,
+        new Pb()
+          .str(1, key)
+          .bytes(2, pbValue((value as Record<string, unknown>)[key]))
+          .build(),
+      );
     }
     return new Pb().bytes(5, struct.build()).build();
   }
@@ -304,7 +310,8 @@ export function cursorAuthPath(): string {
   return join(dir, "cursor", "auth.json");
 }
 
-async function readKeychainToken(): Promise<string | undefined> {  if (process.platform !== "darwin") return undefined;
+async function readKeychainToken(): Promise<string | undefined> {
+  if (process.platform !== "darwin") return undefined;
   try {
     const { stdout } = await execFileAsync("security", [
       "find-generic-password",
@@ -440,6 +447,7 @@ export interface CursorAccount {
 }
 
 function ansiStrip(text: string): string {
+  // eslint-disable-next-line no-control-regex -- matching ESC requires a control character
   return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 }
 
@@ -695,7 +703,8 @@ export function classifyCursorError(status: number, body: string): CursorStreamE
   if (message === "" || message === "Error") message = parsed.code;
   const lower = message.toLowerCase();
   if (message === "" && status / 100 === 2) message = "Cursor returned an empty reply";
-  if (message === "") message = status > 0 ? `Cursor upstream error (HTTP ${status})` : "Cursor upstream error";
+  if (message === "")
+    message = status > 0 ? `Cursor upstream error (HTTP ${status})` : "Cursor upstream error";
 
   const kind = classifyKind(status, parsed.code, lower);
   return { status: KIND_STATUS[kind], kind, message: message.slice(0, 2000) };
@@ -990,7 +999,10 @@ export function buildCursorRun(
   state = new Pb().bytes(1, state.build()).bytes(8, put(turn.build())).varint(10, 1).str(22, "cli");
 
   const defs = tools.map(cursorToolDef);
-  const env = new Pb().str(1, process.platform).str(2, process.env.TMPDIR ?? "/tmp").str(10, "UTC");
+  const env = new Pb()
+    .str(1, process.platform)
+    .str(2, process.env.TMPDIR ?? "/tmp")
+    .str(10, "UTC");
   let requestContext = new Pb().bytes(4, env.build());
   let mcp = new Pb();
   for (const def of defs) {
@@ -1010,7 +1022,11 @@ export function buildCursorRun(
   return { body: new Pb().bytes(1, runRequest.build()).build(), blobs: store };
 }
 
-export function cursorHeaders(token: string, version: string, requestId: string): Record<string, string> {
+export function cursorHeaders(
+  token: string,
+  version: string,
+  requestId: string,
+): Record<string, string> {
   return {
     "content-type": "application/connect+proto",
     "connect-protocol-version": "1",
@@ -1043,10 +1059,7 @@ export async function resolveCursorAgentUrl(token: string, baseUrl?: string): Pr
     const config = (await response.json()) as {
       agentUrlConfig?: { agentUrl?: unknown; agentnUrl?: unknown };
     };
-    for (const raw of [
-      config.agentUrlConfig?.agentUrl,
-      config.agentUrlConfig?.agentnUrl,
-    ]) {
+    for (const raw of [config.agentUrlConfig?.agentUrl, config.agentUrlConfig?.agentnUrl]) {
       if (typeof raw !== "string") continue;
       try {
         const url = new URL(raw);
@@ -1224,13 +1237,25 @@ export class CursorRunDecoder {
         return;
       }
       if (field.num === 10) {
-        const env = new Pb().str(1, process.platform).str(2, process.env.TMPDIR ?? "/tmp").str(10, "UTC");
-        answer(10, new Pb().bytes(1, new Pb().bytes(1, new Pb().bytes(4, env.build()).build()).build()).build());
+        const env = new Pb()
+          .str(1, process.platform)
+          .str(2, process.env.TMPDIR ?? "/tmp")
+          .str(10, "UTC");
+        answer(
+          10,
+          new Pb()
+            .bytes(1, new Pb().bytes(1, new Pb().bytes(4, env.build()).build()).build())
+            .build(),
+        );
         return;
       }
     }
     // Anything else the server asks of the client (a shell, a file read) is refused.
-    this.writer.send(new Pb().bytes(5, new Pb().bytes(2, new Pb().varint(1, id).str(2, "not available").build()).build()).build());
+    this.writer.send(
+      new Pb()
+        .bytes(5, new Pb().bytes(2, new Pb().varint(1, id).str(2, "not available").build()).build())
+        .build(),
+    );
     this.closeExec(id);
   }
 
@@ -1244,15 +1269,21 @@ export class CursorRunDecoder {
         const result = blob
           ? new Pb().bytes(1, blob).build()
           : new Pb().bytes(2, new Pb().str(1, "blob not found").build()).build();
-        this.writer.send(new Pb().bytes(3, new Pb().varint(1, id).bytes(2, result).build()).build());
+        this.writer.send(
+          new Pb().bytes(3, new Pb().varint(1, id).bytes(2, result).build()).build(),
+        );
       } else if (field.num === 3) {
-        this.writer.send(new Pb().bytes(3, new Pb().varint(1, id).bytes(3, new Uint8Array()).build()).build());
+        this.writer.send(
+          new Pb().bytes(3, new Pb().varint(1, id).bytes(3, new Uint8Array()).build()).build(),
+        );
       }
     }
   }
 
   private closeExec(id: number): void {
-    this.writer.send(new Pb().bytes(5, new Pb().bytes(1, new Pb().varint(1, id).build()).build()).build());
+    this.writer.send(
+      new Pb().bytes(5, new Pb().bytes(1, new Pb().varint(1, id).build()).build()).build(),
+    );
   }
 }
 
@@ -1275,7 +1306,10 @@ class CursorFrameSplitter {
       const length = view.getUint32(1, false);
       if (length > MAX_FRAME_BYTES) throw new Error("Cursor frame exceeds the size limit");
       if (this.buffer.length - offset < 5 + length) break;
-      frames.push({ end: (flags & 0x02) !== 0, payload: this.buffer.slice(offset + 5, offset + 5 + length) });
+      frames.push({
+        end: (flags & 0x02) !== 0,
+        payload: this.buffer.slice(offset + 5, offset + 5 + length),
+      });
       offset += 5 + length;
     }
     this.buffer = offset === 0 ? this.buffer : this.buffer.slice(offset);
@@ -1379,7 +1413,12 @@ export async function runCursor(options: CursorRunOptions): Promise<CursorRun> {
     } catch {
       // already closed
     }
-    return { events: emptyEvents(), usage: emptyUsage(), toolCalls: false, error: classifyCursorError(response.status, text) };
+    return {
+      events: emptyEvents(),
+      usage: emptyUsage(),
+      toolCalls: false,
+      error: classifyCursorError(response.status, text),
+    };
   }
   if (!response.body) {
     return {
@@ -1417,6 +1456,7 @@ function emptyUsage(): Usage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
+// eslint-disable-next-line require-yield -- an empty stream is the point
 async function* emptyEvents(): AsyncGenerator<CursorEvent> {
   return;
 }
@@ -1456,7 +1496,8 @@ export async function cursorChatCompletion(
     for await (const event of events) {
       if (event.type === "text") content += event.text;
       else if (event.type === "thinking") reasoning += event.text;
-      else if (event.type === "tool") calls.push({ id: event.id, name: event.name, args: event.args });
+      else if (event.type === "tool")
+        calls.push({ id: event.id, name: event.name, args: event.args });
       else if (event.type === "usage") usage = event.usage;
       else if (event.type === "error") error = event.error;
     }
@@ -1487,7 +1528,10 @@ export async function cursorChatCompletion(
     choices: [{ index: 0, message, finish_reason: calls.length > 0 ? "tool_calls" : "stop" }],
     usage: openaiUsage(usage),
   };
-  return { completion, finish: { usage, toolCalls: calls.length > 0, ...(error ? { error } : {}) } };
+  return {
+    completion,
+    finish: { usage, toolCalls: calls.length > 0, ...(error ? { error } : {}) },
+  };
 }
 
 function chatBodyToCursor(body: Record<string, unknown>): {
