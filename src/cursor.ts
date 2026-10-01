@@ -383,27 +383,54 @@ function tokenFresh(token: string): boolean {
   return token !== "" && (expiry === undefined || expiry - Date.now() > REFRESH_SKEW_MS);
 }
 
-let refreshing: Promise<string> | undefined;
+/**
+ * Identifies a sign-in for the renewal map. Two Cursor accounts must not share one
+ * `cursor-agent status` (it renews whichever account the CLI is signed into, and the re-read
+ * that follows would hand one account the other's token). Mirrors the key `oauth.ts` uses for
+ * its token cache, kept local so this wire module need not import the oauth it is read by.
+ */
+function loginKey(login?: CursorLogin): string {
+  if (!login) return "";
+  return [
+    login.home ?? "",
+    login.credentialsPath ?? "",
+    login.keychainService ?? "",
+    login.keychainAccount ?? "",
+  ].join("\u0000");
+}
+
+/** In-flight renewals, one per sign-in, so concurrent callers share rather than race. */
+const renewals = new Map<string, Promise<string>>();
 
 /**
  * The token to call Cursor's API with. A token about to run out is renewed by
  * `cursor-agent status`, which renews whenever it runs.
+ *
+ * Concurrent callers for the same sign-in share one renewal — but only that sign-in: an account
+ * whose renewal is already running must not be handed to a different account's caller.
  */
 export async function cursorToken(login?: CursorLogin): Promise<string> {
   const token = await readCursorToken(login);
   if (tokenFresh(token)) return token;
   const path = cursorExecutable();
   if (path !== "") {
-    refreshing ??= (async () => {
-      try {
-        await execFileAsync(path, ["status"], { timeout: STATUS_TIMEOUT_MS });
-      } catch {
-        // A failed status still often renews; the re-read below decides.
-      }
-      return readCursorToken(login);
-    })();
-    const renewed = await refreshing;
-    refreshing = undefined;
+    const key = loginKey(login);
+    const renewal =
+      renewals.get(key) ??
+      (() => {
+        const task = (async () => {
+          try {
+            await execFileAsync(path, ["status"], { timeout: STATUS_TIMEOUT_MS });
+          } catch {
+            // A failed status still often renews; the re-read below decides.
+          }
+          return readCursorToken(login);
+        })();
+        renewals.set(key, task);
+        void task.finally(() => renewals.delete(key));
+        return task;
+      })();
+    const renewed = await renewal;
     if (renewed !== "") return renewed;
   }
   const latest = await readCursorToken(login);
