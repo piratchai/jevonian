@@ -202,28 +202,74 @@ export function formatUpdateNotice(
   return `\n${rows.join("\n")}\n`;
 }
 
-async function fetchRegistryVersion(): Promise<string> {
+/**
+ * Reads the registry's "latest" document, then confirms the tarball is actually
+ * fetchable. npm can advertise a version (and even update `/latest`) before the
+ * `.tgz` is public — during that window `npm install` dies with ETARGET/E404
+ * and the dashboard only shows "installer exited 1".
+ */
+export async function fetchRegistryVersion(
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
   const url = process.env.JEVONIAN_NPM_REGISTRY ?? "https://registry.npmjs.org/jevonian/latest";
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     headers: { accept: "application/json", "user-agent": `${PACKAGE_NAME}-update-check` },
     signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) throw new Error(`registry returned ${response.status}`);
-  const body = (await response.json()) as { version?: unknown };
+  const body = (await response.json()) as {
+    version?: unknown;
+    dist?: { tarball?: unknown };
+  };
   if (typeof body.version !== "string" || !parseVersion(body.version)) {
     throw new Error("registry response did not contain a valid version");
+  }
+  const tarball =
+    typeof body.dist?.tarball === "string" && body.dist.tarball.length > 0
+      ? body.dist.tarball
+      : `https://registry.npmjs.org/${PACKAGE_NAME}/-/${PACKAGE_NAME}-${body.version}.tgz`;
+  const probe = await fetchImpl(tarball, {
+    method: "HEAD",
+    headers: { "user-agent": `${PACKAGE_NAME}-update-check` },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!probe.ok) {
+    throw new Error(
+      `jevonian@${body.version} is listed on the registry but the package tarball is not available yet (${probe.status})`,
+    );
   }
   return body.version;
 }
 
-function spawnCommand(command: string): Promise<void> {
+/** Installer stderr/stdout kept for the failure message; long npm logs are truncated. */
+const INSTALLER_OUTPUT_LIMIT = 2_000;
+
+export function spawnCommand(command: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, { shell: true, stdio: "inherit" });
+    // Pipe so a dashboard-driven update (stdio already redirected to serve.log) still
+    // surfaces the real npm error instead of a bare exit code.
+    const child = spawn(command, { shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    const append = (chunk: Buffer | string): void => {
+      output += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      if (output.length > INSTALLER_OUTPUT_LIMIT) {
+        output = output.slice(output.length - INSTALLER_OUTPUT_LIMIT);
+      }
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    // Mirror onto the process streams so CLI `jevonian update` still looks live.
+    child.stdout?.pipe(process.stdout);
+    child.stderr?.pipe(process.stderr);
     child.once("error", reject);
     child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
-      else
-        reject(new Error(signal ? `installer stopped by ${signal}` : `installer exited ${code}`));
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const detail = output.trim().replace(/\s+/g, " ");
+      const reason = signal ? `installer stopped by ${signal}` : `installer exited ${code}`;
+      reject(new Error(detail ? `${reason}: ${detail}` : reason));
     });
   });
 }

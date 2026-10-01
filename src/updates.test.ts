@@ -6,8 +6,10 @@ import { expect, it } from "vite-plus/test";
 
 import {
   detectInstallation,
+  fetchRegistryVersion,
   formatUpdateNotice,
   resolvePackageManagerBin,
+  spawnCommand,
   UpdateManager,
 } from "./updates";
 
@@ -228,4 +230,51 @@ it("reports restartRequired when disk is ahead of the running process", async ()
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it("rejects a registry latest whose tarball is not yet public", async () => {
+  const calls: Array<{ url: string; method?: string }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method });
+    if (url.endsWith("/latest")) {
+      return new Response(
+        JSON.stringify({
+          version: "0.4.1",
+          dist: { tarball: "https://registry.npmjs.org/jevonian/-/jevonian-0.4.1.tgz" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(null, { status: 404 });
+  };
+  await expect(fetchRegistryVersion(fetchImpl)).rejects.toThrow(/tarball is not available yet \(404\)/);
+  expect(calls).toEqual([
+    { url: "https://registry.npmjs.org/jevonian/latest", method: undefined },
+    { url: "https://registry.npmjs.org/jevonian/-/jevonian-0.4.1.tgz", method: "HEAD" },
+  ]);
+});
+
+it("accepts a registry latest only after the tarball HEAD succeeds", async () => {
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/latest")) {
+      return new Response(
+        JSON.stringify({
+          version: "0.4.1",
+          dist: { tarball: "https://registry.npmjs.org/jevonian/-/jevonian-0.4.1.tgz" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    expect(init?.method).toBe("HEAD");
+    return new Response(null, { status: 200 });
+  };
+  await expect(fetchRegistryVersion(fetchImpl)).resolves.toBe("0.4.1");
+});
+
+it("includes installer stderr in the failure message", async () => {
+  await expect(spawnCommand("sh -c 'echo No matching version found for jevonian@0.4.1 >&2; exit 1'")).rejects.toThrow(
+    /installer exited 1:.*No matching version found for jevonian@0\.4\.1/,
+  );
 });
