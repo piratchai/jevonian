@@ -1251,7 +1251,7 @@ async function main(): Promise<void> {
     // serve up and log once instead of dumping TypeError: terminated and exiting.
     process.on("unhandledRejection", (reason) => {
       if (isTransientProxyError(reason)) {
-        console.log(`proxy: connection dropped (${formatFetchError(reason)})`);
+        console.log(`proxy: transient network error (${formatFetchError(reason)})`);
         return;
       }
       console.error("unhandledRejection:", reason);

@@ -135,6 +135,11 @@ export function scrubProxyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  *
  * Clash and similar tools routinely reset long downloads; that must not take down the
  * serve process as an unhandled `TypeError: terminated`.
+ *
+ * Also covers the H1/H2 mismatch where undici's HTTP/1.1 parser receives HTTP/2 SETTINGS
+ * frames (`Response does not match the HTTP/1.1 protocol`). That shows up when a dying
+ * MITM proxy or edge briefly speaks h2 on a connection we pinned to HTTP/1.1 — noisy in
+ * `jevonian status`, but the next request usually succeeds, so treat it as transient.
  */
 export function isTransientProxyError(error: unknown): boolean {
   let current: unknown = error;
@@ -149,7 +154,12 @@ export function isTransientProxyError(error: unknown): boolean {
     ) {
       return true;
     }
-    if (current.message === "terminated" || /other side closed/i.test(current.message)) {
+    if (
+      current.message === "terminated" ||
+      /other side closed/i.test(current.message) ||
+      current.name === "HTTPParserError" ||
+      /does not match the HTTP\/1\.1 protocol/i.test(current.message)
+    ) {
       return true;
     }
     current = (current as { cause?: unknown }).cause;

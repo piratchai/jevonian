@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.1] - 2026-10-01
+
+### Fixed
+
+- **Virtual model ids beat provider catalog names.** When a provider (for example Cursor) catalogs a model named `auto`, requesting `jevonian/auto` used to pin onto that provider model and return HTTP 500. Virtual ids (`jevonian/auto`, routing phases) now always take priority over a bare catalog name with the same spelling; a real provider model still works when requested as `provider/auto`.
+- **HTTP/1.1 protocol mismatch is treated as transient.** An undici `HTTPParserError` (`Response does not match the HTTP/1.1 protocol`) — usually a flaky MITM briefly speaking HTTP/2 on a connection pinned to HTTP/1.1 — no longer dumps a `TypeError` stack via `unhandledRejection`. The CLI logs a compact `proxy: transient network error (...)` line instead.
+
 ## [0.4.0] - 2026-10-01
 
 ### Added

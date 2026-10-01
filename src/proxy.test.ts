@@ -177,6 +177,19 @@ describe("isTransientProxyError", () => {
     expect(formatFetchError(error)).toContain("UND_ERR_SOCKET");
   });
 
+  it("recognises an HTTP/1.1 parser seeing HTTP/2 SETTINGS frames", () => {
+    // allowH2 is already false; a flaky MITM can still hand back h2 bytes. That must not
+    // surface as a scary unhandledRejection dump in `jevonian status`.
+    const cause = Object.assign(
+      new Error("Response does not match the HTTP/1.1 protocol (Expected HTTP/, RTSP/ or ICE/)"),
+      { name: "HTTPParserError" },
+    );
+    const error = Object.assign(new TypeError("fetch failed"), { cause });
+    expect(isTransientProxyError(error)).toBe(true);
+    expect(isTransientProxyError(cause)).toBe(true);
+    expect(formatFetchError(error)).toContain("HTTP/1.1 protocol");
+  });
+
   it("leaves ordinary errors alone", () => {
     expect(isTransientProxyError(new Error("no Jev brain is configured"))).toBe(false);
   });

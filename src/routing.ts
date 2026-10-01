@@ -1507,8 +1507,10 @@ export async function decideRoute(
   const now = input.now ?? Date.now();
   const requestedRaw = typeof body.model === "string" ? body.model : "";
   const requestedModel = requestedRaw.replace(/^jevonian\//, "");
-  const pinned = config.providers.some((candidate) => providerHasModel(candidate, requestedModel));
-  const virtual = isVirtualModel(requestedModel, config) && !pinned;
+  // Virtual ids (`auto`, routing phases) always win over a provider that happens to
+  // catalog the same bare name — otherwise `jevonian/auto` collapses onto Cursor's
+  // `auto` model and every default client request 500s.
+  const virtual = isVirtualModel(requestedModel, config);
   const session = resolveSessionKey(body, headers);
   // Reset-aware ordering, when the guard is on: the allowance that renews soonest leads, so
   // less of what was paid for goes to waste. Applied to every candidate list the turn chooses

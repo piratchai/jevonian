@@ -499,7 +499,33 @@ describe("decideRoute", () => {
     expect(decision.model).toBe("deepseek-v4.1-flash");
   });
 
-  it("pins a real model named auto when a provider declares it", async () => {
+  it("keeps jevonian/auto virtual when a provider catalogs a model named auto", async () => {
+    const config = testConfig({
+      providers: [
+        {
+          name: "mock",
+          type: "openai",
+          baseUrl: "http://127.0.0.1:9999/v1",
+          apiKey: "test",
+          models: ["auto", "deepseek-v4-pro", "deepseek-v4.1-flash"],
+        },
+      ],
+    });
+    const result = await decideRoute({
+      config,
+      body: planBody("jevonian/auto"),
+      headers: {},
+      store: new SessionStore(60_000),
+      kind: "openai",
+      now: 1_000,
+    });
+    if ("error" in result) throw new Error(result.error);
+    expect(result.virtual).toBe(true);
+    expect(result.model).toBe("deepseek-v4-pro");
+    expect(result.provider).toBe("mock");
+  });
+
+  it("pins a provider-qualified auto model without treating it as virtual", async () => {
     const config = parseConfig({
       defaultProvider: "agg",
       providers: [
@@ -514,7 +540,7 @@ describe("decideRoute", () => {
     });
     const result = await decideRoute({
       config,
-      body: planBody("auto"),
+      body: planBody("agg/auto"),
       headers: {},
       store: new SessionStore(60_000),
       kind: "openai",
@@ -522,7 +548,7 @@ describe("decideRoute", () => {
     });
     if ("error" in result) throw new Error(result.error);
     expect(result.virtual).toBe(false);
-    expect(result.reason).toBe("pinned-model");
+    expect(result.reason).toBe("canonical-model");
     expect(result.model).toBe("auto");
     expect(result.provider).toBe("agg");
   });
