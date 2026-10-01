@@ -50,6 +50,19 @@ const CUSTOM_PRESET: PresetView = {
 
 const AUTO_SELECT_LIMIT = 30;
 
+/**
+ * Display name and an example config directory for each OAuth sign-in source, so the
+ * second-account fields describe the credential the provider actually reads.
+ */
+const LOGIN_SOURCE_HINTS: Record<string, { name: string; home: string }> = {
+  "claude-code": { name: "Claude Code", home: "~/.claude-work" },
+  codex: { name: "Codex", home: "~/.codex-work" },
+  devin: { name: "Devin", home: "~/.local/share/devin-work" },
+  cursor: { name: "Cursor", home: "~/.cursor-work" },
+  // Antigravity redirects via a credential file or keychain entry, not a config directory.
+  antigravity: { name: "Antigravity", home: "" },
+};
+
 function numberOrUndefined(value: string): number | undefined {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
@@ -446,14 +459,10 @@ export function ProvidersPage() {
    * token (`static`) has no local sign-in to redirect, so the account fields stay hidden.
    */
   const loginSource = auth === "oauth" && oauthSource !== "static";
-  const loginSourceName =
-    oauthSource === "codex"
-      ? "Codex"
-      : oauthSource === "antigravity"
-        ? "Antigravity"
-        : oauthSource === "devin"
-          ? "Devin"
-          : "Claude Code";
+  /** Local sign-in the second-account fields point at: its display name and an example home. */
+  const loginHint =
+    LOGIN_SOURCE_HINTS[oauthSource] ?? ({ name: "Claude Code", home: "~/.claude-work" } as const);
+  const loginSourceName = loginHint.name;
 
   /** Assemble the `login` payload; `null` clears an existing one, `undefined` sends nothing. */
   function loginPayload(): ProviderLoginView | null | undefined {
@@ -863,7 +872,7 @@ export function ProvidersPage() {
                       <Label htmlFor="loginHome">Config dir</Label>
                       <Input
                         id="loginHome"
-                        placeholder="~/.claude-work"
+                        placeholder={loginHint.home}
                         value={loginHome}
                         onChange={(event) => setLoginHome(event.target.value)}
                       />

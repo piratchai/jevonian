@@ -2,6 +2,7 @@ import anthropic from "@/assets/logos/anthropic.svg?raw";
 import antigravity from "@/assets/logos/antigravity.png";
 import claude from "@/assets/logos/claude.svg?raw";
 import commandcode from "@/assets/logos/commandcode.svg?raw";
+import cursor from "@/assets/logos/cursor.svg?raw";
 import deepseek from "@/assets/logos/deepseek.svg?raw";
 import devin from "@/assets/logos/devin.svg?raw";
 import google from "@/assets/logos/google.svg?raw";
@@ -20,6 +21,8 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   claude,
   "claude-subscription": claude,
   commandcode,
+  cursor,
+  "cursor-subscription": cursor,
   deepseek,
   devin,
   "devin-subscription": devin,
