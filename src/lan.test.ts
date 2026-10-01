@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { DEFAULT_LAN, LAN_PORT_OFFSET, parseConfig, parseLan } from "./config";
 import { isReachableFromLan, lanBaseUrls, lanBindHost, lanIpv4Addresses, lanPort } from "./lan";
@@ -13,8 +13,18 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
+// parseConfig lets JEVONIAN_PORT override the config's listen.port, so a shell that exports it
+// (a dev instance on a scratch port) would shift the port math these tests assert.
+const previousPort = process.env.JEVONIAN_PORT;
+
+beforeEach(() => {
+  delete process.env.JEVONIAN_PORT;
+});
+
 afterEach(() => {
   interfaces.value = {};
+  if (previousPort === undefined) delete process.env.JEVONIAN_PORT;
+  else process.env.JEVONIAN_PORT = previousPort;
 });
 
 function configWith(host: string, port: number, lan: unknown = { enabled: true }) {
