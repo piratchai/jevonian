@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ApplyOptions } from "./clients";
+import { applyJsoncEdits, jsoncObjectKeys, jsoncPathExists, type JsoncEdit } from "./jsonc";
 import { dataDir } from "./paths";
 
 /**
@@ -284,13 +285,28 @@ export function applyClaudeCode(options: ApplyOptions): ClaudeCodeApplyResult {
   const original = readText(settingsPath);
   saveRestoreState({ [settingsPath]: original });
 
-  const settings = readJson(settingsPath);
-  const previous = settingsEnv(settings);
-  const next = { ...previous, ...claudeCodeEnv({ port: options.port, models: options.models }) };
-  settings.env = next;
+  // Surgical edit: rewrite only the managed env keys in place so the user's
+  // comments, key order, and formatting survive. A JSON.parse + stringify would
+  // reformat the whole file and drop any `//` comments the user keeps there.
+  const managed = claudeCodeEnv({ port: options.port, models: options.models });
+  let text: string;
+  if (original.length === 0) {
+    // No file yet: a fresh object is the whole document, so plain JSON is right.
+    text = `${JSON.stringify({ env: managed }, null, 2)}\n`;
+  } else {
+    // `readJson` cannot see through JSONC, so ask the JSONC scanner whether the env
+    // block exists rather than a strict parse that would report it missing and clobber it.
+    const edits: JsoncEdit[] = Object.entries(managed).map(([key, value]) => ({
+      path: ["env", key],
+      value,
+    }));
+    if (!jsoncPathExists(original, ["env"])) edits.unshift({ path: ["env"], value: {} });
+    text = applyJsoncEdits(original, edits);
+  }
 
   if (original.length > 0) backupFile(settingsPath);
-  writeJson(settingsPath, settings);
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(settingsPath, text, "utf8");
 
   return {
     status: claudeCodeStatus(options.port),
@@ -316,13 +332,24 @@ export function restoreClaudeCode(): ClaudeCodeStatus {
       writeFileSync(settingsPath, original, "utf8");
     }
   } else if (existsSync(settingsPath)) {
-    const settings = readJson(settingsPath);
-    const env = settingsEnv(settings);
-    for (const key of CLAUDE_CODE_MANAGED_ENV_KEYS) delete env[key];
-    if (Object.keys(env).length === 0) delete settings.env;
-    else settings.env = env;
+    // Strip only the env keys this integration manages; everything else — other
+    // env vars, comments, formatting — is left exactly as the user wrote it. Remove
+    // unconditionally (the editor skips keys that are absent) so a JSONC file with
+    // comments is not misread by a strict parse.
+    const text = readText(settingsPath);
+    const edits: JsoncEdit[] = CLAUDE_CODE_MANAGED_ENV_KEYS.map((key) => ({
+      path: ["env", key],
+      value: undefined,
+    }));
+    let next = applyJsoncEdits(text, edits);
+    // If env holds nothing but the keys we removed, drop the empty object too so no
+    // `{}` stub is left behind.
+    const remaining = jsoncObjectKeys(next, ["env"]);
+    if (remaining !== null && remaining.length === 0) {
+      next = applyJsoncEdits(next, [{ path: ["env"], value: undefined }]);
+    }
     backupFile(settingsPath);
-    writeJson(settingsPath, settings);
+    writeFileSync(settingsPath, next, "utf8");
   }
 
   clearRestoreState();

@@ -12,6 +12,7 @@ import {
   resolveClaudeCodeModels,
   restoreClaudeCode,
 } from "./claude-code";
+import { jsoncObjectKeys } from "./jsonc";
 
 describe("Claude Code model routing", () => {
   it("labels jevonian ids the way Desktop stand-ins do", () => {
@@ -111,5 +112,61 @@ describe("Claude Code settings connect", () => {
 
     restoreClaudeCode();
     expect(existsSync(path)).toBe(false);
+  });
+
+  it("edits surgically: comments, key order, and formatting survive connect", () => {
+    const path = claudeCodeSettingsPath();
+    const original = `{
+  // my hand-written layout
+  "theme": "dark",
+  "env": {
+    "API_TIMEOUT_MS": "1200000",   /* keep */
+    "KEEP_ME": "yes"
+  },
+  "attribution": { "commit": "" }
+}
+`;
+    writeFileSync(path, original);
+
+    applyClaudeCode({ port: 8787, models: ["jevonian/auto"] });
+
+    const connected = readFileSync(path, "utf8");
+    // The comment and the user's own formatting are still present and unmoved.
+    expect(connected).toContain("// my hand-written layout");
+    expect(connected).toContain('"API_TIMEOUT_MS": "1200000",   /* keep */');
+    expect(connected).toContain('"KEEP_ME": "yes"');
+    // Keys appeared in the env block only.
+    expect(connected).toContain('"ANTHROPIC_BASE_URL": "http://127.0.0.1:8787"');
+    // Untouched sections are byte-identical.
+    expect(connected).toContain('"attribution": { "commit": "" }');
+    // The file is still valid JSONC and the env block holds both ours and the user's keys.
+    const envKeys = jsoncObjectKeys(connected, ["env"]);
+    expect(envKeys).toContain("ANTHROPIC_BASE_URL");
+    expect(envKeys).toContain("ANTHROPIC_AUTH_TOKEN");
+    expect(envKeys).toContain("KEEP_ME");
+    expect(envKeys).toContain("API_TIMEOUT_MS");
+  });
+
+  it("removes only its own env keys on restore, leaving comments intact", () => {
+    const path = claudeCodeSettingsPath();
+    writeFileSync(
+      path,
+      `{
+  // settings I keep by hand
+  "theme": "dark",
+  "env": {
+    "KEEP_ME": "yes"
+  }
+}
+`,
+    );
+    applyClaudeCode({ port: 8787, models: ["jevonian/auto"] });
+    restoreClaudeCode();
+
+    const restored = readFileSync(path, "utf8");
+    expect(restored).toContain("// settings I keep by hand");
+    expect(restored).toContain('"KEEP_ME": "yes"');
+    expect(restored).not.toContain("ANTHROPIC_BASE_URL");
+    expect(restored).not.toContain("ANTHROPIC_AUTH_TOKEN");
   });
 });
