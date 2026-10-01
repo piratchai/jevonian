@@ -6,6 +6,7 @@ Config lives at `~/.config/jevonian/config.json`. Everything in it is editable f
 {
   "listen": { "host": "127.0.0.1", "port": 8787 },
   "defaultProvider": "deepseek",
+  "lan": { "enabled": false },
   "providers": [
     {
       "name": "deepseek",
@@ -40,6 +41,8 @@ Config lives at `~/.config/jevonian/config.json`. Everything in it is editable f
 ```
 
 `capacities` overrides what the models.dev catalog states for a model — useful when your own provider's window or accepted thinking levels differ from the shared listing. Anything you leave out still comes from the catalog.
+
+`lan` exposes the key-protected `/v1` surface on the local network so another machine — or another Jevonian — can use this instance as a provider. It has `enabled`, an optional `host` (defaults to every interface), and an optional `port` (defaults to `listen.port + 2`). Only `/v1` is served there; the dashboard and admin API stay on loopback. See [providers.md](providers.md#another-jevonian-as-a-provider).
 
 ## Routing fields
 

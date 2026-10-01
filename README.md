@@ -199,6 +199,19 @@ Two separate questions: where you run the agent, and where the tokens finally go
 
 OAuth tokens are read on demand, refreshed when near expiry, and rotated tokens are written back so Claude Code and Codex keep working. Subscription access through third-party clients sits outside the vendors' official clients: it can break when upstream headers change, and it is used at your own risk.
 
+### Another Jevonian as a provider
+
+One instance can route through another. Turn on **LAN access** on the machine that holds the credentials (Overview page, or `jevonian serve --lan`):
+
+```
+lan: listening on 0.0.0.0:8789 (only /v1, key required)
+lan: provider base URL http://192.168.1.20:8789/v1
+```
+
+On the other machine, add a provider with that base URL and a Jevonian API key created on the first machine's **Keys** page — the `Jevonian (another machine)` preset pre-fills the shape. The two instances stay independent: the second only sees routed models and spends against the first instance's keys.
+
+Only `/v1` is served on the LAN address; the dashboard and admin API stay on loopback, so a neighbour on the network can never edit providers or read keys. Every request still needs a Jevonian key, and the loopback-only desktop sentinel (`jevonian-local`) is rejected there. Keep it on a network you trust and rotate keys you have shared.
+
 The same model is often spelled differently per provider. Jevonian normalizes those spellings into canonical ids, so a route can name `claude-sonnet-4.6` once and let routing resolve it across every provider that serves it — including the official id a vendor uses instead. See [routing.md](docs/routing.md#canonical-models).
 
 ## Control and visibility
@@ -236,6 +249,7 @@ Local-first means the **server** is local. It does not mean inference happens on
 - **Request bodies are stored locally** for the log detail view (`~/.local/share/jevonian/bodies/`, `0600`, newest 1000 kept). Set `JEVONIAN_CAPTURE_BODIES=0` to stop storing them.
 - **Credentials** live in `~/.config/jevonian/credentials.json` (`0600`) or an environment variable you name.
 - **The tunnel** exposes only `/v1` and `/healthz` through a separate loopback listener; the dashboard and admin API are never published, and a tunnel cannot start while no Jevonian key exists.
+- **LAN access** likewise serves only `/v1`, on a separate listener. It is off by default, requires a real Jevonian key, rejects the loopback desktop sentinel, and cannot be enabled while no key exists.
 - **Subscriptions** are used through third-party clients, outside the vendors' official ones.
 
 Jevonian makes no claim about model quality, and does not gate or accept code. It decides where a turn goes and records what happened.

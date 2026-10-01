@@ -594,3 +594,67 @@ describe("admin config writes", () => {
     expect(rejected.status).toBe(400);
   });
 });
+
+describe("admin lan exposure", () => {
+  it("offers LAN URLs and refuses to enable without a key", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    const state: AppState = { config: loadConfig() ?? parseConfig({}) };
+    const app = createAdminApp(state);
+
+    const read = await app.request("/lan");
+    expect(read.status).toBe(200);
+    const before = (await read.json()) as { config: { enabled: boolean }; port: number };
+    expect(before.config.enabled).toBe(false);
+
+    // No key exists in this fresh data dir, so enabling must be refused: the LAN surface
+    // would otherwise accept nothing and only advertise a broken endpoint.
+    const enable = await app.request("/lan", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    const enabled = (await enable.json()) as {
+      config: { enabled: boolean };
+      error?: string;
+      restartRequired?: boolean;
+    };
+    expect(enabled.config.enabled).toBe(false);
+    expect(enabled.error).toContain("API key");
+  });
+
+  it("persists host and port, and reports the resolved base URLs", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    const state: AppState = { config: loadConfig() ?? parseConfig({}) };
+    const app = createAdminApp(state);
+    // A key makes the surface advertisable.
+    const { createKey } = await import("./keys");
+    createKey("lan-owner");
+
+    const response = await app.request("/lan", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, host: "10.0.0.9", port: 9500 }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      config: { enabled: boolean; host?: string; port?: number };
+      bindHost: string;
+      port: number;
+      urls: string[];
+      restartRequired?: boolean;
+    };
+    expect(body.config).toMatchObject({ enabled: true, host: "10.0.0.9", port: 9500 });
+    expect(body.bindHost).toBe("10.0.0.9");
+    expect(body.port).toBe(9500);
+    // A specifically bound host offers only that address.
+    expect(body.urls).toEqual(["http://10.0.0.9:9500/v1"]);
+    expect(body.restartRequired).toBe(true);
+
+    const stored = JSON.parse(readFileSync(path, "utf8")) as {
+      lan: { enabled: boolean; host?: string; port?: number };
+    };
+    expect(stored.lan).toEqual({ enabled: true, host: "10.0.0.9", port: 9500 });
+  });
+});

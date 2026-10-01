@@ -182,6 +182,17 @@ export const PRESETS: ProviderPreset[] = [
     hint: "Sign in with `devin auth login`; Jevonian reads ~/.local/share/devin/credentials.toml.",
     billing: "subscription",
   },
+  {
+    id: "jevonian-remote",
+    name: "Jevonian (another machine)",
+    // The other instance speaks the OpenAI surface; `/v1` is its routed entry point.
+    type: "both",
+    baseUrl: "http://192.168.1.10:8788/v1",
+    apiKeyEnv: "JEVONIAN_REMOTE_KEY",
+    auth: "api-key",
+    hint: "Run Jevonian on the other machine with `--lan`, then use its LAN /v1 URL and a Jevonian API key from that dashboard. The LAN surface is key-protected and never exposes the dashboard.",
+    keysUrl: "https://github.com/xinyao27/jevonian",
+  },
 ];
 
 export function findPreset(id: string): ProviderPreset | undefined {

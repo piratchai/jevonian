@@ -4,7 +4,7 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 
 - `jevonian` / `jevonian serve` — start the local proxy (default). On macOS this installs a LaunchAgent, keeps it running in the background, and returns; on other platforms it serves in the foreground. Use `--foreground` for an attached process on macOS
 - `jevonian stop [--uninstall]` — stop the macOS background service (`--uninstall` also removes the LaunchAgent)
-- `jevonian status` — LaunchAgent state, pid, and recent serve log (macOS)
+- `jevonian status` — LaunchAgent state, pid, LAN state, and recent serve log (macOS)
 - `jevonian init` — setup wizard for the first provider (non-interactive: writes an example config)
 - `jevonian add [provider]` — add or update a provider; interactive picker, live model discovery, auto tiers
 - `jevonian providers` — list configured providers with key source and model count
@@ -20,6 +20,8 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 - `jevonian launch claude [--model M] [--] [args…]` — run Claude Code through Jevonian (Ollama-style env remap)
 
 `serve` also accepts `--tunnel` and `--no-tunnel` to force the public endpoint on or off for that run (these imply foreground on macOS); see [tunnel.md](tunnel.md). Background serve logs to `~/.local/share/jevonian/serve.log`.
+
+`serve` accepts `--lan` / `--no-lan` (plus `--lan-host HOST` and `--lan-port PORT`) to expose the key-protected `/v1` surface on the local network, so another machine — or another Jevonian — can use this instance as a provider. These persist to `config.json`, so the setting survives the macOS LaunchAgent restart; only `/v1` is served, and the dashboard/admin API stay on loopback. See [providers.md](providers.md#another-jevonian-as-a-provider).
 
 ### Claude Code
 

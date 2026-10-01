@@ -23,6 +23,7 @@ import {
   type StatsResponse,
   type TunnelProviderView,
   type TunnelStatusView,
+  type LanResponse,
   type UpdateResponse,
 } from "@/lib/api";
 import { money, percent } from "@/lib/utils";
@@ -86,6 +87,9 @@ export function OverviewPage() {
   const [tunnelUrl, setTunnelUrl] = useState("");
   const [tunnelBusy, setTunnelBusy] = useState(false);
   const [tunnelError, setTunnelError] = useState("");
+  const [lan, setLan] = useState<LanResponse | null>(null);
+  const [lanBusy, setLanBusy] = useState(false);
+  const [lanError, setLanError] = useState("");
   const [update, setUpdate] = useState<UpdateResponse | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateError, setUpdateError] = useState("");
@@ -98,19 +102,16 @@ export function OverviewPage() {
 
   const load = useCallback(async () => {
     try {
-      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate] = await Promise.all([
-        api.state(),
-        api.stats(),
-        api.quota(),
-        api.tunnel(),
-        api.update(),
-      ]);
+      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate, nextLan] = await Promise.all(
+        [api.state(), api.stats(), api.quota(), api.tunnel(), api.update(), api.lan()],
+      );
       setState(nextState);
       setStats(nextStats);
       setQuotas(nextQuotas.quotas);
       setHealth(nextQuotas.health);
       setTunnel(nextTunnel.tunnel);
       setUpdate(nextUpdate);
+      setLan(nextLan);
       if (!draftDirty.current) {
         setTunnelProvider(nextTunnel.config.provider);
         setTunnelCommand(nextTunnel.config.command ?? "");
@@ -184,6 +185,20 @@ export function OverviewPage() {
       setUpdateError(String(cause));
     } finally {
       setUpdateBusy(false);
+    }
+  }
+
+  async function toggleLan(): Promise<void> {
+    setLanBusy(true);
+    setLanError("");
+    try {
+      const response = await api.saveLan({ enabled: !(lan?.config.enabled ?? false) });
+      setLan(response);
+      if (response.error) setLanError(response.error);
+    } catch (cause) {
+      setLanError(String(cause));
+    } finally {
+      setLanBusy(false);
     }
   }
 
@@ -632,6 +647,57 @@ export function OverviewPage() {
               </p>
             </div>
           </details>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+          <div className="flex flex-col gap-1">
+            <CardTitle>LAN access</CardTitle>
+            <CardDescription>
+              Let another machine on this network use this instance as a provider. Only{" "}
+              <code>/v1</code> is served — the dashboard stays on loopback.
+            </CardDescription>
+          </div>
+          <Badge variant={lan?.config.enabled ? "default" : "secondary"}>
+            {lan?.config.enabled ? "on" : "off"}
+          </Badge>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => void toggleLan()} disabled={lanBusy}>
+              {lan?.config.enabled ? "Disable" : "Enable"}
+            </Button>
+            <span className="text-[11px] text-muted-foreground">
+              {lan?.bindHost ?? "0.0.0.0"}:{lan?.port ?? "—"}
+              {lan?.restartRequired ? " · restart Jevonian to apply" : ""}
+            </span>
+          </div>
+          {(lan?.urls.length ?? 0) > 0 ? (
+            <div className="flex flex-col gap-2">
+              {lan?.urls.map((url) => (
+                <div key={url} className="flex items-center gap-2">
+                  <code className="rounded-md bg-muted px-3 py-2 text-sm">{url}</code>
+                  <Button variant="outline" size="sm" onClick={() => void copy(url, url)}>
+                    {copied === url ? "Copied" : "Copy"}
+                  </Button>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                On the other machine, add a provider with this base URL and a Jevonian API key from
+                this dashboard.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No non-loopback IPv4 address was found on this machine.
+            </p>
+          )}
+          {lanError ? <p className="text-xs text-destructive">{lanError}</p> : null}
+          <p className="text-[11px] text-amber-600">
+            Security: anyone on this network who holds a Jevonian API key can spend against your
+            providers. Keep the surface on a trusted network and rotate keys you have shared.
+          </p>
         </CardContent>
       </Card>
 

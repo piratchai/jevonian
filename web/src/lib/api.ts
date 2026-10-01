@@ -240,6 +240,8 @@ export interface StateResponse {
     routing: RoutingView;
     modelSync?: ModelSyncConfigView;
     tokenSaver?: TokenSaverConfigView;
+    tunnel?: { enabled: boolean; provider: TunnelProviderView };
+    lan?: LanConfigView & { port?: number; bindHost?: string; urls?: string[] };
   };
   tiers: { plan: string[]; execute: string[]; utility: string[]; chat: string[] };
   routings: RoutingEntryView[];
@@ -425,6 +427,31 @@ export interface TunnelResponse {
     publicPort?: number;
   };
   tunnel: TunnelStatusView | null;
+  error?: string;
+}
+
+/**
+ * Exposure of the authenticated `/v1` surface on the local network, so another machine —
+ * or another Jevonian — can use this instance as a provider. The dashboard and `/api` are
+ * never served on the LAN address.
+ */
+export interface LanConfigView {
+  enabled: boolean;
+  /** Interface bound; `0.0.0.0` means every interface. */
+  host?: string;
+  /** Port the LAN surface listens on. */
+  port?: number;
+}
+
+export interface LanResponse {
+  config: LanConfigView;
+  /** Resolved port (defaults to `listen.port + 2`). */
+  port: number;
+  bindHost: string;
+  /** Base URLs a peer can paste into its own Jevonian provider config. */
+  urls: string[];
+  /** True when the change only takes effect after a restart. */
+  restartRequired?: boolean;
   error?: string;
 }
 
@@ -630,6 +657,12 @@ export const api = {
     publicPort?: number;
   }) =>
     request<TunnelResponse>("/api/tunnel", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+  lan: () => request<LanResponse>("/api/lan"),
+  saveLan: (payload: { enabled?: boolean; host?: string; port?: number }) =>
+    request<LanResponse>("/api/lan", {
       method: "PUT",
       body: JSON.stringify(payload),
     }),

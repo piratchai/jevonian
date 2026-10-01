@@ -10,6 +10,7 @@ import { catalogPath, discoverProviderModels, loadCatalog, refreshCatalog } from
 import { catalogStatus, refreshCatalogCaches, scheduleCatalogSync } from "./catalog-sync";
 import {
   apiKeySource,
+  LAN_PORT_OFFSET,
   loadConfig,
   parseConfig,
   reconcileExcludeModels,
@@ -17,6 +18,7 @@ import {
   saveConfig,
   writeExampleConfig,
   type Config,
+  type LanConfig,
   type Provider,
   type ProviderAuth,
   type ProviderBilling,
@@ -24,6 +26,7 @@ import {
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
 import { kevCommand } from "./kev";
+import { lanBaseUrls, lanBindHost, lanPort } from "./lan";
 import { readRecords, type LedgerRecord } from "./ledger";
 import { ServerLifecycle } from "./lifecycle";
 import { scheduleModelSync, runModelSync } from "./model-sync";
@@ -1004,6 +1007,13 @@ function printServiceStatus(): void {
   if (status.pid) console.log(`pid:     ${status.pid}`);
   console.log(`log:     ${status.logPath}`);
   if (status.detail && status.detail !== "loaded") console.log(`detail:  ${status.detail}`);
+  const config = loadConfig();
+  if (config) {
+    const urls = lanBaseUrls(config);
+    console.log(
+      `lan:     ${config.lan.enabled ? `${lanBindHost(config.lan)}:${lanPort(config)}${urls.length > 0 ? ` — ${urls.join(", ")}` : " — no LAN IPv4 found"}` : "off"}`,
+    );
+  }
   const tail = readServeLogTail(12);
   if (tail) {
     console.log("");
@@ -1075,6 +1085,25 @@ async function main(): Promise<void> {
   } else if (command === "launch") {
     await launchCommand(process.argv.slice(3));
   } else if (command === "serve") {
+    // LAN exposure is a persistent setting, not a per-run flag: the background service runs
+    // `serve` with no arguments, so a flag that only shadowed config would silently stop
+    // working the moment the service restarted. Writing config here keeps it true either way.
+    if ("lan" in flags || "no-lan" in flags || "lan-host" in flags || "lan-port" in flags) {
+      const current = loadConfig() ?? parseConfig({});
+      const host = flags["lan-host"]?.trim();
+      const port = Number(flags["lan-port"]);
+      const lan: LanConfig = {
+        ...current.lan,
+        enabled: "no-lan" in flags ? false : "lan" in flags ? true : current.lan.enabled,
+        ...(host ? { host } : {}),
+        ...(Number.isInteger(port) && port > 0 ? { port } : {}),
+      };
+      saveConfig({ ...current, lan });
+      const verb = lan.enabled ? "enabled" : "disabled";
+      console.log(
+        `lan: ${verb}${lan.enabled ? ` on ${lanBindHost(lan)}:${lan.port ?? current.listen.port + LAN_PORT_OFFSET}` : ""}`,
+      );
+    }
     // macOS default: install/start a LaunchAgent and exit. Foreground only when
     // launchd is already driving us, or the user asked for it / one-shot flags.
     const foreground =
@@ -1083,7 +1112,9 @@ async function main(): Promise<void> {
       "fg" in flags ||
       process.platform !== "darwin" ||
       "tunnel" in flags ||
-      "no-tunnel" in flags;
+      "no-tunnel" in flags ||
+      "lan" in flags ||
+      "no-lan" in flags;
     if (!foreground) {
       await ensurePersistentServe();
       return;
@@ -1157,6 +1188,7 @@ async function main(): Promise<void> {
     const publicApp = createPublicApp(state, store);
     const publicPort = tunnel.status().publicPort;
     let publicServer: ReturnType<typeof serve> | undefined;
+    let lanServer: ReturnType<typeof serve> | undefined;
     let mainServer: ReturnType<typeof serve> | undefined;
     const closeServer = (server: ReturnType<typeof serve> | undefined): Promise<void> =>
       new Promise((resolve) => {
@@ -1167,7 +1199,11 @@ async function main(): Promise<void> {
     state.restart = async () => {
       // The lifecycle has already waited for active responses. Closing the
       // listeners releases the port, then the newly installed CLI takes over.
-      await Promise.all([closeServer(mainServer), closeServer(publicServer)]);
+      await Promise.all([
+        closeServer(mainServer),
+        closeServer(publicServer),
+        closeServer(lanServer),
+      ]);
       // Under launchd KeepAlive, exiting is enough — spawning a child would race
       // the agent for the same ports.
       if (isManagedByLaunchd()) {
@@ -1196,6 +1232,28 @@ async function main(): Promise<void> {
       );
     } catch (error) {
       console.error(`warning: public listener on port ${publicPort} failed: ${String(error)}`);
+    }
+
+    // LAN surface: the same key-protected, `/v1`-only app the tunnel forwards to, bound to a
+    // LAN-reachable address so another machine can use this instance as a provider. The
+    // dashboard and `/api` are never served here — see `LanConfig` for why that matters.
+    if (config.lan.enabled) {
+      const bindHost = lanBindHost(config.lan);
+      const port = lanPort(config);
+      try {
+        lanServer = serve({ fetch: publicApp.fetch, hostname: bindHost, port }, () => {
+          const urls = lanBaseUrls(config);
+          console.log(`lan: listening on ${bindHost}:${port} (only /v1, key required)`);
+          if (urls.length === 0) {
+            console.log(
+              "lan: no non-loopback IPv4 address found; a peer cannot reach this machine yet.",
+            );
+          }
+          for (const url of urls) console.log(`lan: provider base URL ${url}`);
+        });
+      } catch (error) {
+        console.error(`warning: LAN listener on ${bindHost}:${port} failed: ${String(error)}`);
+      }
     }
 
     const stopTunnel = (): void => {
@@ -1267,7 +1325,8 @@ async function main(): Promise<void> {
     );
   } else {
     console.log(
-      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]",
+      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]\n" +
+        "  serve flags: --lan / --no-lan, --lan-host HOST, --lan-port PORT (expose the key-protected /v1 surface on the LAN so another machine can use this instance as a provider)",
     );
     process.exit(1);
   }
