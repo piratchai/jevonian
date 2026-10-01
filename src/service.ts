@@ -11,9 +11,46 @@ export { serveLogPath };
 /** LaunchAgent label. Stable across installs so bootout/bootstrap stay idempotent. */
 export const SERVICE_LABEL = "ai.jevonian.serve";
 
+/**
+ * The production LaunchAgent path. Never overridden: a redirected
+ * {@link servicePlistPath} must not be allowed to `bootout` this job, or a test
+ * that points `JEVONIAN_SERVICE_PLIST` at a temp file would still tear down the
+ * running instance (and can bake a temp config into it).
+ */
+export function defaultServicePlistPath(): string {
+  return join(homedir(), "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
+}
+
+/**
+ * Where this process reads/writes a plist. Tests may redirect it with
+ * `JEVONIAN_SERVICE_PLIST`, but live install/stop/start refuse that override —
+ * see {@link assertLiveServicePlist}.
+ */
 export function servicePlistPath(): string {
   if (process.env.JEVONIAN_SERVICE_PLIST) return process.env.JEVONIAN_SERVICE_PLIST;
-  return join(homedir(), "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
+  return defaultServicePlistPath();
+}
+
+/**
+ * Refuse install/stop/start when the plist path is redirected. `bootout` always
+ * targets the live `ai.jevonian.serve` label, so a temp-plist override would still
+ * kill production and then register whatever env this shell happens to carry.
+ */
+export function assertLiveServicePlist(plistPath = servicePlistPath()): void {
+  const live = defaultServicePlistPath();
+  if (plistPath === live) return;
+  throw new Error(
+    [
+      "Refusing to control the live LaunchAgent while JEVONIAN_SERVICE_PLIST is set.",
+      `  override: ${plistPath}`,
+      `  live:     ${live}`,
+      "",
+      "The override is for reading and unit tests only. Installing, stopping, or",
+      "restarting always acts on the live `ai.jevonian.serve` job — a redirected",
+      "plist would still tear that job down. Unset JEVONIAN_SERVICE_PLIST, or use",
+      "`npm run dev` for a local instance on its own ports.",
+    ].join("\n"),
+  );
 }
 
 /**
@@ -161,7 +198,8 @@ function bootstrapDetail(result: { stdout: string; stderr: string }): string {
  * Register the LaunchAgent, retrying macOS's transient "Bootstrap failed: 5: Input/output error"
  * that shows up when bootout has not finished tearing the old job down.
  */
-export function bootstrapService(plistPath = servicePlistPath()): void {
+export function bootstrapService(plistPath = defaultServicePlistPath()): void {
+  assertLiveServicePlist(plistPath);
   if (serviceStatus().loaded) return;
   const domain = guiDomain();
   let last = { status: 1, stdout: "", stderr: "bootstrap not attempted" };
@@ -186,11 +224,15 @@ function bootoutQuiet(): void {
   sleepMs(200);
 }
 
-/** Environment keys that should move with the LaunchAgent when present at install. */
+/**
+ * Environment keys that may move with the LaunchAgent when present at install.
+ *
+ * Deliberately omits `JEVONIAN_CONFIG` / `JEVONIAN_DATA_DIR` / `JEVONIAN_LEDGER`:
+ * a developer shell that sandboxes those for a test must never bake the sandbox
+ * into the production agent, or the running instance starts reading empty paths
+ * after the temp directory is deleted.
+ */
 const PASSTHROUGH_ENV = [
-  "JEVONIAN_CONFIG",
-  "JEVONIAN_DATA_DIR",
-  "JEVONIAN_LEDGER",
   "JEVONIAN_WEB_DIR",
   "HTTP_PROXY",
   "HTTPS_PROXY",
@@ -260,10 +302,12 @@ export function installService(options?: {
   env?: Record<string, string>;
 }): ServiceStatus {
   requireDarwin();
+  assertLiveServicePlist();
   const entry = options?.entry ?? resolveServeEntry();
   const logPath = serveLogPath();
+  const plistPath = defaultServicePlistPath();
   mkdirSync(dirname(logPath), { recursive: true });
-  mkdirSync(dirname(servicePlistPath()), { recursive: true });
+  mkdirSync(dirname(plistPath), { recursive: true });
   const plist = buildServicePlist({
     node: entry.node,
     entry: entry.entry,
@@ -279,8 +323,8 @@ export function installService(options?: {
   });
   // Replace any previous registration so KeepAlive / ProgramArguments stay in sync.
   bootoutQuiet();
-  writeFileSync(servicePlistPath(), plist, { mode: 0o644 });
-  bootstrapService();
+  writeFileSync(plistPath, plist, { mode: 0o644 });
+  bootstrapService(plistPath);
   // Ensure it is running even if RunAtLoad raced with an existing listener.
   launchctl(["kickstart", "-k", jobTarget()]);
   return serviceStatus();
@@ -288,29 +332,34 @@ export function installService(options?: {
 
 export function uninstallService(): void {
   requireDarwin();
+  assertLiveServicePlist();
   bootoutQuiet();
-  rmSync(servicePlistPath(), { force: true });
+  rmSync(defaultServicePlistPath(), { force: true });
 }
 
 export function startService(): ServiceStatus {
   requireDarwin();
-  if (!existsSync(servicePlistPath())) {
+  assertLiveServicePlist();
+  const plistPath = defaultServicePlistPath();
+  if (!existsSync(plistPath)) {
     throw new Error(`Service is not installed. Run \`jevonian\` first.`);
   }
-  if (!serviceStatus().loaded) bootstrapService();
+  if (!serviceStatus().loaded) bootstrapService(plistPath);
   launchctl(["kickstart", "-k", jobTarget()]);
   return serviceStatus();
 }
 
 export function stopService(): ServiceStatus {
   requireDarwin();
+  assertLiveServicePlist();
   bootoutQuiet();
   return serviceStatus();
 }
 
 export function restartService(): ServiceStatus {
   requireDarwin();
-  if (!existsSync(servicePlistPath())) {
+  assertLiveServicePlist();
+  if (!existsSync(defaultServicePlistPath())) {
     throw new Error(`Service is not installed. Run \`jevonian\` first.`);
   }
   const status = serviceStatus();
@@ -358,6 +407,44 @@ export type EnsureServiceResult = {
   action: "installed" | "updated" | "started" | "running";
 };
 
+/**
+ * Escape hatch for {@link serviceTakeoverRefusal}: replacing an install on purpose is allowed
+ * when this is set, so an automated provisioning step is not blocked by the guard.
+ */
+export function serviceTakeoverAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  const flag = env.JEVONIAN_SERVICE_TAKEOVER?.trim().toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes" || flag === "on";
+}
+
+/**
+ * The refusal message when installing would replace a service that belongs to a different
+ * install, or undefined when installing is safe (nothing installed, the same entry, or forced).
+ *
+ * A git checkout's `serve` resolves to the checkout, so `installService` would otherwise
+ * `bootout` a running global install and repoint the LaunchAgent at the checkout — one command
+ * silently taking over the production instance. Replacing a service it does not own has to be
+ * asked for: `jevonian stop --uninstall` first, or set `JEVONIAN_SERVICE_TAKEOVER=1`.
+ */
+export function serviceTakeoverRefusal(
+  entry: ServeEntry,
+  installed: ServeEntry | undefined,
+  options: { force?: boolean; env?: NodeJS.ProcessEnv } = {},
+): string | undefined {
+  if (!installed) return undefined;
+  if (installed.node === entry.node && installed.entry === entry.entry) return undefined;
+  if (options.force || serviceTakeoverAllowed(options.env)) return undefined;
+  return [
+    "A Jevonian background service is already installed and points at a different install:",
+    `  installed: ${installed.entry}`,
+    `  this run:  ${entry.entry}`,
+    "",
+    "Refusing to replace it, so this run cannot take over the running instance by accident.",
+    "  stop it first:  jevonian stop --uninstall",
+    "  or replace it:  JEVONIAN_SERVICE_TAKEOVER=1 jevonian",
+    "  local instance on its own ports:  npm run dev",
+  ].join("\n");
+}
+
 /** True when the installed agent already carries a PATH (post user-bin fix). */
 export function installedPlistHasPath(plistPath = servicePlistPath()): boolean {
   if (!existsSync(plistPath)) return false;
@@ -379,10 +466,18 @@ export function installedPlistHasPath(plistPath = servicePlistPath()): boolean {
 export function ensureService(options?: {
   entry?: ServeEntry;
   env?: Record<string, string>;
+  /** Replace a service that belongs to another install on purpose. */
+  force?: boolean;
 }): EnsureServiceResult {
+  // Live control only — a redirected JEVONIAN_SERVICE_PLIST must not reach bootout.
+  assertLiveServicePlist();
   requireDarwin();
   const entry = options?.entry ?? resolveServeEntry();
-  const installed = readInstalledServeEntry();
+  // Always judge ownership against the production plist, not a redirected override:
+  // bootout targets the live label regardless of where we would write a file.
+  const installed = readInstalledServeEntry(defaultServicePlistPath());
+  const refusal = serviceTakeoverRefusal(entry, installed, { force: options?.force });
+  if (refusal) throw new Error(refusal);
   const sameEntry =
     installed !== undefined && installed.node === entry.node && installed.entry === entry.entry;
   // Do not force a bootout cycle just to add PATH — that races launchd (error 5).

@@ -3,7 +3,7 @@
 Built with [Vite+](https://viteplus.dev). Oxlint, Oxfmt, Vitest, and tsdown come from the `vite-plus` bundle — do not install them directly.
 
 ```bash
-pnpm dev           # Vite dev server (5173) + proxy (8787), HMR, opens the dashboard
+pnpm dev           # Vite dev server (15174) + proxy (18888), HMR, opens the dashboard
 vp check           # format + lint + type check (primary gate, use --fix)
 vp test            # unit tests
 pnpm smoke         # end-to-end assertions against a mock upstream, no API keys needed
@@ -12,9 +12,15 @@ pnpm web:dev       # Vite dev server for the dashboard (proxies /api and /v1 to 
 pnpm typecheck:web # type check the dashboard
 ```
 
-`pnpm dev` starts the dashboard on `5173` and the proxy on `8787`; opening `http://127.0.0.1:8787` redirects to the dev server, so there is nothing to build while developing. File-watch restarts reuse the same browser tab instead of opening a new one each time.
+`pnpm dev` starts the dashboard on `15174` and the proxy on `18888` — ports deliberately far from the
+production defaults (`8787` proxy, `5173` web) so a dev run never collides with a running Jevonian
+service. It also uses its own config, data, and browser-state under `~/.cache/jevonian` (seeded from
+the real config on first run, with tunnel disabled), so saving providers, routings, or keys while
+developing cannot touch the running production instance. Opening `http://127.0.0.1:18888` redirects to
+the dev server, so there is nothing to build while developing. File-watch restarts reuse the same
+browser tab instead of opening a new one each time.
 
-`pnpm build && node dist/cli.mjs` serves the proxy and the built dashboard on a single port, `127.0.0.1:8787`.
+`pnpm build && node dist/cli.mjs` serves the proxy and the built dashboard on a single port, `127.0.0.1:8787`. A foreground run refuses to bind a `listen.port` another instance is already using, and bare `jevonian` will not repoint a LaunchAgent that belongs to a different install — see [cli.md](cli.md#one-instance-per-port).
 
 ## Source layout
 

@@ -45,6 +45,7 @@ import {
   tunnelStatePath,
   updateStatePath,
 } from "./paths";
+import { portInUse, probeHost } from "./ports";
 import { costOf, initPricing, priceFor, type Usage } from "./pricing";
 import { ask, askChoice, askSecret, askYesNo, isInteractive } from "./prompt";
 import { findPreset, normalizeBaseUrl, PRESETS } from "./providers";
@@ -1223,6 +1224,24 @@ async function main(): Promise<void> {
     if (!loaded) {
       console.log("No config yet — starting with defaults. Add a provider in the web UI:");
       console.log(`  http://${config.listen.host}:${config.listen.port}/providers`);
+    }
+    // A foreground run must not grab a port a running instance already holds — that is how a
+    // checkout would silently fight (or appear to replace) the production service. Skipped
+    // when launchd is driving us: this process *is* the service, and it owns the port.
+    if (!isManagedByLaunchd()) {
+      const port = config.listen.port;
+      if (await portInUse(port, probeHost(config.listen.host))) {
+        console.error(
+          [
+            `port ${port} is already in use — a Jevonian instance (or its service) is still`,
+            "running, and this foreground run will not take its place.",
+            "  inspect it:  jevonian status",
+            "  stop it:     jevonian stop   (or `jevonian stop --uninstall` to remove the service)",
+            "  local dev on separate ports:  npm run dev",
+          ].join("\n"),
+        );
+        process.exit(1);
+      }
     }
     const pricingInfo = initPricing();
     // Local snapshots are authoritative. Refresh in the background only when missing or

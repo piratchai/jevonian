@@ -23,6 +23,16 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 
 `serve` accepts `--lan` / `--no-lan` (plus `--lan-host HOST` and `--lan-port PORT`) to expose the key-protected `/v1` surface on the local network, so another machine — or another Jevonian — can use this instance as a provider. These persist to `config.json`, so the setting survives the macOS LaunchAgent restart; only `/v1` is served, and the dashboard/admin API stay on loopback. See [providers.md](providers.md#another-jevonian-as-a-provider).
 
+### One instance per port
+
+A machine has one Jevonian service and one `config.json`, so a second instance must not grab the first's ports or its LaunchAgent. Two guards enforce that:
+
+- **Foreground `serve` refuses an occupied `listen.port`.** If something is already listening there, it exits with a message instead of fighting (or appearing to replace) the running instance.
+- **A background service is never repointed by accident.** Bare `jevonian` installs a LaunchAgent for _its own_ install. If a service is already installed that points at a different install — e.g. a git checkout while a global install is running — it refuses rather than `bootout` the running one and repoint the agent at the checkout. Override deliberately with `JEVONIAN_SERVICE_TAKEOVER=1`, or remove the old one first with `jevonian stop --uninstall`.
+- **`JEVONIAN_SERVICE_PLIST` cannot control the live agent.** That override is for reading and unit tests only. Install/stop/start always act on `~/Library/LaunchAgents/ai.jevonian.serve.plist`; a redirected path is refused so a temp plist cannot still `bootout` production. The agent also never inherits `JEVONIAN_CONFIG` / `JEVONIAN_DATA_DIR` / `JEVONIAN_LEDGER` from the installing shell — those stay on the default paths.
+
+To run a local checkout without touching the running service, use `npm run dev`, which uses separate ports and its own config/browser-state (see [development.md](development.md)); or point a second instance at its own `listen.port` and `JEVONIAN_CONFIG` with `--foreground`.
+
 ### Claude Code
 
 Same approach as `ollama launch claude`: point Claude Code at the local Anthropic-compatible endpoint and remap Opus / Sonnet / Haiku onto Jevonian models.

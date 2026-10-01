@@ -2,16 +2,19 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   SERVICE_LABEL,
+  assertLiveServicePlist,
   buildServicePlist,
+  defaultServicePlistPath,
   installedPlistHasPath,
   isManagedByLaunchd,
   passthroughServiceEnv,
   readInstalledServeEntry,
   resolveServeEntry,
+  serviceTakeoverRefusal,
 } from "./service";
 import { augmentPath } from "./user-path";
 
@@ -117,11 +120,16 @@ it("forwards selected proxy and path env vars into the agent", () => {
   expect(
     passthroughServiceEnv({
       JEVONIAN_CONFIG: "/c.json",
+      JEVONIAN_DATA_DIR: "/data",
+      JEVONIAN_LEDGER: "/ledger.jsonl",
+      JEVONIAN_WEB_DIR: "/web",
       HTTPS_PROXY: "http://127.0.0.1:1082",
       IGNORED: "nope",
     }),
   ).toEqual({
-    JEVONIAN_CONFIG: "/c.json",
+    // Config / data / ledger must never ride along: a sandboxed shell would bake
+    // empty temp paths into the production LaunchAgent.
+    JEVONIAN_WEB_DIR: "/web",
     HTTPS_PROXY: "http://127.0.0.1:1082",
   });
 });
@@ -145,4 +153,54 @@ it("parses ProgramArguments back out of an installed plist", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("serviceTakeoverRefusal", () => {
+  const checkout = { node: "/usr/local/bin/node", entry: "/Users/me/checkout/dist/cli.mjs" };
+  const global = {
+    node: "/Users/me/.vite-plus/node",
+    entry: "/Users/me/.vite-plus/lib/node_modules/jevonian/dist/cli.mjs",
+  };
+
+  it("allows a fresh install when nothing is installed", () => {
+    expect(serviceTakeoverRefusal(checkout, undefined)).toBeUndefined();
+  });
+
+  it("allows reinstalling the same install", () => {
+    expect(serviceTakeoverRefusal(checkout, checkout)).toBeUndefined();
+  });
+
+  it("refuses to repoint another install's service", () => {
+    const refusal = serviceTakeoverRefusal(checkout, global);
+    expect(refusal).toBeDefined();
+    expect(refusal).toContain("Refusing to replace it");
+    expect(refusal).toContain(global.entry);
+    expect(refusal).toContain("JEVONIAN_SERVICE_TAKEOVER=1");
+  });
+
+  it("allows the takeover when forced or the escape hatch is set", () => {
+    expect(serviceTakeoverRefusal(checkout, global, { force: true })).toBeUndefined();
+    expect(serviceTakeoverRefusal(checkout, global, { env: {} })).toBeDefined();
+    expect(
+      serviceTakeoverRefusal(checkout, global, { env: { JEVONIAN_SERVICE_TAKEOVER: "1" } }),
+    ).toBeUndefined();
+    expect(
+      serviceTakeoverRefusal(checkout, global, { env: { JEVONIAN_SERVICE_TAKEOVER: "true" } }),
+    ).toBeUndefined();
+    expect(
+      serviceTakeoverRefusal(checkout, global, { env: { JEVONIAN_SERVICE_TAKEOVER: "0" } }),
+    ).toBeDefined();
+  });
+});
+
+describe("assertLiveServicePlist", () => {
+  it("allows the production LaunchAgents path", () => {
+    expect(() => assertLiveServicePlist(defaultServicePlistPath())).not.toThrow();
+  });
+
+  it("refuses a redirected plist so a temp override cannot bootout production", () => {
+    expect(() => assertLiveServicePlist("/tmp/ai.jevonian.serve.plist")).toThrow(
+      /Refusing to control the live LaunchAgent/,
+    );
+  });
 });
