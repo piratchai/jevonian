@@ -57,7 +57,7 @@ export function anthropicThinkingSupport(model: unknown): AnthropicThinkingSuppo
     adaptive: true,
     rejectsEnabled: version >= 4.7,
     // Opus 5.5 is always on; later generations are assumed to follow it rather than risk a 400.
-    rejectsDisabled: (family === "opus" && version >= 5.5) || version >= 6,
+    rejectsDisabled: ((family === "opus" || family === "sonnet") && version >= 5.5) || version >= 6,
     xhigh: version >= 4.7,
   };
 }
