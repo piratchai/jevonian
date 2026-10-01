@@ -32,6 +32,18 @@ import {
 import type { Config, Provider } from "./config";
 import { findProviderByName } from "./config";
 import {
+  cursorChatCompletion,
+  cursorConversation,
+  cursorLastUser,
+  cursorToChatStream,
+  resolveCursorAgentUrl,
+  runCursor,
+  type CursorEvent,
+  type CursorFinish,
+  type CursorStreamError,
+} from "./cursor";
+import { cursorModelId } from "./cursor-catalog";
+import {
   buildDevinChatRequest,
   classifyDevinError,
   devinChatCompletion,
@@ -1063,6 +1075,30 @@ function devinChatBody(
   return { ...body, model };
 }
 
+/** The Chat Completions body Cursor's wire module encodes, mirroring `devinChatBody`. */
+function cursorChatBody(
+  body: Record<string, unknown>,
+  clientKind: RequestKind,
+  model: string,
+): Record<string, unknown> {
+  if (clientKind === "responses") {
+    return {
+      ...responsesToChatRequest(body, model),
+      messages: devinResponsesMessages(body, model),
+      model,
+    };
+  }
+  if (clientKind === "anthropic") {
+    return {
+      ...anthropicToChatRequest(body, model),
+      ...anthropicToolsAsChat(body),
+      messages: devinAnthropicMessages(body, model),
+      model,
+    };
+  }
+  return { ...body, model };
+}
+
 /** Devin usage is exclusive; OpenAI-shaped client payloads expect inclusive prompt counts. */
 function inclusiveUsage(usage: Usage): Usage {
   return { ...usage, input: usage.input + usage.cacheRead + usage.cacheWrite };
@@ -1305,6 +1341,197 @@ async function devinClientResponse(input: {
   };
 }
 
+const CURSOR_ERROR_TYPES: Record<CursorStreamError["kind"], string> = {
+  auth: "authentication_error",
+  region: "permission_error",
+  quota: "rate_limit_error",
+  rate_limit: "rate_limit_error",
+  context: "invalid_request_error",
+  invalid: "invalid_request_error",
+  capacity: "overloaded_error",
+  other: "api_error",
+};
+
+/**
+ * Whether a Cursor refusal should send the turn to another provider. Everything Cursor says
+ * about the account or the model right now — a regional block, a quota, an overload, a rejected
+ * credential — is a fact another provider can usually take the turn for. Only a malformed
+ * request is the client's to fix, so it is not failed over.
+ */
+function cursorShouldFailover(error: CursorStreamError): boolean {
+  return error.kind !== "invalid" && error.kind !== "context";
+}
+
+function cursorErrorStatus(error: CursorStreamError): number {
+  return error.status >= 400 && error.status <= 599 ? error.status : 502;
+}
+
+/** Records what a Cursor refusal means for routing, so the next `decideRoute` walks past it. */
+function markCursorRefusal(provider: Provider, error: CursorStreamError): void {
+  const cooldown = new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString();
+  switch (error.kind) {
+    case "quota":
+    case "rate_limit":
+      markProviderSpent(provider, { label: "limit", resetsAt: cooldown });
+      return;
+    case "region":
+      markProviderSpent(provider, { label: "region", resetsAt: cooldown });
+      return;
+    case "capacity":
+    case "other":
+      markProviderSpent(provider, { label: error.kind, resetsAt: cooldown });
+      return;
+    case "auth":
+      // The token the keychain or auth.json handed out is rejected: drop the cache so the
+      // next resolve re-reads it (and `cursor-agent status` can mint a fresh one).
+      invalidateOAuthToken("cursor");
+      markProviderSpent(provider, { label: "auth", resetsAt: cooldown });
+      return;
+    default:
+      // `invalid` and `context` carry no verdict about the subscription.
+      return;
+  }
+}
+
+/** A classified Cursor refusal, in the error envelope of the client's own wire. */
+function cursorErrorResponse(
+  meta: RequestMeta,
+  clientKind: RequestKind,
+  error: CursorStreamError,
+  headers: Record<string, string>,
+): Response {
+  const status = cursorErrorStatus(error);
+  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
+  const type = CURSOR_ERROR_TYPES[error.kind] ?? "api_error";
+  if (clientKind === "anthropic") {
+    return Response.json(
+      { type: "error", error: { type, message: error.message } },
+      { status, headers },
+    );
+  }
+  if (clientKind === "responses") {
+    return Response.json(
+      { error: { type, code: error.kind, message: error.message } },
+      { status, headers },
+    );
+  }
+  return Response.json(
+    { error: { type, code: error.kind, message: error.message } },
+    { status, headers },
+  );
+}
+
+/**
+ * Answers the client from a Cursor Run that already produced its first event. Cursor always
+ * streams upstream; a non-stream client gets the folded completion instead.
+ */
+type CursorOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+
+async function cursorClientResponse(input: {
+  c: Context<AppEnv>;
+  meta: RequestMeta;
+  provider: Provider;
+  decision: RouteDecision;
+  clientKind: RequestKind;
+  clientStream: boolean;
+  started: number;
+  events: AsyncIterable<CursorEvent>;
+  headers: Record<string, string>;
+  onFailover?: () => Promise<boolean>;
+}): Promise<CursorOutcome> {
+  const { c, meta, provider, decision, clientKind, clientStream, started, events, headers } = input;
+  const model = decision.model;
+  const finalize = (finish: CursorFinish | undefined): void => {
+    const usage = finish?.usage ?? emptyUsage();
+    if (finish?.error) {
+      if (cursorShouldFailover(finish.error)) markCursorRefusal(provider, finish.error);
+      record(
+        meta,
+        cursorErrorStatus(finish.error),
+        usage,
+        null,
+        true,
+        `${finish.error.kind}: ${finish.error.message}`.slice(0, 300),
+      );
+      return;
+    }
+    const cost = costOf(model, usage, new Date(), decision.provider, provider.type);
+    record(meta, 200, usage, cost.usd, cost.known);
+  };
+
+  if (!clientStream) {
+    const { completion, finish } = await cursorChatCompletion(model, events);
+    if (finish.error) {
+      if (cursorShouldFailover(finish.error)) {
+        markCursorRefusal(provider, finish.error);
+        if (await input.onFailover?.()) return { kind: "failover" };
+      }
+      return {
+        kind: "response",
+        response: cursorErrorResponse(meta, clientKind, finish.error, headers),
+      };
+    }
+    finalize(finish);
+    if (clientKind === "anthropic") {
+      const message = chatToAnthropicMessage(completion, model);
+      return {
+        kind: "response",
+        response: c.json(
+          {
+            ...withThinkingBlock(message, completion),
+            usage: {
+              input_tokens: finish.usage.input,
+              output_tokens: finish.usage.output,
+              cache_read_input_tokens: finish.usage.cacheRead,
+              cache_creation_input_tokens: finish.usage.cacheWrite,
+            },
+          },
+          200,
+          headers,
+        ),
+      };
+    }
+    if (clientKind === "responses") {
+      return {
+        kind: "response",
+        response: c.json(
+          chatJsonToResponse(completion, {
+            model,
+            session: decision.session,
+            started,
+            usage: inclusiveUsage(finish.usage),
+          }),
+          200,
+          headers,
+        ),
+      };
+    }
+    return { kind: "response", response: c.json(completion, 200, headers) };
+  }
+
+  // Stream the answer as Chat Completions, then translate to the client's own wire when it is
+  // not OpenAI's.
+  if (clientKind === "openai") {
+    const toChat = cursorToChatStream(model, events, finalize);
+    return { kind: "response", response: streamResponse(toChat, meta, headers) };
+  }
+  let finish: CursorFinish | undefined;
+  const toChat = cursorToChatStream(model, events, (result) => {
+    finish = result;
+  });
+  const next =
+    clientKind === "anthropic"
+      ? chatToAnthropicStream(model, {
+          usage: () => finish?.usage,
+          onFinish: () => finalize(finish),
+        })
+      : chatToResponsesStream(model, () => finalize(finish));
+  return {
+    kind: "response",
+    response: streamResponse(toChat.pipeThrough(next), meta, headers),
+  };
+}
+
 async function forward(
   c: Context<AppEnv>,
   config: Config,
@@ -1480,6 +1707,7 @@ async function forward(
     const translated = provider.type === "responses" && clientKind === "openai";
     const geminiWire = provider.type === "gemini";
     const devinWire = provider.type === "devin";
+    const cursorWire = provider.type === "cursor";
     const planned = planUpstreamWire({
       provider,
       client: clientKind,
@@ -1499,16 +1727,22 @@ async function forward(
       );
     }
     let upstreamKind: RequestKind = planned.wire;
-    // Devin reports exclusive usage (uncached input, cache reads, cache writes apart), the same
-    // accounting Anthropic uses, so cache observation must not subtract reads from input again.
-    meta.usageKind = devinWire ? "anthropic" : upstreamKind;
-    // Devin's chat RPC only streams; non-stream clients get the stream folded into one reply.
-    const upstreamStream = provider.type === "responses" || devinWire ? true : clientStream;
+    // Devin and Cursor report exclusive usage (uncached input, cache reads, cache writes
+    // apart), the same accounting Anthropic uses, so cache observation must not subtract reads
+    // from input again.
+    meta.usageKind = devinWire || cursorWire ? "anthropic" : upstreamKind;
+    // Devin's and Cursor's RPCs only stream; non-stream clients get the stream folded into one
+    // reply.
+    const upstreamStream =
+      provider.type === "responses" || devinWire || cursorWire ? true : clientStream;
 
     let auth = await resolveProviderAuth(provider, upstreamKind);
     if (auth.error) return errorResponse(c, meta, 400, auth.error);
     if (devinWire && !auth.token) {
       return errorResponse(c, meta, 400, `Missing Devin token for provider "${provider.name}"`);
+    }
+    if (cursorWire && !auth.token) {
+      return errorResponse(c, meta, 400, `Missing Cursor token for provider "${provider.name}"`);
     }
     withSessionAffinity(auth.headers, provider, decision.session, incomingHeaders);
 
@@ -1539,10 +1773,11 @@ async function forward(
       // The client's own level, in whatever field its wire uses. Detected per wire so the router
       // never overrides an explicit instruction, and so the log can say who chose the level.
       const clientEffort = clientEffortOf(body, clientKind);
-      // Devin, like Gemini, wins over the OpenAI bridge: its wire module encodes a Chat
-      // Completions body into Connect-RPC protobuf, so every client folds onto that body.
-      // Effort is part of Devin's model ids, so no effort field is written.
+      // Devin and Cursor, like Gemini, win over the OpenAI bridge: their wire modules encode a
+      // Chat Completions body into Connect-RPC protobuf, so every client folds onto that body.
+      // Effort is part of the model ids for both, so no effort field is written.
       if (devinWire) return devinChatBody(body, clientKind, decision.model);
+      if (cursorWire) return cursorChatBody(body, clientKind, decision.model);
       if (wire === "anthropic" && bridgeToAnthropic) {
         // Responses clients fold through Chat Completions first (same two-hop as
         // Responses→Antigravity), then chatToAnthropic builds the Messages body.
@@ -1692,9 +1927,9 @@ async function forward(
 
     // The log reports the level the model was actually sent, read back from the body rather than
     // from the router's intent: those differ when the client set its own level. `gemini` takes no
-    // effort field and Devin bakes effort into its model ids, so nothing is recorded for them.
+    // effort field and Devin / Cursor bake effort into their model ids, so nothing is recorded.
     const sentEffort =
-      geminiWire || devinWire
+      geminiWire || devinWire || cursorWire
         ? undefined
         : effortInBody(upstreamBody, upstreamKind, decision.effort);
     meta.effort = sentEffort;
@@ -1751,6 +1986,50 @@ async function forward(
         }) as Uint8Array<ArrayBuffer>,
       };
     };
+
+    // A Cursor turn is a Connect stream that stays open both ways, so it is driven here rather
+    // than through the shared POST path: the request body is built per attempt and the reply is
+    // folded or relayed by `cursorClientResponse`.
+    if (cursorWire) {
+      const conversation = cursorConversation(upstreamBody);
+      const attempt = await runCursor({
+        token: auth.token ?? "",
+        agentUrl: await resolveCursorAgentUrl(auth.token ?? "", provider.baseUrl),
+        systemPrompt: conversation.system,
+        messages: conversation.messages,
+        tools: conversation.tools,
+        model: cursorModelId(decision.model, decision.effort, false),
+        lastUser: cursorLastUser(conversation.messages),
+        requestId: crypto.randomUUID(),
+      });
+      if (attempt.error) {
+        if (cursorShouldFailover(attempt.error)) {
+          markCursorRefusal(provider, attempt.error);
+          if (await quotaFailover()) continue;
+        }
+        return cursorErrorResponse(meta, clientKind, attempt.error, {
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        });
+      }
+      const delivered = await cursorClientResponse({
+        c,
+        meta,
+        provider,
+        decision,
+        clientKind,
+        clientStream,
+        started,
+        events: attempt.events,
+        onFailover: quotaFailover,
+        headers: {
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        },
+      });
+      if (delivered.kind === "failover") continue;
+      return delivered.response;
+    }
 
     // A socket reset from a local proxy, a DNS timeout, or a gateway's brief 502 otherwise
     // costs the whole turn — and the same request almost always succeeds on a second attempt.

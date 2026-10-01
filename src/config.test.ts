@@ -58,6 +58,6 @@ describe("provider parsing", () => {
     expect(config.providers[0]?.oauthSource).toBeUndefined();
     expect(() =>
       parseConfig({ providers: [{ name: "p", type: "grpc", baseUrl: "https://example.com" }] }),
-    ).toThrow(/"gemini", or "devin"/);
+    ).toThrow(/"devin", or "cursor"/);
   });
 });

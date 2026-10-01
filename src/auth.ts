@@ -130,8 +130,8 @@ export async function resolveProviderAuth(
     }
   }
 
-  // Devin's wire module builds its own Connect-RPC headers and metadata from the raw token.
-  if (provider.type === "devin") return { headers: {}, token };
+  // Devin's and Cursor's wire modules build their own Connect-RPC headers from the raw token.
+  if (provider.type === "devin" || provider.type === "cursor") return { headers: {}, token };
 
   const anthropicWire =
     provider.type === "anthropic" || (provider.type === "both" && kind === "anthropic");

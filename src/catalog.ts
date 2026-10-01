@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 
 import { resolveProviderAuth } from "./auth";
 import type { Config, Provider } from "./config";
+import { fetchCursorModels } from "./cursor";
+import { saveCursorCatalog } from "./cursor-catalog";
 import { DEVIN_DEFAULT_BASE_URL, fetchDevinModels } from "./devin";
 import { isRoutableDevinModel, saveDevinModelMeta } from "./devin-catalog";
 import { dataDir } from "./paths";
@@ -103,6 +105,41 @@ export function isDevinProvider(provider: Provider): boolean {
   );
 }
 
+/** Cursor subscription: `type: "cursor"`, or an OAuth provider reading cursor-agent's sign-in. */
+export function isCursorProvider(provider: Provider): boolean {
+  return (
+    provider.type === "cursor" || (provider.auth === "oauth" && provider.oauthSource === "cursor")
+  );
+}
+
+async function discoverCursorModels(provider: Provider, fetchedAt: string): Promise<CatalogEntry> {
+  try {
+    const raw = await fetchCursorModels();
+    if (raw.length === 0) {
+      return {
+        provider: provider.name,
+        models: [],
+        fetchedAt,
+        error:
+          "cursor-agent listed no models. Run `cursor-agent models` after signing in with `cursor-agent login`.",
+      };
+    }
+    // Keep Cursor's own ids too: they are what maps a chosen effort onto the id Cursor expects.
+    return {
+      provider: provider.name,
+      models: saveCursorCatalog(raw).models.map((m) => m.id),
+      fetchedAt,
+    };
+  } catch (error) {
+    return {
+      provider: provider.name,
+      models: [],
+      fetchedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function discoverDevinModels(provider: Provider, fetchedAt: string): Promise<CatalogEntry> {
   const auth = await resolveProviderAuth(provider, "openai");
   if (auth.error || !auth.token) {
@@ -133,6 +170,7 @@ async function discoverDevinModels(provider: Provider, fetchedAt: string): Promi
 export async function discoverProviderModels(provider: Provider): Promise<CatalogEntry> {
   const fetchedAt = new Date().toISOString();
   if (isDevinProvider(provider)) return discoverDevinModels(provider, fetchedAt);
+  if (isCursorProvider(provider)) return discoverCursorModels(provider, fetchedAt);
   if (
     provider.type === "gemini" ||
     (provider.auth === "oauth" && provider.oauthSource === "antigravity")

@@ -4,9 +4,10 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
+import { cursorAuthPath, cursorToken } from "./cursor";
 import { retryingFetch } from "./retry";
 
-export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "static";
+export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "cursor" | "static";
 
 export const CLAUDE_CODE_SYSTEM_PROMPT =
   "You are Claude Code, Anthropic's official CLI for Claude.";
@@ -390,8 +391,7 @@ function readDevinCredential(): Record<string, string> | undefined {
   }
 }
 
-/**
- * Devin session tokens do not expire and there is no refresh flow: when the server rejects
+/** Devin session tokens do not expire and there is no refresh flow: when the server rejects
  * one, the user signs in again with `devin auth login` and the next resolve re-reads the file.
  */
 function resolveDevin(): Promise<OAuthToken | OAuthFailure> {
@@ -416,6 +416,28 @@ function resolveDevin(): Promise<OAuthToken | OAuthFailure> {
 export function resolveDevinServerUrl(): string {
   const value = readDevinCredential()?.api_server_url?.trim();
   return value && value.length > 0 ? value.replace(/\/+$/, "") : DEVIN_DEFAULT_SERVER_URL;
+}
+
+/**
+ * Cursor keeps its sign-in in `cursor-agent`'s own store: the macOS keychain when it is there,
+ * otherwise the CLI's `auth.json`. A status read is what renews a token about to run out, so
+ * the only thing to do here is report whether there is something to read at all.
+ */
+function hasCursorCredential(): boolean {
+  const override = process.env.JEVONIAN_CURSOR_AUTH;
+  if (override && override.trim().length > 0) return existsSync(override.trim());
+  if (existsSync(cursorAuthPath())) return true;
+  return process.platform === "darwin";
+}
+
+async function resolveCursor(): Promise<OAuthToken | OAuthFailure> {
+  try {
+    const token = await cursorToken();
+    const expiresAt = jwtExpiry(token);
+    return { token, ...(expiresAt === undefined ? {} : { expiresAt }) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 interface RefreshedClaude {
@@ -593,6 +615,7 @@ export function hasOAuthCredential(source: OAuthSource): boolean {
   if (source === "static") return false;
   if (source === "codex") return readCodexCredential() !== undefined;
   if (source === "devin") return Boolean(readDevinCredential()?.windsurf_api_key?.trim());
+  if (source === "cursor") return hasCursorCredential();
   if (source === "antigravity") {
     const override = process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
     if (override && existsSync(override.trim())) return true;
@@ -626,7 +649,9 @@ export function resolveOAuthToken(options: {
         ? resolveCodex
         : options.source === "devin"
           ? resolveDevin
-          : resolveAntigravity;
+          : options.source === "cursor"
+            ? resolveCursor
+            : resolveAntigravity;
   const task = resolve().then((result) => {
     if (!("error" in result)) cache.set(options.source, result);
     return result;
@@ -641,5 +666,6 @@ export function oauthCredentialLabel(source: OAuthSource): string {
   if (source === "codex") return "Codex credentials";
   if (source === "antigravity") return "Antigravity credentials";
   if (source === "devin") return "Devin credentials";
+  if (source === "cursor") return "Cursor credentials";
   return "stored token";
 }

@@ -211,7 +211,9 @@ export function ProvidersPage() {
           ? "gemini"
           : auth === "oauth" && oauthSource === "devin"
             ? "devin"
-            : undefined;
+            : auth === "oauth" && oauthSource === "cursor"
+              ? "cursor"
+              : undefined;
   const lockedBy =
     oauthSource === "codex"
       ? "Codex"
@@ -219,7 +221,9 @@ export function ProvidersPage() {
         ? "Antigravity"
         : oauthSource === "devin"
           ? "Devin"
-          : "Claude Code";
+          : oauthSource === "cursor"
+            ? "Cursor"
+            : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
     auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource);
@@ -670,6 +674,7 @@ export function ProvidersPage() {
                       <SelectItem value="responses">responses</SelectItem>
                       <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
                       <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
+                      <SelectItem value="cursor">cursor — Connect-RPC (Cursor agent)</SelectItem>
                     </SelectContent>
                   </Select>
                   <span className="text-[11px] text-muted-foreground">
@@ -714,6 +719,7 @@ export function ProvidersPage() {
                         <SelectItem value="codex">Codex (~/.codex)</SelectItem>
                         <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
                         <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
+                        <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
                         <SelectItem value="static">stored token</SelectItem>
                       </SelectContent>
                     </Select>
@@ -753,7 +759,9 @@ export function ProvidersPage() {
                         ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
                         : oauthSource === "devin"
                           ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
-                          : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                          : oauthSource === "cursor"
+                            ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
+                            : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
                   </p>
                 )}
               </div>
@@ -975,6 +983,7 @@ export function ProvidersPage() {
                         <SelectItem value="responses">responses</SelectItem>
                         <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
                         <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
+                        <SelectItem value="cursor">cursor — Connect-RPC (Cursor agent)</SelectItem>
                       </SelectContent>
                     </Select>
                     {lockedType ? (
@@ -1031,6 +1040,7 @@ export function ProvidersPage() {
                           <SelectItem value="codex">Codex (~/.codex)</SelectItem>
                           <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
                           <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
+                          <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
                           <SelectItem value="static">stored token</SelectItem>
                         </SelectContent>
                       </Select>
