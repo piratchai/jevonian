@@ -26,8 +26,9 @@ afterEach(() => {
 });
 
 function configOf(providers: Array<Record<string, unknown>>) {
+  const first = providers[0]?.name;
   return parseConfig({
-    defaultProvider: String(providers[0]?.name ?? "a"),
+    defaultProvider: typeof first === "string" ? first : "a",
     providers,
     routing: { brains: [] },
   });
@@ -62,7 +63,14 @@ function seed(
     headers.set("anthropic-ratelimit-unified-7d-reset", String(windows.sevenDay.resetsAt));
   }
   captureQuotaHeaders(
-    { name, type: "anthropic", baseUrl: "https://api.anthropic.com", auth: "oauth", oauthSource: "claude-code", models: [] } as never,
+    {
+      name,
+      type: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      auth: "oauth",
+      oauthSource: "claude-code",
+      models: [],
+    } as never,
     headers,
   );
 }
@@ -72,20 +80,24 @@ const daysFromNow = (days: number): number => hoursFromNow(days * 24);
 
 describe("accountWindows", () => {
   it("reports the account windows longest first", () => {
-    seed("a", { fiveHour: { used: 20, resetsAt: hoursFromNow(1) }, sevenDay: { used: 40, resetsAt: daysFromNow(3) } });
-    const windows = accountWindows(
-      { name: "a", quota: undefined } as never,
-    );
+    seed("a", {
+      fiveHour: { used: 20, resetsAt: hoursFromNow(1) },
+      sevenDay: { used: 40, resetsAt: daysFromNow(3) },
+    });
+    const windows = accountWindows({ name: "a", quota: undefined } as never);
     expect(windows.map((window) => window.spanMinutes)).toEqual([10_080, 300]);
     expect(windows[0]?.usedPercent).toBe(40);
     expect(windows[1]?.usedPercent).toBe(20);
   });
 
   it("leaves out a window whose reset has passed, which is empty again", () => {
-    seed("a", { fiveHour: { used: 100, resetsAt: hoursFromNow(-1) }, sevenDay: { used: 30, resetsAt: daysFromNow(2) } });
-    expect(accountWindows({ name: "a", quota: undefined } as never).map((w) => w.spanMinutes)).toEqual([
-      10_080,
-    ]);
+    seed("a", {
+      fiveHour: { used: 100, resetsAt: hoursFromNow(-1) },
+      sevenDay: { used: 30, resetsAt: daysFromNow(2) },
+    });
+    expect(
+      accountWindows({ name: "a", quota: undefined } as never).map((w) => w.spanMinutes),
+    ).toEqual([10_080]);
   });
 
   it("returns nothing for a provider that has never reported a window", () => {
@@ -124,7 +136,10 @@ describe("orderByQuotaReset", () => {
   });
 
   it("lets the longest window decide what soonest means", () => {
-    const config = configOf([provider("week-later", "glm-5.2"), provider("week-sooner", "glm-5.2")]);
+    const config = configOf([
+      provider("week-later", "glm-5.2"),
+      provider("week-sooner", "glm-5.2"),
+    ]);
     // The 5h window is the inverse of the 7d one, so only the week can be the tie-breaker.
     seed("week-later", {
       fiveHour: { used: 5, resetsAt: hoursFromNow(1) },

@@ -1589,7 +1589,9 @@ export function RoutingPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="on">on — spend the soonest-renewing allowance first</SelectItem>
+                      <SelectItem value="on">
+                        on — spend the soonest-renewing allowance first
+                      </SelectItem>
                       <SelectItem value="off">off — keep the configured order</SelectItem>
                     </SelectContent>
                   </Select>

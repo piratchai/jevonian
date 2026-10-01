@@ -1513,7 +1513,8 @@ export function accountWindows(provider: Provider, now = Date.now()): AccountWin
 }
 
 /** True when either the shared quota or this exact model's active window is exhausted. */
-export function providerModelExhausted(  provider: Provider,
+export function providerModelExhausted(
+  provider: Provider,
   model: string,
   options: { lowPercent?: number; now?: number } = {},
 ): boolean {

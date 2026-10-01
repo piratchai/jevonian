@@ -962,8 +962,7 @@ function standingOf(
     used,
     renews: windows.map((window) => window.resetsAt),
     spent:
-      health.status === "exhausted" ||
-      providerModelExhausted(provider, model, { lowPercent, now }),
+      health.status === "exhausted" || providerModelExhausted(provider, model, { lowPercent, now }),
     low: health.status === "low",
   };
   cache?.set(key, standing);
