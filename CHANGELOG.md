@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-10-01
+
+### Added
+
+- **Cursor subscription provider** (`cursor-subscription`). A Cursor account has no plain REST endpoint: the `cursor-agent` CLI talks a bidirectional Connect stream (`AgentService/Run`), sending the conversation as content-addressed blobs the server asks back for and reaching your tools through Cursor's `CallDynamicTool`. Jevonian now speaks that wire itself, reading the sign-in `cursor-agent` already stored (the macOS keychain item `cursor-access-token`, or `~/.cursor/auth.json`), renewing a stale token through `cursor-agent status`, and discovering models from `cursor-agent models`. `JEVONIAN_CURSOR_AUTH` points at a specific `auth.json`.
+- **Reset-aware routing.** What a subscription account has left is lost when its window resets, while one renewing later keeps its quota — so the account that refills soonest is now spent first. `quotaGuard.resetAware` (on by default) orders the brain's offer pools, a pinned routing's tier, and a pinned model's providers by soonest renewal, with the longest window deciding what "soonest" means; times within the same hour are treated as alike so a few minutes do not reorder and prompt caches stay warm. Room still comes before low before exhausted, and turning it off restores the configured order exactly.
+- **Cache affinity.** A vendor reads its cached prefix again on every request it serves and sends it afresh — paid for in full — on every request it does not, so a conversation now stays where it was answered while the vendor's own numbers say it is worth staying: within a turn always, and across turns while the last answer read at least 1024 tokens from the vendor's cache and not long enough ago that it has been dropped. It is a measurement, not a guess, so code decides it rather than the brain. Modes `auto` / `session` / `turn` / `off` via `x-jevonian-affinity`, with `x-jevonian-cache-keep` reporting why a turn stayed or moved, and the reason recorded in the ledger.
+- **Multiple accounts per OAuth source.** A second Claude, Codex, Devin, or Cursor account is now a second provider pointed at that account's own local sign-in, so each gets its own quota window, fallback place, and ledger rows without touching the router. Add one with `--login-home` / `--login-file` / `--login-keychain` / `--login-label` on `jevonian add`, or the **Second account** fieldset in the dashboard; `jevonian list` shows `account=`. Tokens are cached per account, so two accounts of one source never share a cached token.
+- **LAN access.** One instance can now route through another: turn on **LAN access** (the Overview card, or `jevonian serve --lan`) and the machine that holds the credentials exposes its key-protected `/v1` surface to the local network for another machine — or another Jevonian — to use as a provider. Deliberately narrow: only `/v1` is bound (the dashboard and admin API stay on loopback), every request needs a real Jevonian key, the loopback-only desktop sentinel is rejected, and enabling it requires at least one key to exist. The setting persists to config so the macOS LaunchAgent restart cannot silently drop it.
+
+### Changed
+
+- **Connecting a client no longer reformats its config.** Claude Code's `settings.json`, Claude Desktop's configs, and the third-party profile are JSONC, and people keep them tidy by hand — but a connect used to read with `JSON.parse` and write back with `JSON.stringify`, dropping comments, reordering keys, and losing custom spacing. Edits are now surgical: only the managed keys' value spans change, leaving every other byte intact. Disconnect removes only the keys Jevonian manages.
+
+### Fixed
+
+- **A local run can no longer take over the production service.** A checkout or a temporary config could previously rewrite, stop, or hijack the installed LaunchAgent, leaving the real instance pointing at scratch config and data directories. Jevonian now refuses to install, stop, start, or restart when the service plist path is redirected, refuses to overwrite a LaunchAgent that points at a different binary, strips the config/data/ledger overrides from the service environment, and checks the listen port before a foreground run binds it.
+- The Cursor provider had no logo and fell back to a two-letter initials box, and its second-account fieldset hardcoded "Claude Code" and a `~/.claude-work` example for every OAuth source but Codex, Antigravity, and Devin. The official mark is now used, and the sign-in copy and example config directory follow the selected source.
+- The `jevonian-remote` preset pointed at port 8788, which is the loopback-only tunnel surface a peer cannot reach. It now matches the LAN default (`listen.port` + 2, i.e. 8789) that the docs already describe.
+- Cursor renewed a stale token through a single process-wide promise, so two Cursor accounts renewing at once shared one `cursor-agent status`. Because the CLI renews whichever account it is signed into, the second account was handed the first account's token. Renewals are now keyed per sign-in, as the OAuth token cache already is.
+- Anthropic's `rejectsDisabled` check now covers the Sonnet family at version ≥ 5.5, not just Opus, so an explicit `disabled` thinking level is not sent to a model that rejects it.
+
 ## [0.3.4] - 2026-09-30
 
 ### Changed
