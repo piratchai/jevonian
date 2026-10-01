@@ -418,6 +418,46 @@ export const DEFAULT_TUNNEL: TunnelConfig = {
 };
 
 /**
+ * Exposes this instance's authenticated `/v1` surface to the local network so another
+ * machine — or another Jevonian — can use it as a provider.
+ *
+ * Deliberately narrow: the LAN listener serves only `/v1`, the same surface the tunnel
+ * forwards to. The dashboard and `/api` stay on loopback. A LAN IP is reachable by anyone on
+ * the network, and the admin API has no authentication of its own, so binding it here would
+ * hand every neighbour a way to edit providers and read keys. The `/v1` surface still
+ * requires a Jevonian API key, and never accepts the loopback desktop sentinel (see
+ * `isLoopbackEndpoint`), so a LAN peer must present a real key.
+ */
+export interface LanConfig {
+  enabled: boolean;
+  /** Interface to bind. Defaults to every interface (`0.0.0.0`). */
+  host?: string;
+  /** Port for the LAN surface. Defaults to `listen.port + 2`. */
+  port?: number;
+}
+
+export const DEFAULT_LAN: LanConfig = {
+  enabled: false,
+};
+
+/** Offset from `listen.port` used when a LAN port is not chosen, clear of the tunnel's +1. */
+export const LAN_PORT_OFFSET = 2;
+
+export function parseLan(raw: unknown): LanConfig {
+  const value = asRecord(raw);
+  const host = typeof value.host === "string" && value.host.trim() ? value.host.trim() : undefined;
+  const port =
+    typeof value.port === "number" && Number.isInteger(value.port) && value.port > 0
+      ? value.port
+      : undefined;
+  return {
+    enabled: value.enabled === true,
+    ...(host ? { host } : {}),
+    ...(port ? { port } : {}),
+  };
+}
+
+/**
  * Background discovery of provider model lists. A vendor ships a new model id and the agent's
  * config still names yesterday's list, so the turn never reaches the new model until someone
  * re-runs setup. This appends what discovery finds; it never removes or reorders.
@@ -456,6 +496,8 @@ export interface Config {
   providers: Provider[];
   modelAliases?: Record<string, string[]>;
   tunnel: TunnelConfig;
+  /** LAN exposure of the authenticated `/v1` surface; see `LanConfig`. */
+  lan: LanConfig;
   routing: RoutingConfig;
   modelSync: ModelSyncConfig;
   /** Outgoing prompt hygiene: built-in rival-prompt signatures plus operator rules. */
@@ -941,6 +983,7 @@ export function parseConfig(raw: unknown): Config {
     providers,
     ...(Object.keys(modelAliases).length > 0 ? { modelAliases } : {}),
     tunnel,
+    lan: parseLan(value.lan),
     routing: parseRouting(value.routing),
     modelSync: parseModelSync(value.modelSync),
     promptPolicy: parsePromptPolicy(value.promptPolicy),
@@ -962,6 +1005,7 @@ export function writeExampleConfig(): string {
     listen: { host: "127.0.0.1", port: 8787 },
     defaultProvider: "deepseek",
     tunnel: { enabled: false, provider: "cloudflare" },
+    lan: { enabled: false },
     providers: [
       {
         name: "deepseek",

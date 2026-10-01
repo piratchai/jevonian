@@ -5,10 +5,17 @@ import { findPreset, normalizeBaseUrl, PRESETS, typeFromNpm } from "./providers"
 import { canServeClient, providerSpeaks } from "./wire";
 
 describe("providers", () => {
+  /** Public presets use TLS; a LAN preset (another Jevonian) may legitimately be plain http. */
+  function isPrivateHost(url: string): boolean {
+    return /^https?:\/\/(127\.|localhost|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(
+      url,
+    );
+  }
+
   it("has the expected preset fields", () => {
     for (const preset of PRESETS) {
       expect(preset.id.length).toBeGreaterThan(0);
-      expect(preset.baseUrl.startsWith("https://")).toBe(true);
+      expect(preset.baseUrl.startsWith("https://") || isPrivateHost(preset.baseUrl)).toBe(true);
       expect(preset.hint.length).toBeGreaterThan(0);
       expect(preset.keysUrl?.startsWith("https://")).toBe(true);
       if (preset.auth === "oauth") {

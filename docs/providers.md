@@ -16,7 +16,7 @@ A top-level `modelAliases` map pins irregular cross-provider names to a canonica
 
 ## Presets
 
-Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), Antigravity, and Devin. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
+Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), Antigravity, Devin, and another Jevonian instance. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
 
 `jevonian init` (or `jevonian add`) walks through everything:
 
@@ -84,6 +84,29 @@ The Overview and Providers pages show, per provider, the rolling windows, remain
 1. **Live** — vendor usage endpoints: OpenCode Go (`GET {baseUrl}/usage`), Claude (`GET https://api.anthropic.com/api/oauth/usage`), Codex (`GET https://chatgpt.com/backend-api/wham/usage`), Devin (`GetUserStatus` daily and weekly windows). Fetches are cached (Claude for 5 minutes, everything else for 1 minute) and refreshed with `jevonian quota --refresh` or the dashboard button. Claude reports its shared 5h/7d pools plus any model-scoped weekly limits (for example a Fable-only window); scoped windows are shown for visibility but never drive the quota guard, since a spent scoped pool says nothing about the rest of the account.
 2. **Response headers** — `anthropic-ratelimit-unified-*` and `x-codex-*` headers captured passively from every proxied response, persisted at `~/.local/share/jevonian/quota.json`.
 3. **Ledger** — dollar windows computed from the local ledger when a provider declares caps (`quota.fiveHourUsd` / `weeklyUsd` / `monthlyUsd`). Useful for Command Code and any subscription without a usage API.
+
+## Another Jevonian as a provider
+
+An instance can route through another instance, which is useful when the credentials live on one machine (a desktop with your Claude/Codex logins) and you want to spend from another (a laptop, a build box).
+
+On the machine that holds the credentials, enable **LAN access** — Overview page, or:
+
+```bash
+jevonian serve --lan                 # bind every interface on listen.port + 2
+jevonian serve --lan --lan-host 192.168.1.20 --lan-port 9500
+jevonian serve --no-lan              # turn it back off
+```
+
+The flags persist to `config.json`, so the setting survives the macOS LaunchAgent restart. On startup the console prints the base URLs a peer should use:
+
+```
+lan: listening on 0.0.0.0:8789 (only /v1, key required)
+lan: provider base URL http://192.168.1.20:8789/v1
+```
+
+On the other machine, add a provider pointing at that base URL with a Jevonian API key created on the first machine's **Keys** page (the `Jevonian (another machine)` preset, or `jevonian add` with `--base-url`). Requests then route: the second instance picks a model, and the first instance routes it again to its real provider.
+
+The LAN listener serves **only `/v1`** — the same surface the public tunnel forwards to. The dashboard and `/api` are never bound there, so a neighbour on the network cannot edit providers or read keys. Every request needs a real Jevonian key, and the loopback-only desktop sentinel (`jevonian-local`) is rejected on the LAN address. Enabling LAN access requires at least one key to exist.
 
 ## Pricing
 

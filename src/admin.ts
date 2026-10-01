@@ -40,6 +40,7 @@ import {
   parseModelSync,
   parseProviderLogin,
   parseTunnel,
+  parseLan,
   providerModelIds,
   providerSyncsModels,
   reconcileExcludeModels,
@@ -56,6 +57,7 @@ import {
 } from "./config";
 import { getCredential, removeCredential, setCredential } from "./credentials";
 import { createKey, hasKeys, listKeysWithUsage, revokeKey, updateKey } from "./keys";
+import { lanBaseUrls, lanBindHost, lanPort } from "./lan";
 import { readRecords, subscribeLedger, type LedgerRecord } from "./ledger";
 import type { ServerLifecycle } from "./lifecycle";
 import { loadModelSyncState, runModelSync } from "./model-sync";
@@ -336,6 +338,13 @@ export function createAdminApp(state: AppState): Hono {
         },
         modelSync: config.modelSync,
         tokenSaver: config.tokenSaver,
+        tunnel: config.tunnel,
+        lan: {
+          ...config.lan,
+          port: lanPort(config),
+          bindHost: lanBindHost(config.lan),
+          urls: lanBaseUrls(config),
+        },
       },
       modelSyncDefaultSources: MODEL_SYNC_DEFAULT_SOURCES,
       tiers: deriveTiers(config),
@@ -417,6 +426,60 @@ export function createAdminApp(state: AppState): Hono {
   app.get("/tunnel", (c) =>
     c.json({ config: state.config.tunnel, tunnel: state.tunnel?.status() ?? null }),
   );
+
+  /**
+   * LAN exposure. Read-only shape plus a URL list the dashboard can show; the surface binds
+   * at process start, so a change takes effect on the next restart (`restartRequired`).
+   */
+  app.get("/lan", (c) => {
+    const config = state.config;
+    return c.json({
+      config: config.lan,
+      port: lanPort(config),
+      bindHost: lanBindHost(config.lan),
+      urls: lanBaseUrls(config),
+      restartRequired: false,
+    });
+  });
+
+  app.put("/lan", async (c) => {
+    const body = asRecord(await c.req.json().catch(() => ({})));
+    const config = loadConfig() ?? state.config;
+    const merged = parseLan({
+      ...config.lan,
+      enabled: typeof body.enabled === "boolean" ? body.enabled : config.lan.enabled,
+      // Explicit "" clears a stored host/port; omit keeps it.
+      host: Object.prototype.hasOwnProperty.call(body, "host")
+        ? typeof body.host === "string" && body.host.trim()
+          ? body.host.trim()
+          : undefined
+        : config.lan.host,
+      port: Object.prototype.hasOwnProperty.call(body, "port")
+        ? typeof body.port === "number"
+          ? body.port
+          : undefined
+        : config.lan.port,
+    });
+    let error: string | undefined;
+    if (merged.enabled && !hasKeys()) {
+      merged.enabled = false;
+      error = "Create a Jevonian API key first — the LAN endpoint refuses unauthenticated traffic.";
+    }
+    const next: Config = { ...config, lan: merged };
+    persist(next);
+    const changed =
+      merged.enabled !== config.lan.enabled ||
+      merged.host !== config.lan.host ||
+      merged.port !== config.lan.port;
+    return c.json({
+      config: next.lan,
+      port: lanPort(next),
+      bindHost: lanBindHost(next.lan),
+      urls: lanBaseUrls(next),
+      restartRequired: changed,
+      ...(error ? { error } : {}),
+    });
+  });
 
   app.put("/tunnel", async (c) => {
     const body = asRecord(await c.req.json().catch(() => ({})));
