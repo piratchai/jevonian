@@ -103,8 +103,10 @@ On **macOS**, `jevonian` installs a LaunchAgent and keeps the proxy running in t
 | Command                     | What it does                            |
 | --------------------------- | --------------------------------------- |
 | `jevonian`                  | Start / ensure the proxy is running     |
+| `jevonian start`            | Same as bare `jevonian` (macOS)         |
 | `jevonian status`           | Show pid and recent log (macOS)         |
 | `jevonian stop`             | Stop the background service (macOS)     |
+| `jevonian restart`          | Restart the background service (macOS)  |
 | `jevonian stop --uninstall` | Stop and remove the LaunchAgent (macOS) |
 | `jevonian --foreground`     | Run attached in this terminal instead   |
 

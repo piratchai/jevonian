@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { Usage } from "./pricing";
+import { softErrorMessage } from "./soft-error";
 
 /** OpenAI Responses rejects `call_id` longer than this (`string_above_max_length`). */
 const MAX_CALL_ID_LENGTH = 64;
@@ -594,7 +595,13 @@ export class ResponsesChatBridge {
 
   finish(): Record<string, unknown>[] {
     if (this.failure) {
-      return [{ error: { message: this.failure, type: "upstream_error" } }];
+      // A chat-wire client (Cursor et al.) reads a bare `{ error }` chunk as an invalid
+      // response and can roll the user message back. Close the turn as a normal assistant
+      // message instead; the ledger row still records the real failure.
+      return [
+        this.chunk({ content: softErrorMessage(this.failure) }, null),
+        this.chunk({}, "stop"),
+      ];
     }
     if (!this.completed) return [this.chunk({}, this.finishReason)];
     return [];
@@ -802,12 +809,30 @@ export class ChatToResponsesBridge {
         message: typeof error.message === "string" ? error.message : "upstream error",
         type: typeof error.type === "string" ? error.type : "upstream_error",
       };
-      return [
-        {
-          type: "response.failed",
-          response: { ...this.responseSkeleton("failed"), error: this.failure },
-        },
-      ];
+      // A Responses client (Codex) reads `response.failed` as a hard failure and can drop the
+      // whole turn, so the failure is written into a normal assistant message instead and
+      // `finish()` completes the turn. The real failure still rides on `result().failure` for
+      // the ledger, and the soft text names the upstream reason.
+      const events: Record<string, unknown>[] = [];
+      if (!this.started) {
+        this.started = true;
+        events.push({ type: "response.created", response: this.responseSkeleton("in_progress") });
+        events.push({
+          type: "response.in_progress",
+          response: this.responseSkeleton("in_progress"),
+        });
+      }
+      const { itemId, outputIndex } = this.ensureMessageItem(events);
+      const text = softErrorMessage(this.failure.message);
+      this.content += text;
+      events.push({
+        type: "response.output_text.delta",
+        item_id: itemId,
+        output_index: outputIndex,
+        content_index: 0,
+        delta: text,
+      });
+      return events;
     }
 
     const events: Record<string, unknown>[] = [];
@@ -927,7 +952,6 @@ export class ChatToResponsesBridge {
   finish(): Record<string, unknown>[] {
     if (this.completed) return [];
     this.completed = true;
-    if (this.failure) return [];
     const events: Record<string, unknown>[] = [];
     const output: unknown[] = [];
 

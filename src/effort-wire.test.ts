@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { normalizeAnthropicPrefill } from "./anthropic";
 import {
   anthropicThinkingSupport,
   BRIDGED_THINKING_MAX_TOKENS,
   fitThinkingMaxTokens,
+  rejectsAssistantPrefill,
   THINKING_HEADROOM,
 } from "./anthropic-thinking";
 import { responsesToChatRequest } from "./responses";
@@ -203,6 +205,23 @@ describe("adaptive thinking on newer Claude models", () => {
     expect(anthropicThinkingSupport("gpt-5").adaptive).toBe(false);
   });
 
+  it("classifies which models reject a trailing assistant prefill", () => {
+    // Claude 4.6+ and the Fable/Mythos family reject prefill.
+    expect(rejectsAssistantPrefill("claude-opus-4-6")).toBe(true);
+    expect(rejectsAssistantPrefill("claude-sonnet-5")).toBe(true);
+    expect(rejectsAssistantPrefill("claude-opus-5-5")).toBe(true);
+    expect(rejectsAssistantPrefill("anthropic/claude-fable-5")).toBe(true);
+    // The previews carry no version digit but still reject prefill.
+    expect(rejectsAssistantPrefill("claude-mythos-preview")).toBe(true);
+    // Claude 4.5 / Haiku 4.5 and older still accept one prefilled assistant turn.
+    expect(rejectsAssistantPrefill("claude-sonnet-4-5-20250929")).toBe(false);
+    expect(rejectsAssistantPrefill("claude-haiku-4-5-20251001")).toBe(false);
+    expect(rejectsAssistantPrefill("claude-3-7-sonnet")).toBe(false);
+    // Non-Claude and unknown ids are left alone.
+    expect(rejectsAssistantPrefill("gpt-5")).toBe(false);
+    expect(rejectsAssistantPrefill(undefined)).toBe(false);
+  });
+
   it("writes adaptive thinking with output_config.effort instead of a budget", () => {
     expect(withEffort({ model: "claude-opus-4-7" }, "medium", "anthropic")).toEqual({
       model: "claude-opus-4-7",
@@ -355,6 +374,34 @@ describe("bridgedAnthropicBody", () => {
     );
     expect(out.output_config).toEqual({ effort: "medium" });
     expect(out.max_tokens).toBe(2_000);
+  });
+
+  it("drops a trailing assistant prefill before egress to a prefill-rejecting model", () => {
+    const body = {
+      messages: [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "reply" },
+        { role: "user", content: "second" },
+        { role: "assistant", content: "partial" },
+      ],
+    };
+    const out = normalizeAnthropicPrefill(
+      bridgedAnthropicBody(body, { model: "claude-opus-5-5", stream: true }),
+    ) as { messages: Array<{ role: string }> };
+    expect(out.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+  });
+
+  it("keeps a client's prefill for a model that still supports it", () => {
+    const body = {
+      messages: [
+        { role: "user", content: "first" },
+        { role: "assistant", content: "partial" },
+      ],
+    };
+    const out = normalizeAnthropicPrefill(
+      bridgedAnthropicBody(body, { model: "claude-sonnet-4-5-20250929", stream: true }),
+    ) as { messages: Array<{ role: string }> };
+    expect(out.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });
 });
 

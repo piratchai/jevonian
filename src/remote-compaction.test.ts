@@ -214,7 +214,10 @@ describe("Codex remote compaction v2", () => {
       }),
     });
 
-    expect(response.status).toBe(429);
+    // The turn is streamed, so the refusal is closed as a soft assistant message rather than a
+    // bare 429: a hard error mid-agent-loop is what makes the harness roll the user message back.
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-soft-error")).toBe("1");
     expect(hits.every((url) => url.includes("chatgpt.com"))).toBe(true);
     expect(hits.some((url) => url.includes("openrouter"))).toBe(false);
     const text = await response.text();

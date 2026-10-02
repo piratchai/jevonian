@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
+import { rejectsAssistantPrefill } from "./anthropic-thinking";
 import type { Usage } from "./pricing";
 import { splitSseEvents } from "./responses";
+import { softErrorMessage } from "./soft-error";
 
 /** Anthropic rejects `tool_use.id` / `tool_result.tool_use_id` outside this charset. */
 const ANTHROPIC_TOOL_ID = /^[a-zA-Z0-9_-]+$/;
@@ -103,6 +105,54 @@ function toolChoiceFor(choice: unknown): Record<string, unknown> | undefined {
     if (name.length > 0) return { type: "tool", name };
   }
   return undefined;
+}
+
+/** True when an Anthropic message is an assistant turn carrying no `tool_use` block. */
+function isPlainAssistantMessage(message: Record<string, unknown>): boolean {
+  if (message.role !== "assistant") return false;
+  const content = message.content;
+  if (typeof content === "string") return true;
+  if (!Array.isArray(content)) return true;
+  return !content.some((block) => asRecord(block).type === "tool_use");
+}
+
+/**
+ * Claude 4.6 and later (plus the Fable/Mythos family) reject a conversation whose final message
+ * is an assistant turn ("prefill") with 400 `This model does not support assistant message
+ * prefill. The conversation must end with a user message.` A Chat or Responses client can
+ * legitimately send a trailing assistant turn — Cursor re-sends the last assistant reply, and a
+ * client may seed a partial reply — so the bridge would forward it and fail the whole turn.
+ *
+ * Drops trailing plain-assistant prefill messages on models that reject prefill, so the request
+ * ends on the user/tool turn before them. A trailing assistant that carries `tool_use` is left
+ * alone: that is an in-flight tool call awaiting its result, not a prefill, and dropping it would
+ * orphan the call. Models that still support prefill (Claude 4.5 / Haiku 4.5 and older) are never
+ * touched, so a client that deliberately prefills those keeps its steer.
+ */
+export function normalizeAnthropicPrefill(body: Record<string, unknown>): Record<string, unknown> {
+  if (!rejectsAssistantPrefill(body.model)) return body;
+  const messages = Array.isArray(body.messages) ? body.messages : null;
+  if (!messages || messages.length === 0) return body;
+  if (!isPlainAssistantMessage(asRecord(messages[messages.length - 1]))) return body;
+
+  let end = messages.length - 1;
+  while (end > 0 && isPlainAssistantMessage(asRecord(messages[end - 1]))) end -= 1;
+  const trimmed = messages.slice(0, end);
+  // A body that is nothing but assistant turns cannot be trimmed to empty (Anthropic requires at
+  // least one message). Relocate the newest one to a user turn instead, flattening to text so no
+  // assistant-only block (e.g. `thinking`) ends up in a user turn.
+  if (trimmed.length === 0) {
+    const only = asRecord(messages[messages.length - 1]);
+    // Flatten to text so no assistant-only block (e.g. `thinking`) ends up in a user turn. An
+    // assistant turn can be empty (a bare tool-free reply), and Anthropic rejects empty user
+    // content, so fall back to a placeholder that still asks the model to continue.
+    const text = textOf(only.content).trim();
+    return {
+      ...body,
+      messages: [{ role: "user", content: text.length > 0 ? text : "Continue." }],
+    };
+  }
+  return { ...body, messages: trimmed };
 }
 
 export function chatToAnthropic(body: Record<string, unknown>): Record<string, unknown> {
@@ -421,7 +471,7 @@ export function anthropicToChat(
 
 export function anthropicToChatStream(
   model: string,
-  onFinish?: (usage: Usage) => void,
+  onFinish?: (usage: Usage, failure?: string) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -550,13 +600,19 @@ export function anthropicToChatStream(
     flush(controller) {
       buffer += decoder.decode();
       for (const event of splitSseEvents(buffer).events) handle(event, controller);
-      if (failure) {
-        emit({ error: { message: failure, type: "upstream_error" } }, controller);
-      } else if (!finished) {
+      // A finish reason already ended the turn: never append a second one, which would be an
+      // invalid duplicate for a strict Chat client. The upstream error is still reported below.
+      if (failure && !finished) {
+        // Never hand a mid-stream refusal to the client as a bare `{ error }` frame: the harness
+        // reads that as an invalid response and can roll the user message back. Finish the turn
+        // with a readable assistant message instead; the ledger still records the real failure.
+        emit(chunk({ content: softErrorMessage(failure) }, null), controller);
+      }
+      if (!finished) {
         emit({ ...chunk({}, "stop"), usage: usagePayload() }, controller);
       }
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      onFinish?.(usage);
+      onFinish?.(usage, failure);
     },
   });
 }

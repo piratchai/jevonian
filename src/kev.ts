@@ -227,7 +227,7 @@ function configureBrain(port: number, primary: boolean): void {
   console.log(
     `${hadKev ? "updated" : "added"} the Kev brain (${kevBaseUrl(port)}); brain order: ${order}`,
   );
-  console.log("A running Jevonian picks this up on its next restart: `jevonian stop && jevonian`.");
+  console.log("A running Jevonian picks this up on its next restart: `jevonian restart`.");
 }
 
 function kevHelp(): void {

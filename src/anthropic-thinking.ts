@@ -62,6 +62,33 @@ export function anthropicThinkingSupport(model: unknown): AnthropicThinkingSuppo
   };
 }
 
+/**
+ * True when the model rejects a trailing `assistant` turn ("prefill").
+ *
+ * Claude 4.6 and later, plus the Fable/Mythos family, answer a request whose final message is an
+ * assistant turn with 400 `This model does not support assistant message prefill. The
+ * conversation must end with a user message.` Claude 4.5 / Haiku 4.5 and older still accept one
+ * prefilled assistant turn, so a client that legitimately seeds a partial reply must not have it
+ * rewritten.
+ *
+ * @see https://platform.claude.com/docs/en/api/errors#prefill-not-supported
+ */
+export function rejectsAssistantPrefill(model: unknown): boolean {
+  if (typeof model !== "string") return false;
+  const id = model.toLowerCase();
+  const match = MODEL_ID.exec(id);
+  if (!match) {
+    // The Fable/Mythos previews carry no version digit, so `MODEL_ID` does not match them, but
+    // they still reject prefill (the docs name "Claude Mythos Preview" explicitly).
+    return /claude-(fable|mythos)(?=$|[^a-z0-9])/.test(id);
+  }
+  const family = match[1];
+  // Every Fable/Mythos generation rejects prefill, including the extended-thinking preview.
+  if (family === "fable" || family === "mythos") return true;
+  const version = Number(match[2]) + (match[3] ? Number(match[3]) / 10 : 0);
+  return version >= 4.6;
+}
+
 /** Room left for the visible answer on top of a legacy thinking budget. */
 export const THINKING_HEADROOM = 4_096;
 

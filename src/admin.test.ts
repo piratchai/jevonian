@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createAdminApp, type AppState } from "./admin";
-import { saveBody } from "./bodies";
+import { flushBodies, saveBody } from "./bodies";
 import { loadConfig, parseConfig } from "./config";
 import { getCredential } from "./credentials";
 import { appendRecord } from "./ledger";
@@ -209,6 +209,9 @@ describe("admin config writes", () => {
       state: { last_user_message: "jev check" },
       verdict: { model: "deepseek-v4.1-flash", confidence: 0.9 },
     });
+    // Captures are written asynchronously now, so wait for both to land before reading them
+    // back through the detail endpoint.
+    await flushBodies();
     const app = createAdminApp({ config: parseConfig({}) });
 
     const response = await app.request(`/logs/${requestId}`);

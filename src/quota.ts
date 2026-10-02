@@ -170,6 +170,7 @@ export function resetQuotaCache(): void {
   headerQuotaCache = undefined;
   liveCache.clear();
   ledgerCache = undefined;
+  spendCache = undefined;
 }
 
 function ledgerRecords(now: number): LedgerRecord[] {
@@ -652,8 +653,43 @@ export function markProviderSpent(
   liveCache.delete(provider.name);
 }
 
+/**
+ * Per-ledger-snapshot spend cache.
+ *
+ * `spendOf` walks the whole ledger (215k rows on the live file) once per provider, and routing
+ * asks for it per candidate — a dozen times a turn across ten providers. The ledger is memoized
+ * for {@link LEDGER_TTL_MS}, but that cache is now mutated in place by our own appends, so the
+ * array reference alone no longer identifies a snapshot. The pair (reference, length) does: an
+ * append grows the length, and a rewrite that replaces the file produces a new array.
+ *
+ * The windows are *rolling* (`age = now - ts`), so the snapshot alone is not a complete key:
+ * two reads of the same records a minute apart must return different spends once a window
+ * boundary passes. Without a time component a provider pinned at "exhausted" would stay
+ * exhausted until an unrelated append grew `length`. `computedAt` re-derives each window from
+ * `now`, and the entry is rebuilt once {@link SPEND_CACHE_TTL_MS} has elapsed.
+ */
+const SPEND_CACHE_TTL_MS = 60_000;
+
+let spendCache:
+  | {
+      records: LedgerRecord[];
+      length: number;
+      computedAt: number;
+      byProvider: Map<string, ProviderSpend>;
+    }
+  | undefined;
+
 function spendOf(records: LedgerRecord[], provider: string): ProviderSpend {
   const now = Date.now();
+  if (
+    spendCache?.records !== records ||
+    spendCache.length !== records.length ||
+    now - spendCache.computedAt >= SPEND_CACHE_TTL_MS
+  ) {
+    spendCache = { records, length: records.length, computedAt: now, byProvider: new Map() };
+  }
+  const cached = spendCache.byProvider.get(provider);
+  if (cached) return cached;
   const spend: ProviderSpend = {
     fiveHourUsd: 0,
     dayUsd: 0,
@@ -675,13 +711,15 @@ function spendOf(records: LedgerRecord[], provider: string): ProviderSpend {
       spend.monthRequests += 1;
     }
   }
-  return {
+  const rounded: ProviderSpend = {
     fiveHourUsd: round(spend.fiveHourUsd),
     dayUsd: round(spend.dayUsd),
     weekUsd: round(spend.weekUsd),
     monthUsd: round(spend.monthUsd),
     monthRequests: spend.monthRequests,
   };
+  spendCache.byProvider.set(provider, rounded);
+  return rounded;
 }
 
 function specWindows(spec: ProviderQuotaSpec, spend: ProviderSpend): QuotaWindow[] {

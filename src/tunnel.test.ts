@@ -7,7 +7,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 import { normalizeTunnelUrl, parseTunnel } from "./config";
-import { buildTunnelCommand, extractTunnelUrl, TunnelManager, type TunnelHost } from "./tunnel";
+import {
+  buildTunnelCommand,
+  commandMatches,
+  extractTunnelUrl,
+  TunnelManager,
+  type TunnelHost,
+} from "./tunnel";
 import { augmentPath } from "./user-path";
 
 describe("normalizeTunnelUrl / parseTunnel", () => {
@@ -396,5 +402,125 @@ describe("TunnelManager restart adoption", () => {
     });
     manager.stop();
     expect(existsSync(statePath)).toBe(false);
+  });
+});
+
+describe("commandMatches", () => {
+  it("matches the sh -c wrapper against the exec'd command line", () => {
+    // `sh -c cloudflared …` execs into cloudflared; `ps` never shows the wrapper.
+    const recorded = "sh -c cloudflared tunnel --config /home/u/t.yml run";
+    const real = "cloudflared tunnel --config /home/u/t.yml run";
+    expect(commandMatches(real, recorded)).toBe(true);
+    expect(commandMatches(recorded, recorded)).toBe(true);
+  });
+
+  it("matches quoted and exec-prefixed wrappers", () => {
+    expect(
+      commandMatches("bore local 8788 --to bore.pub", 'sh -c "bore local 8788 --to bore.pub"'),
+    ).toBe(true);
+    expect(commandMatches("cloudflared tunnel run", "sh -c exec cloudflared tunnel run")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a different command that shares a prefix", () => {
+    // A shorter configured command must not match a longer unrelated invocation.
+    expect(commandMatches("cloudflared tunnel --config other.yml run", "cloudflared tunnel")).toBe(
+      false,
+    );
+    expect(commandMatches("ngrok http 9999 --log stdout", "sh -c ngrok http 8788")).toBe(false);
+  });
+});
+
+describe("TunnelManager orphan sweep", () => {
+  it("reaps a stale process running the configured command on start", () => {
+    const statePath = recordPath();
+    const fake = fakeSpawn(7777);
+    const terminated: number[] = [];
+    const host: FakeHost = {
+      terminated,
+      alive: () => false, // no recorded pid alive — orphan is not the record's pid
+      identify: () => false,
+      terminate: (pid) => {
+        terminated.push(pid);
+      },
+      // An orphan cloudflared from a crashed serve still runs the exact command.
+      find: (command) => (command.includes("cloudflared") ? [5150] : []),
+    };
+    const manager = new TunnelManager({ enabled: true, provider: "cloudflare" }, 8787, {
+      spawnFn: fake.spawn as never,
+      timeoutMs: 1_000,
+      statePath,
+      host,
+    });
+    manager.start();
+    // The orphan was swept before the new spawn.
+    expect(terminated).toEqual([5150]);
+    expect(fake.last()).toBeDefined();
+    manager.stop();
+  });
+
+  it("does not kill an unrelated process that only shares a prefix", () => {
+    const statePath = recordPath();
+    const fake = fakeSpawn(7777);
+    const terminated: number[] = [];
+    const host: FakeHost = {
+      terminated,
+      alive: () => false,
+      identify: () => false,
+      terminate: (pid) => {
+        terminated.push(pid);
+      },
+      // Some other tunnel on a different config — the find impl only reports a
+      // pid when the host's own matcher says the line equals the command, so a
+      // prefix-only match returns nothing here.
+      find: () => [],
+    };
+    const manager = new TunnelManager({ enabled: true, provider: "cloudflare" }, 8787, {
+      spawnFn: fake.spawn as never,
+      timeoutMs: 1_000,
+      statePath,
+      host,
+    });
+    manager.start();
+    expect(terminated).toEqual([]);
+    manager.stop();
+  });
+
+  it("reaps duplicates but keeps the adopted tunnel on restart", () => {
+    // The leak this sweep exists for: earlier restarts left duplicates of the same command
+    // running beside the recorded one. Adoption alone kept them all alive.
+    const statePath = recordPath();
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        pid: 4242,
+        provider: "cloudflare",
+        publicPort: 8788,
+        command: "cloudflared tunnel --url http://127.0.0.1:8788 --no-autoupdate",
+        url: "https://steady-name.trycloudflare.com",
+        startedAt: "2026-09-20T00:00:00.000Z",
+      }),
+    );
+    const fake = fakeSpawn();
+    const terminated: number[] = [];
+    const host: FakeHost = {
+      terminated,
+      alive: () => true,
+      identify: () => true,
+      terminate: (pid) => {
+        terminated.push(pid);
+      },
+      find: () => [4242, 5150, 5151],
+    };
+    const manager = new TunnelManager({ enabled: true, provider: "cloudflare" }, 8787, {
+      spawnFn: fake.spawn as never,
+      timeoutMs: 1_000,
+      statePath,
+      host,
+    });
+    expect(manager.start()).toMatchObject({ status: "on" });
+    expect(fake.last()).toBeUndefined();
+    expect(terminated).toEqual([5150, 5151]);
   });
 });

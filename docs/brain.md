@@ -50,7 +50,7 @@ One command deploys it and makes it the primary brain (you need `git` and [uv](h
 
 ```bash
 jevonian kev --start          # clone + install + start kev-4b on :8009 + add the brain
-jevonian stop && jevonian     # restart Jevonian so it reads the new brain
+jevonian restart              # reload Jevonian so it reads the new brain
 ```
 
 ```bash

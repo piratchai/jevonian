@@ -3,7 +3,9 @@
 Every command works against the same `~/.config/jevonian/config.json` the dashboard edits.
 
 - `jevonian` / `jevonian serve` — start the local proxy (default). On macOS this installs a LaunchAgent, keeps it running in the background, and returns; on other platforms it serves in the foreground. Use `--foreground` for an attached process on macOS
-- `jevonian stop [--uninstall]` — stop the macOS background service (`--uninstall` also removes the LaunchAgent)
+- `jevonian start` — macOS alias for the above after `jevonian stop` (reloads the LaunchAgent; same as bare `jevonian`)
+- `jevonian stop [--uninstall]` — stop the macOS background service (`--uninstall` also removes the LaunchAgent). Prints how to start again
+- `jevonian restart` — macOS: kickstart the LaunchAgent in place (or start it if it was stopped). Prefer this over `stop` + `start` when reloading config or applying an update
 - `jevonian status` — LaunchAgent state, pid, LAN state, and recent serve log (macOS)
 - `jevonian init` — setup wizard for the first provider (non-interactive: writes an example config)
 - `jevonian add [provider]` — add or update a provider; interactive picker, live model discovery, auto tiers

@@ -120,6 +120,15 @@ function sseFinish(event: Record<string, unknown>): unknown {
   return (event.choices as Array<Record<string, unknown>>)[0]?.finish_reason;
 }
 
+/** All streamed assistant text, joined — the soft close appends a trailing message. */
+function sseText(events: Array<Record<string, unknown> | string>): string {
+  return events
+    .filter((event): event is Record<string, unknown> => typeof event === "object")
+    .map((event) => sseDelta(event).content)
+    .filter((value): value is string => typeof value === "string")
+    .join("");
+}
+
 function upstreamStream(): Uint8Array {
   const usage = concat([int(2, 11), int(3, 7), int(4, 5), int(5, 9), bytes(9, "actual-model")]);
   const toolStart = concat([bytes(1, "call_weather"), bytes(2, "weather"), bytes(3, '{"city":')]);
@@ -453,7 +462,12 @@ describe("Devin stream translation", () => {
       await readBytes(streamOf([wire]).pipeThrough(devinToChatStream("model", onFinish))),
     );
     expect(sseDelta(events[1] as Record<string, unknown>).content).toBe("partial");
-    expect(events.at(-2)).toEqual({ error: { message: "high demand", type: "upstream_error" } });
+    // A mid-stream trailer is closed as a readable assistant message so the harness keeps the
+    // turn; the classified error still reaches `onFinish` for the ledger.
+    const text = sseText(events);
+    expect(text).toContain("Jevonian hit an internal error");
+    expect(text).toContain("high demand");
+    expect(sseFinish(events.at(-2) as Record<string, unknown>)).toBe("stop");
     expect(events.at(-1)).toBe("[DONE]");
     expect(onFinish).toHaveBeenCalledTimes(1);
     expect(onFinish.mock.calls[0]?.[0]).toMatchObject({ error: { kind: "capacity", status: 503 } });
@@ -473,7 +487,7 @@ describe("Devin stream translation", () => {
         streamOf([encodeConnectFrame(bytes(3, "partial"))]).pipeThrough(devinToChatStream("model")),
       ),
     );
-    expect(truncated.at(-2)).toMatchObject({ error: { type: "upstream_error" } });
+    expect(truncated.at(-2)).toMatchObject({ choices: [{ finish_reason: "stop" }] });
   });
 
   it("peeks through metadata frames and replays every original byte", async () => {
@@ -573,9 +587,7 @@ describe("Devin stream translation", () => {
       ),
     );
     expect(JSON.stringify(events)).not.toContain(token);
-    expect(events.at(-2)).toMatchObject({
-      error: { message: "echo [REDACTED]" },
-    });
+    expect(sseText(events)).toContain("echo [REDACTED]");
 
     const body = new ReadableStream<Uint8Array>({
       pull() {

@@ -12,6 +12,7 @@ import { gunzipSync } from "node:zlib";
 
 import type { Usage } from "./pricing";
 import { sanitizeBuiltinPrompt } from "./prompt-policy";
+import { softErrorMessage } from "./soft-error";
 
 export const DEVIN_DEFAULT_BASE_URL = "https://server.codeium.com";
 
@@ -1105,7 +1106,11 @@ export function devinToChatStream(
     flush(controller) {
       emitEvents(state.finish(), controller);
       if (state.error) {
-        emit({ error: { message: state.error.message, type: "upstream_error" } }, controller);
+        // A mid-stream refusal is Jevonian's problem, not the model's: close the turn with a
+        // readable assistant message so the harness keeps the conversation instead of rolling
+        // the user message back. The real error still reaches the ledger through `report()`.
+        emit(chunk({ content: softErrorMessage(state.error.message) }, null), controller);
+        emit({ ...chunk({}, "stop"), usage: openaiUsage(state.usage) }, controller);
       } else {
         emit({ ...chunk({}, state.finishReason()), usage: openaiUsage(state.usage) }, controller);
       }

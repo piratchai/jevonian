@@ -430,24 +430,38 @@ describe("ResponsesChatBridge", () => {
     expect(bridge.finish()).toEqual([]);
   });
 
-  it("reports upstream failures", () => {
+  it("reports upstream failures and closes the turn softly", () => {
     const bridge = new ResponsesChatBridge("gpt-5.6-codex");
     bridge.handle({ type: "response.failed", response: { error: { message: "boom" } } });
     expect(bridge.result().failure).toBe("boom");
-    expect(bridge.finish()).toEqual([{ error: { message: "boom", type: "upstream_error" } }]);
+    // A chat client must not receive a bare `{ error }` chunk: the harness reads that as an
+    // invalid response and can roll the user message back. The real failure still rides on
+    // `result().failure` for the ledger.
+    const finish = bridge.finish();
+    expect(finish.at(-1)).toMatchObject({ choices: [{ finish_reason: "stop" }] });
+    expect(JSON.stringify(finish)).toContain("Jevonian hit an internal error");
+    expect(JSON.stringify(finish)).toContain("boom");
   });
 });
 
 describe("ChatToResponsesBridge", () => {
-  it("treats a chat error as terminal rather than completing a failed response", () => {
+  it("closes a chat error as a soft completed response instead of response.failed", () => {
     const bridge = new ChatToResponsesBridge("swe-1-6-slow");
     bridge.handle({ choices: [{ delta: { role: "assistant", content: "partial" } }] });
     const failed = bridge.handle({
       error: { message: "upstream refused", type: "upstream_error" },
     });
-    expect(failed).toMatchObject([{ type: "response.failed" }]);
+    // A `response.failed` event is a hard failure the Codex harness can roll the turn back on,
+    // so the error is written into the message item instead. The ledger still sees it through
+    // `result().failure`.
+    expect(failed.some((event) => event.type === "response.failed")).toBe(false);
+    const delta = failed.find((event) => event.type === "response.output_text.delta");
+    expect(JSON.stringify(delta)).toContain("Jevonian hit an internal error");
+    expect(JSON.stringify(delta)).toContain("upstream refused");
     expect(bridge.handle({ choices: [{ delta: { content: "late" } }] })).toEqual([]);
-    expect(bridge.finish()).toEqual([]);
+    const finish = bridge.finish();
+    expect(finish.at(-1)).toMatchObject({ type: "response.completed" });
+    expect(finish.some((event) => event.type === "response.failed")).toBe(false);
     expect(bridge.result().failure).toBe("upstream refused");
   });
 

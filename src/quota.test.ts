@@ -1060,7 +1060,7 @@ describe("quota headers", () => {
         },
       ],
     });
-    appendRecord({
+    const spendRecord = (costUsd: number) => ({
       ts: new Date().toISOString(),
       session: "s",
       path: "/chat/completions",
@@ -1073,15 +1073,67 @@ describe("quota headers", () => {
       completionTokens: 1,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
-      costUsd: 7,
+      costUsd,
       pricingKnown: true,
-      billing: "subscription",
+      billing: "subscription" as const,
     });
+    appendRecord(spendRecord(7));
     const quotas = await providerQuotas(config);
     expect(quotas[0]?.source).toBe("ledger");
     expect(quotas[0]?.spend.fiveHourUsd).toBe(7);
     expect(quotas[0]?.windows.find((window) => window.id === "5h")?.usedPercent).toBeCloseTo(50);
     expect(quotas[0]?.windows.find((window) => window.id === "month")?.usedPercent).toBeCloseTo(10);
+
+    // A new turn must move the spend. The ledger cache is mutated in place by our own appends,
+    // so a spend cache keyed on the array reference alone would keep serving 7 forever.
+    appendRecord(spendRecord(3));
+    const after = await providerQuotas(config);
+    expect(after[0]?.spend.fiveHourUsd).toBe(10);
+  });
+
+  it("recomputes spend after the cache TTL even when the ledger is unchanged", async () => {
+    vi.useFakeTimers();
+    try {
+      const config = parseConfig({
+        providers: [
+          {
+            name: "custom-sub",
+            type: "openai",
+            baseUrl: "https://subscription.example.com/v1",
+            apiKey: "test",
+            billing: "subscription",
+            quota: { fiveHourUsd: 14 },
+            models: ["taste-1"],
+          },
+        ],
+      });
+      // A spend 4h59m ago still counts against the 5h window…
+      appendRecord({
+        ts: new Date(Date.now() - (5 * 3_600_000 - 60_000)).toISOString(),
+        session: "s",
+        path: "/chat/completions",
+        provider: "custom-sub",
+        model: "taste-1",
+        stream: false,
+        status: 200,
+        latencyMs: 10,
+        promptTokens: 1,
+        completionTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: 7,
+        pricingKnown: true,
+        billing: "subscription",
+      });
+      expect(providerQuotaHealth(config.providers[0]!).usedPercent).toBeCloseTo(50);
+      // …but the window is rolling, not snapshot-fixed. Advance past both the
+      // spend-cache TTL and the 5h boundary; a cache keyed only on (array,length)
+      // would keep reporting the record as inside the window forever.
+      vi.setSystemTime(Date.now() + 5 * 3_600_000);
+      expect(providerQuotaHealth(config.providers[0]!).usedPercent).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

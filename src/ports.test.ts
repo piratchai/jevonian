@@ -1,8 +1,8 @@
-import { createServer } from "node:net";
+import { createServer, type AddressInfo } from "node:net";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { portInUse, probeHost } from "./ports";
+import { portInUse, probeHost, waitForPort } from "./ports";
 
 describe("portInUse", () => {
   it("finds a listening port and a free one", async () => {
@@ -28,5 +28,22 @@ describe("probeHost", () => {
     expect(probeHost("")).toBe("127.0.0.1");
     expect(probeHost("127.0.0.1")).toBe("127.0.0.1");
     expect(probeHost("192.168.1.5")).toBe("192.168.1.5");
+  });
+});
+
+describe("waitForPort", () => {
+  it("resolves once the port accepts a connection", async () => {
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      // Not listening yet on a free high port — should time out quickly.
+      expect(await waitForPort(port + 1, "127.0.0.1", 200, 40)).toBe(false);
+      expect(await waitForPort(port, "127.0.0.1", 1_000, 40)).toBe(true);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 });

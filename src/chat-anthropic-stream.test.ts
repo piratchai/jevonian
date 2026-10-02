@@ -185,15 +185,21 @@ describe("chatToAnthropicStream", () => {
     });
   });
 
-  it("turns an upstream error chunk into an Anthropic error event", async () => {
+  it("ends the turn softly instead of failing the stream on an upstream error chunk", async () => {
+    // A bare `type: "error"` frame makes the harness treat the response as invalid and roll the
+    // user message back, so a mid-stream refusal is closed as a normal assistant message.
     const events = await run([
       delta({ content: "partial" }),
       { error: { message: "rate limited", type: "rate_limit_error" } },
     ]);
-    expect(events.at(-1)).toEqual({
-      type: "error",
-      error: { message: "rate limited", type: "rate_limit_error" },
-    });
-    expect(events.some((event) => event.type === "message_stop")).toBe(false);
+    const text = events
+      .filter((event) => event.type === "content_block_delta")
+      .map((event) => (event.delta as Record<string, unknown>).text)
+      .join("");
+    expect(text).toContain("partial");
+    expect(text).toContain("Jevonian hit an internal error");
+    expect(text).toContain("rate limited");
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    expect(events.at(-1)).toEqual({ type: "message_stop" });
   });
 });

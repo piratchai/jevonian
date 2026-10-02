@@ -32,6 +32,56 @@ export interface TunnelHost {
   alive(pid: number): boolean;
   identify(pid: number, command: string): boolean;
   terminate(pid: number, group: boolean): void;
+  /** Pids whose command line runs `command`, for sweeping orphans. Own pid excluded. */
+  find?(command: string): number[];
+}
+
+/**
+ * The command a process actually reports to `ps` for a given spawn label.
+ *
+ * `buildTunnelCommand` wraps a custom command as `sh -c <command>`; `sh` then
+ * exec's into the tunnel binary, so `ps` shows `cloudflared tunnel … run`, never
+ * the `sh -c ` prefix. Matching the recorded label verbatim therefore fails on
+ * every running tunnel and `adopt()` treats a live tunnel as foreign. Strip the
+ * known shell wrappers (`sh -c`, `bash -c`, `exec`, quoted forms) and match
+ * against both the recorded label and the unwrapped inner command.
+ */
+function commandVariants(command: string): string[] {
+  const variants = new Set<string>([command]);
+  let inner = command.trim();
+  // Peel one or more leading wrappers: `sh -c`, `/bin/sh -c`, `bash -c`, `exec`.
+  // Each may quote the remainder with single or double quotes.
+  for (let depth = 0; depth < 4; depth++) {
+    const stripped = inner
+      .replace(/^(?:\/\w+\/)?(?:ba|z|a)?sh\s+-c\s+/, "")
+      .replace(/^exec\s+/, "");
+    const unquoted = stripped.replace(/^(['"])([\s\S]*)\1$/, "$2");
+    const next = unquoted.trim();
+    if (next === inner) break;
+    inner = next;
+    variants.add(inner);
+  }
+  return [...variants].filter((variant) => variant.length > 0);
+}
+
+/**
+ * True when `psLine` runs `command`, accepting the recorded label or any
+ * shell-unwrapped form of it (see {@link commandVariants}). The match must end
+ * the line or be followed by whitespace, so a configured command that is a strict
+ * prefix of a *different* running command (`tunnel run` vs `tunnel run --config
+ * other.yml`) does not match and cannot kill an unrelated tunnel.
+ */
+export function commandMatches(psLine: string, command: string): boolean {
+  const line = psLine.trim();
+  for (const variant of commandVariants(command)) {
+    const at = line.indexOf(variant);
+    if (at < 0) continue;
+    // Conservative: only a full-line match counts. Anything non-blank after the
+    // command is a different invocation (extra args, another config) that the
+    // sweep must leave alone. Leading text is the shell wrapper the variants cover.
+    if (line.slice(at + variant.length).trim() === "") return true;
+  }
+  return false;
 }
 
 export const systemHost: TunnelHost = {
@@ -46,28 +96,67 @@ export const systemHost: TunnelHost = {
   identify(pid, command) {
     if (process.platform === "win32") return true;
     try {
-      return execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+      const psLine = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
-      }).includes(command);
+      });
+      return commandMatches(psLine, command);
     } catch {
       return false;
     }
   },
+  find(command) {
+    if (process.platform === "win32") return [];
+    try {
+      // pid + full command line for every process of this user. -ww keeps ps
+      // from truncating the line, which is what hides the args we match on.
+      const out = execFileSync("ps", ["-ww", "-x", "-o", "pid=,command="], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const self = process.pid;
+      const pids: number[] = [];
+      for (const line of out.split("\n")) {
+        const match = /^\s*(\d+)\s+(.+)$/.exec(line);
+        if (!match) continue;
+        const pid = Number(match[1]);
+        if (!Number.isInteger(pid) || pid <= 0 || pid === self) continue;
+        if (commandMatches(match[2]!, command)) pids.push(pid);
+      }
+      return pids;
+    } catch {
+      return [];
+    }
+  },
   terminate(pid, group) {
-    if (process.platform !== "win32" && group) {
-      try {
-        process.kill(-pid, "SIGTERM");
-        return;
-      } catch {
-        // not a group leader — fall through to the pid
+    const target = process.platform !== "win32" && group ? -pid : pid;
+    try {
+      process.kill(target, "SIGTERM");
+    } catch {
+      // not a group leader, or already gone — try the bare pid as a fallback
+      if (group) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          /* already gone */
+        }
       }
     }
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      // already gone
-    }
+    // cloudflared (and other tunnel daemons) can stall or ignore SIGTERM during a
+    // graceful shutdown while holding dozens of upstream connections. Escalate to
+    // SIGKILL shortly after so a restart does not leave an orphan behind. The
+    // timer is unref'd so a fire-and-forget escalation never holds the CLI open.
+    const check = setTimeout(() => {
+      for (const candidate of group ? [-pid, pid] : [pid]) {
+        try {
+          process.kill(candidate, 0);
+          process.kill(candidate, "SIGKILL");
+        } catch {
+          // already dead — nothing to escalate
+        }
+      }
+    }, 2_000);
+    check.unref?.();
   },
 };
 
@@ -184,13 +273,23 @@ export class TunnelManager {
     if (this.state.status === "starting" || this.state.status === "on") return this.status();
     this.stopping = false;
     const adopted = this.adopt();
-    if (adopted) return adopted;
+    if (adopted) {
+      // Adopting the recorded tunnel does not clear duplicates left by earlier leaky restarts;
+      // sweep them too (the adopted pid is kept by `sweepOrphans`).
+      const built = buildTunnelCommand(this.config, this.state.publicPort);
+      if (!("error" in built)) this.sweepOrphans(`${built.command} ${built.args.join(" ")}`);
+      return adopted;
+    }
     const built = buildTunnelCommand(this.config, this.state.publicPort);
     if ("error" in built) {
       this.state = { ...this.state, status: "error", error: built.error, url: undefined };
       return this.status();
     }
     const label = `${built.command} ${built.args.join(" ")}`;
+    // A stale tunnel from a previous serve can outlive the record that named it
+    // (adoption only reaps the recorded pid). Sweep any other process running this
+    // exact command before spawning, or each restart leaks one orphan cloudflared.
+    this.sweepOrphans(label);
     this.state = {
       ...this.state,
       status: "starting",
@@ -329,7 +428,29 @@ export class TunnelManager {
     ) {
       this.host.terminate(record.pid, this.detached);
     }
+    // Tunnel disabled: still reap orphans left running the configured command.
+    const built = buildTunnelCommand(this.config, this.state.publicPort);
+    if (!("error" in built)) this.sweepOrphans(`${built.command} ${built.args.join(" ")}`);
     this.clearRecord();
+  }
+
+  /**
+   * Terminate every process running this exact tunnel command that we did not
+   * just adopt. Only ever fires on the *configured* command string (which
+   * already embeds the user's own args), matched for the current user via
+   * {@link TunnelHost.find}; an unrelated cloudflared on another config is not
+   * matched, so this cannot kill a tunnel it does not own.
+   */
+  private sweepOrphans(command: string): void {
+    const find = this.host.find;
+    if (!find) return;
+    const keep = new Set<number>();
+    if (this.child?.pid) keep.add(this.child.pid);
+    if (this.adopted?.pid) keep.add(this.adopted.pid);
+    for (const pid of find.call(this.host, command)) {
+      if (keep.has(pid)) continue;
+      this.host.terminate(pid, this.detached);
+    }
   }
 
   private adopt(): TunnelState | undefined {

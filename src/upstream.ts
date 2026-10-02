@@ -7,6 +7,7 @@ import {
   anthropicToChatStream,
   chatToAnthropic,
   chatToAnthropicMessage,
+  normalizeAnthropicPrefill,
 } from "./anthropic";
 import {
   adaptiveEffort,
@@ -122,6 +123,12 @@ import {
 } from "./routing";
 import { saveTokens, warnSaverUnavailable } from "./saver";
 import type { AppEnv } from "./server";
+import {
+  softCompletionStream,
+  softErrorMessage,
+  redactSecrets,
+  withSoftCompletion,
+} from "./soft-error";
 import { streamWithKeepalive } from "./stream-keepalive";
 import {
   beginRoute,
@@ -471,12 +478,39 @@ function skippedHeader(skipped: RouteSkip[]): string {
 
 function errorResponse(c: Context, meta: RequestMeta, status: number, message: string): Response {
   record(meta, status, emptyUsage(), null, true, message);
+  // A streaming client that gets a JSON 5xx mid-agent loop can lose the whole turn: the harness
+  // treats a hard error as "the response is invalid" and rolls the message back. When the client
+  // asked to stream, answer as a completed assistant message instead, so the conversation
+  // survives and the user can retry. The ledger row above still records the real failure.
+  if (meta.stream) {
+    const text = softErrorMessage(message);
+    return new Response(softCompletionStream(clientKindOfPath(meta.path), meta.model, text), {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-store",
+        "x-jevonian-soft-error": "1",
+      },
+    });
+  }
   return c.json({ error: { message, type: "jevonian_error" } }, status as 400);
+}
+
+/** The client wire a ledger `path` belongs to. Determines the SSE shape a soft close must use. */
+function clientKindOfPath(path: string): RequestKind {
+  if (path === "/messages") return "anthropic";
+  if (path === "/responses") return "responses";
+  return "openai";
 }
 
 /**
  * An SSE Response that keeps the socket warm during silent thinking and writes a
  * ledger row when the client hangs up before the stream finishes.
+ *
+ * This is also the single place a mid-stream failure is turned into a normal assistant turn:
+ * the harness rolls the whole message back when a stream dies abruptly, so a dropped upstream
+ * socket is closed with a soft completion instead (see `./soft-error`). Only a real SSE body is
+ * wrapped — a passthrough of some other content type is forwarded untouched.
  */
 function streamResponse(
   stream: ReadableStream<Uint8Array> | null,
@@ -484,9 +518,38 @@ function streamResponse(
   headers: Record<string, string>,
   contentType = "text/event-stream",
   onClientCancel?: () => void,
+  /** Scrubs provider credentials from an upstream error before it reaches the user. */
+  redact?: (text: string) => string,
 ): Response {
+  const isSse = contentType.includes("event-stream");
+  let body = stream;
+  if (isSse) {
+    const kind = clientKindOfPath(meta.path);
+    const message = softErrorMessage("the upstream stream ended unexpectedly");
+    body = stream
+      ? withSoftCompletion(
+          stream,
+          kind,
+          meta.model,
+          message,
+          (reason) => {
+            record(
+              meta,
+              502,
+              emptyUsage(),
+              null,
+              true,
+              reason ?? "stream ended early (soft error)",
+            );
+          },
+          redact,
+        )
+      : // An upstream that produced no body at all: still answer the turn rather than
+        // handing the client an empty 200 it will read as a broken response.
+        softCompletionStream(kind, meta.model, message);
+  }
   return new Response(
-    streamWithKeepalive(stream, {
+    streamWithKeepalive(body, {
       onClientCancel:
         onClientCancel ?? (() => record(meta, 499, emptyUsage(), null, true, "client canceled")),
       // The first real chunk is the first byte a client can render, which is what makes a
@@ -708,10 +771,14 @@ export function bridgedAnthropicBody(
   const base = { ...chatToAnthropic(chatBody), model: options.model, stream: options.stream };
   const effort = options.clientEffort ?? options.effort;
   const max = chatBody.max_completion_tokens ?? chatBody.max_tokens;
-  return fitThinkingMaxTokens(withEffort(base, effort, "anthropic"), {
+  // Claude 4.6+ rejects a conversation ending on an assistant turn ("prefill"). A Chat client can
+  // re-send its last assistant reply, so drop the trailing prefill before the body leaves — after
+  // the thinking pass, which reads `model` but not the message list.
+  const fitted = fitThinkingMaxTokens(withEffort(base, effort, "anthropic"), {
     clientSetMax: typeof max === "number" && max > 0,
     maxOutput: options.maxOutput,
   });
+  return normalizeAnthropicPrefill(fitted);
 }
 
 /** Writes `output_config.effort`, keeping any other `output_config` keys the body carries. */
@@ -1833,6 +1900,10 @@ async function forward(
       return errorResponse(c, meta, 400, `Missing Cursor token for provider "${provider.name}"`);
     }
     withSessionAffinity(auth.headers, provider, decision.session, incomingHeaders);
+    // An upstream SSE error frame can echo the credential it rejected; scrub it before the text
+    // reaches the user or the ledger. `auth` is read lazily because a 401 refresh reassigns it.
+    const redactProvider = (text: string): string =>
+      redactSecrets(text, [auth.token, provider.apiKey]);
 
     saveBody(requestId, {
       kind: "request",
@@ -2053,9 +2124,15 @@ async function forward(
     // The Claude Code system prompt belongs to the Anthropic wire only.
     // WorkBuddy AI requires a leading system message on Chat Completions.
     const payloadFor = (wire: RequestKind): Record<string, unknown> => {
-      const payload = wire === upstreamKind ? upstreamBody : bodyFor(wire);
-      if (wire === "anthropic" && provider.auth === "oauth") return applyClaudeCodeSystem(payload);
-      if (wire === "openai" && workbuddyWire) return ensureWorkbuddySystem(payload);
+      let payload = wire === upstreamKind ? upstreamBody : bodyFor(wire);
+      if (wire === "anthropic" && provider.auth === "oauth")
+        payload = applyClaudeCodeSystem(payload);
+      if (wire === "openai" && workbuddyWire) payload = ensureWorkbuddySystem(payload);
+      // Claude 4.6+ rejects a conversation that ends on an assistant turn ("prefill"). A Chat or
+      // Responses client can legitimately re-send the last assistant reply, and the bridge would
+      // forward it and fail the whole turn, so drop trailing plain-assistant turns on models that
+      // reject prefill. A trailing `tool_use` turn is an in-flight call, not a prefill, and stays.
+      if (wire === "anthropic") payload = normalizeAnthropicPrefill(payload);
       return payload;
     };
     const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
@@ -2350,6 +2427,28 @@ async function forward(
       }
       endTry(requestId, { status: upstream.status, fail: `http-${upstream.status}` });
       record(meta, upstream.status, emptyUsage(), null, true, text.slice(0, 300));
+      // A streaming client must not receive a bare JSON error body: the harness reads that as a
+      // malformed response and can drop the turn. Close it as an assistant message instead. The
+      // body is redacted first: a provider that rejects a credential often echoes it back, and
+      // this text is shown to the user.
+      if (clientStream) {
+        const reason = redactSecrets(text, [auth.token, provider.apiKey]);
+        return new Response(
+          softCompletionStream(clientKind, decision.model, softErrorMessage(reason.slice(0, 300))),
+          {
+            status: 200,
+            headers: {
+              "content-type": "text/event-stream",
+              "cache-control": "no-store",
+              "x-jevonian-soft-error": "1",
+              ...decisionHeaders(decision, meta.retries),
+              ...(quotaFailovers > 0
+                ? { "x-jevonian-quota-failovers": String(quotaFailovers) }
+                : {}),
+            },
+          },
+        );
+      }
       return new Response(text, {
         status: upstream.status,
         headers: {
@@ -2389,15 +2488,32 @@ async function forward(
         // field, so letting the Responses stage's usage win zeroed cacheRead/cacheWrite and
         // under-billed cached turns. Recorded once, after the last stage flushes.
         const usage = emptyUsage();
-        const toChat = anthropicToChatStream(decision.model, (finalUsage) => {
+        // The Chat hop swallows the upstream `{ error }` and finishes the turn softly, so the
+        // failure is only visible here — the Responses stage sees a normal completion. Record
+        // it as the real 502 rather than a clean 200.
+        let failure: string | undefined;
+        const toChat = anthropicToChatStream(decision.model, (finalUsage, chatFailure) => {
           Object.assign(usage, finalUsage);
+          failure = chatFailure;
         });
-        const toResponses = chatToResponsesStream(decision.model, () => {
+        const toResponses = chatToResponsesStream(decision.model, (result) => {
+          const failed = failure ?? result.failure;
+          if (failed) {
+            record(meta, 502, usage, null, true, failed);
+            return;
+          }
           const cost = costOf(decision.model, usage, new Date(), decision.provider);
           record(meta, 200, usage, cost.usd, cost.known);
         });
         const streamBody = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
-        return streamResponse(streamBody, meta, decisionHeaders(decision, meta.retries));
+        return streamResponse(
+          streamBody,
+          meta,
+          decisionHeaders(decision, meta.retries),
+          "text/event-stream",
+          undefined,
+          redactProvider,
+        );
       }
       if (!upstreamStream) {
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -2411,8 +2527,14 @@ async function forward(
         );
       }
       const usage = emptyUsage();
-      const transform = anthropicToChatStream(decision.model, (finalUsage) => {
+      const transform = anthropicToChatStream(decision.model, (finalUsage, failure) => {
         Object.assign(usage, finalUsage);
+        // The refusal was already closed softly for the client; the ledger must still carry the
+        // real status instead of a clean 200 for a failed turn.
+        if (failure) {
+          record(meta, 502, usage, null, true, failure);
+          return;
+        }
         const cost = costOf(decision.model, usage, new Date(), decision.provider);
         record(meta, 200, usage, cost.usd, cost.known);
       });
@@ -2429,6 +2551,7 @@ async function forward(
             record(meta, 499, emptyUsage(), null, true, "client canceled");
           }
         },
+        redactProvider,
       );
     }
 
@@ -2483,7 +2606,14 @@ async function forward(
           record(meta, 200, usage, cost.usd, cost.known);
         });
         const body = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
-        return streamResponse(body, meta, decisionHeaders(decision, meta.retries));
+        return streamResponse(
+          body,
+          meta,
+          decisionHeaders(decision, meta.retries),
+          "text/event-stream",
+          undefined,
+          redactProvider,
+        );
       }
       if (!upstreamStream) {
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -2516,6 +2646,7 @@ async function forward(
             record(meta, 499, emptyUsage(), null, true, "client canceled");
           }
         },
+        redactProvider,
       );
     }
 
@@ -2525,6 +2656,12 @@ async function forward(
           const usage = emptyUsage();
           const transform = chatToResponsesStream(decision.model, (result) => {
             Object.assign(usage, result.usage);
+            // The bridge closes the turn softly for the client; the ledger must still record the
+            // real upstream failure rather than a clean 200.
+            if (result.failure) {
+              record(meta, 502, usage, null, true, result.failure);
+              return;
+            }
             const cost = costOf(decision.model, usage, new Date(), decision.provider);
             record(meta, 200, usage, cost.usd, cost.known);
           });
@@ -2541,6 +2678,7 @@ async function forward(
                 record(meta, 499, emptyUsage(), null, true, "client canceled");
               }
             },
+            redactProvider,
           );
         }
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -2681,6 +2819,8 @@ async function forward(
         meta,
         decisionHeaders(decision, meta.retries),
         upstream.headers.get("content-type") ?? "text/event-stream",
+        undefined,
+        redactProvider,
       );
     }
 
@@ -2795,6 +2935,7 @@ async function forward(
       decisionHeaders(decision, meta.retries),
       upstream.headers.get("content-type") ?? "text/event-stream",
       onCancel,
+      redactProvider,
     );
   }
 }

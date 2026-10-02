@@ -1,6 +1,7 @@
 import { anthropicToolId } from "./anthropic";
 import type { Usage } from "./pricing";
 import { splitSseEvents } from "./responses";
+import { softErrorMessage } from "./soft-error";
 
 /**
  * OpenAI Chat Completions SSE → Anthropic Messages SSE, for Anthropic clients (Claude Code)
@@ -259,18 +260,41 @@ export function chatToAnthropicStream(
       consume(`${decoder.decode()}\n\n`, controller);
       const usage = options.usage?.() ??
         chatUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-      if (failure && !started) {
-        emit({ type: "error", error: failure }, controller);
+      const usageFrame = {
+        input_tokens: usage.input,
+        output_tokens: usage.output,
+        cache_read_input_tokens: usage.cacheRead,
+        cache_creation_input_tokens: usage.cacheWrite,
+      };
+      // A mid-stream refusal is Jevonian's problem, not the model's: finish the turn with a
+      // readable assistant message. Emitting `type: "error"` here makes the harness treat the
+      // response as invalid and roll the user message back, which is far worse than a soft stop.
+      if (failure) {
+        start(controller);
+        const index = openBlock("text", controller);
+        emit(
+          {
+            type: "content_block_delta",
+            index,
+            delta: { type: "text_delta", text: softErrorMessage(failure.message) },
+          },
+          controller,
+        );
+        flushTools(controller);
+        emit(
+          {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: usageFrame,
+          },
+          controller,
+        );
+        emit({ type: "message_stop" }, controller);
         options.onFinish?.(usage);
         return;
       }
       start(controller);
       flushTools(controller);
-      if (failure) {
-        emit({ type: "error", error: failure }, controller);
-        options.onFinish?.(usage);
-        return;
-      }
       const stop =
         toolCount > 0 && (finishReason === undefined || finishReason === "stop")
           ? "tool_use"
@@ -279,12 +303,7 @@ export function chatToAnthropicStream(
         {
           type: "message_delta",
           delta: { stop_reason: stop, stop_sequence: null },
-          usage: {
-            input_tokens: usage.input,
-            output_tokens: usage.output,
-            cache_read_input_tokens: usage.cacheRead,
-            cache_creation_input_tokens: usage.cacheWrite,
-          },
+          usage: usageFrame,
         },
         controller,
       );

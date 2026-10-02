@@ -9,6 +9,7 @@ import {
   chatToAnthropic,
   chatToAnthropicMessage,
   needsAnthropicWire,
+  normalizeAnthropicPrefill,
 } from "./anthropic";
 import type { Usage } from "./pricing";
 import { chatToResponsesStream } from "./responses";
@@ -216,6 +217,135 @@ describe("chatToAnthropic", () => {
   });
 });
 
+describe("normalizeAnthropicPrefill", () => {
+  const asMessages = (body: Record<string, unknown>) =>
+    body.messages as Array<{ role: string; content: unknown }>;
+
+  it("drops a trailing assistant prefill on a model that rejects prefill", () => {
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [
+        { role: "user", content: "do it" },
+        { role: "assistant", content: "working on it" },
+        { role: "user", content: "continue" },
+        { role: "assistant", content: "Sure, here is the " },
+      ],
+    };
+    const out = normalizeAnthropicPrefill(body);
+    const messages = asMessages(out);
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(messages.at(-1)?.content).toBe("continue");
+  });
+
+  it("leaves a user-terminated conversation untouched", () => {
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "hello" },
+        { role: "user", content: "next" },
+      ],
+    };
+    expect(normalizeAnthropicPrefill(body)).toBe(body);
+  });
+
+  it("does not touch a model that still supports prefill", () => {
+    const body = {
+      model: "claude-sonnet-4-5-20250929",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "Sure, " },
+      ],
+    };
+    expect(normalizeAnthropicPrefill(body)).toBe(body);
+  });
+
+  it("keeps a trailing tool_use turn awaiting its tool_result", () => {
+    // A trailing assistant with `tool_use` is an in-flight call, not a prefill; dropping it
+    // would orphan the tool call.
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [
+        { role: "user", content: "read the file" },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "read", input: { path: "a" } }],
+        },
+      ],
+    };
+    expect(normalizeAnthropicPrefill(body)).toBe(body);
+  });
+
+  it("does not strip an assistant turn that precedes a tool_result", () => {
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [
+        { role: "user", content: "read the file" },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "read", input: { path: "a" } }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }],
+        },
+      ],
+    };
+    expect(normalizeAnthropicPrefill(body)).toBe(body);
+  });
+
+  it("relocates an assistant-only body to a user turn rather than emptying it", () => {
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [{ role: "assistant", content: "Continue from here:" }],
+    };
+    const messages = asMessages(normalizeAnthropicPrefill(body));
+    expect(messages).toEqual([{ role: "user", content: "Continue from here:" }]);
+  });
+
+  it("falls back to a non-empty user turn when the assistant body is empty", () => {
+    // An assistant turn can carry no text (a bare reply); Anthropic rejects empty user content,
+    // so the relocated turn must not come out blank.
+    const body = {
+      model: "claude-opus-5-5",
+      messages: [{ role: "assistant", content: "" }],
+    };
+    const messages = asMessages(normalizeAnthropicPrefill(body));
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("user");
+    expect(typeof messages[0]?.content).toBe("string");
+    expect((messages[0]?.content as string).length).toBeGreaterThan(0);
+  });
+
+  it("normalizes the real bridge repro: a Chat body ending on an assistant reply", () => {
+    // Cursor re-sends its last assistant reply, so the outgoing Chat body ends on an assistant
+    // turn. `chatToAnthropic` forwards it as a trailing assistant message, which Claude 4.6+
+    // rejects as prefill; the repair must leave the request ending on a user (tool_result) turn.
+    const chat = {
+      model: "ignored",
+      messages: [
+        { role: "user", content: "read the file" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            { id: "call_1", type: "function", function: { name: "read", arguments: '{"p":"a"}' } },
+          ],
+        },
+        { role: "tool", tool_call_id: "call_1", content: "file contents" },
+        { role: "assistant", content: "The file says hello." },
+      ],
+    };
+    const bridged = chatToAnthropic(chat);
+    const repaired = normalizeAnthropicPrefill({ ...bridged, model: "claude-opus-5-5" });
+    const messages = asMessages(repaired);
+    expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect((messages.at(-1)?.content as Array<Record<string, unknown>>)[0]?.type).toBe(
+      "tool_result",
+    );
+  });
+});
+
 describe("anthropicToChat", () => {
   it("translates a message response with tool use", () => {
     const completion = anthropicToChat(
@@ -361,5 +491,39 @@ describe("anthropicToChatStream", () => {
     expect(anthropic).toEqual({ input: 10, output: 3, cacheRead: 900, cacheWrite: 50 });
     expect(responses?.cacheRead).toBe(900);
     expect(output).toContain('"cached_tokens":900');
+  });
+
+  it("reports a mid-stream error to onFinish without a second finish chunk", async () => {
+    // A `message_delta` with a stop reason already finished the turn; an error arriving after it
+    // must not append a second `finish_reason` (an invalid duplicate for a strict client). The
+    // failure still reaches `onFinish` so the ledger can record it.
+    let failure: string | undefined;
+    const transform = anthropicToChatStream("claude-opus-4-7", (_usage, reason) => {
+      failure = reason;
+    });
+    const writer = transform.writable.getWriter();
+    const readPromise = collect(transform.readable);
+    const send = (payload: unknown): Promise<void> =>
+      writer.write(new TextEncoder().encode(`event: x\ndata: ${JSON.stringify(payload)}\n\n`));
+
+    await send({
+      type: "message_start",
+      message: { usage: { input_tokens: 1 } },
+    });
+    await send({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "hi" },
+    });
+    await send({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} });
+    await send({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    await writer.close();
+    const output = await readPromise;
+
+    const finishReasons = [...output.matchAll(/"finish_reason":"([^"]*)"/g)].map(
+      (match) => match[1],
+    );
+    expect(finishReasons).toEqual(["stop"]);
+    expect(failure).toBe("Overloaded");
   });
 });

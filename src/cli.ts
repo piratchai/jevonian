@@ -45,7 +45,7 @@ import {
   tunnelStatePath,
   updateStatePath,
 } from "./paths";
-import { portInUse, probeHost } from "./ports";
+import { portInUse, probeHost, waitForPort } from "./ports";
 import { costOf, initPricing, priceFor, type Usage } from "./pricing";
 import { ask, askChoice, askSecret, askYesNo, isInteractive } from "./prompt";
 import { findPreset, normalizeBaseUrl, PRESETS } from "./providers";
@@ -1199,23 +1199,67 @@ function printServiceStatus(): void {
   }
 }
 
+function requireDarwinServiceControl(): boolean {
+  if (process.platform === "darwin") return true;
+  console.error("Background service control is only available on macOS. Use `jevonian serve`.");
+  process.exitCode = 1;
+  return false;
+}
+
 async function stopCommand(): Promise<void> {
-  if (process.platform !== "darwin") {
-    console.error("Background service control is only available on macOS.");
-    process.exitCode = 1;
-    return;
-  }
+  if (!requireDarwinServiceControl()) return;
   try {
     if ("uninstall" in flags) {
       uninstallService();
       console.log("stopped and uninstalled the LaunchAgent");
+      console.log("start again: jevonian start");
       return;
     }
     stopService();
     console.log("stopped");
+    console.log("start again: jevonian start  (or bare `jevonian` / `jevonian serve`)");
     printServiceStatus();
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+async function startCommand(): Promise<void> {
+  if (!requireDarwinServiceControl()) return;
+  await ensurePersistentServe();
+}
+
+async function restartCommand(): Promise<void> {
+  if (!requireDarwinServiceControl()) return;
+  try {
+    if (!serviceStatus().plistInstalled) {
+      // Nothing installed yet — same path as bare `jevonian`.
+      await ensurePersistentServe();
+      return;
+    }
+    const status = restartService();
+    const config = loadConfig() ?? parseConfig({});
+    const host = probeHost(config.listen.host);
+    const port = config.listen.port;
+    const ready = await waitForPort(port, host, 15_000);
+    if (!ready) {
+      console.error(
+        status.pid
+          ? `Restarted pid ${status.pid}, but http://${host}:${port}/ did not answer within 15s.`
+          : "Restart requested, but the dashboard did not come up within 15s.",
+      );
+      console.error(`Check the log: ${status.logPath}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log("Jevonian service restarted.");
+    printServiceStatus();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    console.error(
+      "Could not restart the background service. Try `jevonian stop` then `jevonian start`.",
+    );
     process.exitCode = 1;
   }
 }
@@ -1257,6 +1301,12 @@ async function main(): Promise<void> {
     await updateCommand();
   } else if (command === "stop") {
     await stopCommand();
+  } else if (command === "start") {
+    // Alias for bare `jevonian` / `jevonian serve` on macOS: after `stop` bootouts the
+    // LaunchAgent, people naturally type `start` and previously only got a usage dump.
+    await startCommand();
+  } else if (command === "restart") {
+    await restartCommand();
   } else if (command === "status") {
     await statusCommand();
   } else if (command === "launch") {
@@ -1520,8 +1570,9 @@ async function main(): Promise<void> {
     );
   } else {
     console.log(
-      "Usage: jevonian [serve|stop|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]\n" +
-        "  serve flags: --lan / --no-lan, --lan-host HOST, --lan-port PORT (expose the key-protected /v1 surface on the LAN so another machine can use this instance as a provider)",
+      "Usage: jevonian [serve|start|stop|restart|status|add|providers|remove|report|doctor|models|pricing|refresh|quota|kev|update|launch|init]\n" +
+        "  serve flags: --lan / --no-lan, --lan-host HOST, --lan-port PORT (expose the key-protected /v1 surface on the LAN so another machine can use this instance as a provider)\n" +
+        "  macOS service: `jevonian start` / `stop` / `restart` / `status` (bare `jevonian` also starts)",
     );
     process.exit(1);
   }
@@ -1532,13 +1583,33 @@ async function ensurePersistentServe(): Promise<void> {
   try {
     const { status, action } = ensureService();
     const config = loadConfig() ?? parseConfig({});
-    const url = `http://${config.listen.host === "0.0.0.0" ? "127.0.0.1" : config.listen.host}:${config.listen.port}/`;
+    const host = probeHost(config.listen.host);
+    const port = config.listen.port;
+    const url = `http://${host}:${port}/`;
+    // kickstart reports a pid before serve binds. Wait so "started" / open-browser
+    // are not a connection-refused race (CLI exits 0 while the dashboard is still dark).
+    const ready = await waitForPort(port, host, 15_000);
+    if (!ready) {
+      const latest = serviceStatus();
+      if (!latest.loaded || !latest.pid) {
+        console.error("LaunchAgent did not stay up after start.");
+      } else {
+        console.error(
+          `LaunchAgent pid ${latest.pid} is up, but http://${host}:${port}/ did not answer within 15s.`,
+        );
+      }
+      console.error(`Check the log: ${status.logPath}`);
+      console.error("Or run in the foreground: jevonian --foreground");
+      process.exitCode = 1;
+      return;
+    }
     if (action === "installed") console.log("Jevonian is now running in the background.");
     else if (action === "updated") console.log("Jevonian service updated and restarted.");
     else if (action === "started") console.log("Jevonian service started.");
     else console.log("Jevonian is already running in the background.");
     console.log(`dashboard: ${url}`);
-    if (status.pid) console.log(`pid:       ${status.pid}`);
+    const pid = serviceStatus().pid ?? status.pid;
+    if (pid) console.log(`pid:       ${pid}`);
     console.log(`log:       ${status.logPath}`);
     console.log("stop:      jevonian stop");
     console.log("status:    jevonian status");

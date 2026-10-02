@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 
 import type { Usage } from "./pricing";
 import { sanitizeBuiltinPrompt } from "./prompt-policy";
+import { softErrorMessage } from "./soft-error";
 
 /**
  * Which local sign-in to read, when it is not the agent's own — a second Cursor account on the
@@ -1772,11 +1773,15 @@ export function cursorToChatStream(
             usage = event.usage;
           } else if (event.type === "error") {
             error = event.error;
-            emit({ error: { message: error.message, type: "upstream_error" } });
+            // A refusal is Jevonian's failure to report, not a reason to lose the turn: close
+            // the stream as a normal assistant message so the harness keeps the conversation.
+            emit(chunk({ content: softErrorMessage(error.message) }, null));
           }
         }
         if (!error) {
           emit({ ...chunk({}, toolCalls ? "tool_calls" : "stop"), usage: openaiUsage(usage) });
+        } else {
+          emit({ ...chunk({}, "stop"), usage: openaiUsage(usage) });
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (thrown) {
@@ -1785,7 +1790,9 @@ export function cursorToChatStream(
           kind: "other",
           message: thrown instanceof Error ? thrown.message : String(thrown),
         };
-        emit({ error: { message: error.message, type: "upstream_error" } });
+        emit(chunk({ content: softErrorMessage(error.message) }, null));
+        emit({ ...chunk({}, "stop"), usage: openaiUsage(usage) });
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } finally {
         controller.close();
         report();

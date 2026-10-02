@@ -29,3 +29,26 @@ export function probeHost(host: string): string {
     ? "127.0.0.1"
     : trimmed;
 }
+
+/**
+ * Poll until `port` accepts a connection, or `timeoutMs` elapses.
+ *
+ * LaunchAgent kickstart returns as soon as the process exists; the HTTP listener comes up
+ * later (catalog load, pricing init). Callers that print "started" or open the dashboard must
+ * wait here, or the browser hits connection-refused while the CLI already exited 0.
+ */
+export async function waitForPort(
+  port: number,
+  host = "127.0.0.1",
+  timeoutMs = 15_000,
+  intervalMs = 100,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await portInUse(port, host, Math.min(500, intervalMs * 2))) return true;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, remaining)));
+  }
+  return false;
+}
