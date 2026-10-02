@@ -2,12 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.5.2] - 2026-10-02
 
 ### Added
 
 - **Attempt history for every routed turn.** A turn is now traced while it runs, from the first routing decision to the last byte. When a turn needed more than one attempt, its ledger row carries `tries` (every upstream attempt with its `cause` — `initial`, `retry`, or `failover` — plus `status`, `ms`, `startedAt`, `ttftMs`, and, on failure, `fail`), `failovers`, and `ttftMs` (time to first streamed content). A turn served on its first attempt carries none of these fields, so a healthy row stays as small as before, and a row written before this existed reads as "not recorded" rather than "0 attempts". The request detail page draws the attempts as a waterfall, the Logs list shows a dot per attempt plus the first-token time, and searching the Logs for `failover` or `retry` finds the turns that struggled.
 - **`x-jevonian-request-id` response header.** Every response names the id this turn was recorded under — the ledger row, the captured body, and the trace — so a client's own log can be joined to `/logs/:id` without a second lookup.
+- **`jevonian start` and `jevonian restart`.** `start` is an alias for the default `serve`/`jevonian` so a fresh start reads naturally after `stop`; `restart` stop-starts the LaunchAgent. Both are convenient ways to get the service back onto a newly installed build.
+
+### Changed
+
+- **Streaming turns never end in a hard failure.** When the upstream errors mid-turn — an HTTP 4xx/5xx, a `{ "error": … }` SSE frame, an Anthropic `type: "error"` event, a Responses `response.failed`, or a socket that drops mid-stream — Jevonian now finishes the turn as a normal assistant message ("Jevonian hit an internal error: … please retry.") with a proper `finish_reason`/`message_stop`/`response.completed`, instead of letting the harness roll the whole user turn back. The ledger still records the real error status. Non-streaming clients still get a JSON error.
+- **`jevonian update`-installed builds take effect immediately.** A fresh `dist/` is picked up by a `jevonian restart` (or the LaunchAgent), so fixes land in the running service rather than waiting for a manual stop/start.
+
+### Fixed
+
+- **Anthropic prefill rejections.** Claude models that require the conversation to end on a user turn no longer get a `400 invalid_request_error` ("This model does not support assistant message prefill") — trailing assistant-only turns are folded back into a user turn before the request is sent, while in-flight `tool_use` turns are preserved.
+- **Multi-session stalls.** A cold-cache read re-parsed the whole ~130 MB ledger on every request, and body capture wrote large payloads synchronously on the hot path — both blocking the single-threaded event loop so concurrent sessions crawled. Ledger appends now keep the cache warm, body writes are queued async, and a 60 s TTL stops the quota-spend cache going stale when the ledger is quiet.
+- **Duplicate `cloudflared` tunnels after restart.** `jevonian restart` used to abandon the running tunnel and spawn a second one because the process lookup could not recognize a `sh -c`-wrapped command. Commands now match with and without their shell wrapper, and stale duplicates are swept on start and cleanup.
+- **Hung tunnels survive `SIGTERM`.** A `cloudflared` with live connections often ignores `SIGTERM`; termination now escalates to `SIGKILL` after a grace period.
 
 ## [0.5.1] - 2026-10-02
 
