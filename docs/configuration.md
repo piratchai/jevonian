@@ -93,13 +93,13 @@ A pass runs only when the last one (recorded in `model-sync.json`) is older than
 restarting `serve` does not re-probe every provider. An unpriced new id can fill an empty `plan`
 routing as a last resort, but never a cheap one (`execute`, `utility`, …).
 
-| Field / flag                | Default            | Meaning                                                                                      |
-| --------------------------- | ------------------ | -------------------------------------------------------------------------------------------- |
-| `modelSync.enabled`         | `true`             | Master switch for background discovery                                                       |
-| `modelSync.intervalMinutes` | `720`              | Minimum minutes between discovery passes (clamped ≥ 15)                                      |
+| Field / flag                | Default            | Meaning                                                                                                                                                                                                     |
+| --------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modelSync.enabled`         | `true`             | Master switch for background discovery                                                                                                                                                                      |
+| `modelSync.intervalMinutes` | `720`              | Minimum minutes between discovery passes (clamped ≥ 15)                                                                                                                                                     |
 | `providers[].syncModels`    | OAuth on / API off | Explicit `true`/`false` overrides. Absent → Codex, Claude Code, Antigravity, Devin, Cursor, WorkBuddy sync; Magpie presets (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code) pin `true` when added |
-| `providers[].noKey`         | —                  | Local keyless server (Ollama, LM Studio); discovery and requests run without a Bearer token                                                                                                                  |
-| `providers[].excludeModels` | —                  | Ids discovery must not re-add; a dashboard/CLI removal is recorded here                                                                                                                                      |
+| `providers[].noKey`         | —                  | Local keyless server (Ollama, LM Studio); discovery and requests run without a Bearer token                                                                                                                 |
+| `providers[].excludeModels` | —                  | Ids discovery must not re-add; a dashboard/CLI removal is recorded here                                                                                                                                     |
 
 Trigger a pass immediately with `jevonian models --sync`, the Providers page **Sync now** button, or
 `POST /api/model-sync/run`. ChatGPT subscription discovery reads `~/.codex/models_cache.json`

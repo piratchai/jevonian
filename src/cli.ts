@@ -810,9 +810,7 @@ async function addProvider(): Promise<void> {
     // Live OAuth and keyless locals resolve without a pasted key; key-based providers need one.
     const resolved = liveOAuth || keyless ? undefined : resolveApiKey(probe);
     if (liveOAuth || resolved || keyless) {
-      const entry = await discoverProviderModels(
-        resolved ? { ...probe, apiKey: resolved } : probe,
-      );
+      const entry = await discoverProviderModels(resolved ? { ...probe, apiKey: resolved } : probe);
       if (entry.error) console.log(`model discovery failed: ${entry.error}`);
       models = [...new Set(entry.models)].sort();
     }

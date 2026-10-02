@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-02
+
 ### Changed
 
 - **New Magpie-parity presets discover models live instead of shipping a hardcoded list.** Mistral, Groq, Ollama, LM Studio, OpenCode Go/Zen, Command Code, and WorkBuddy AI turn on `syncModels` (or inherit the OAuth default for WorkBuddy). `jevonian add` and the dashboard skip the models.dev snapshot for OAuth and keyless locals; an empty model list triggers live discovery. Ollama and LM Studio use `noKey` so discovery and requests work without a Bearer token.
@@ -12,6 +14,8 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - **WorkBuddy AI model catalog follows live `/v3/config`.** Discovery no longer falls back to a stale baked-in id list; it reads the CLI agent's models (or the top-level product catalog when that block is missing), so ids like `deepseek-v4.1-flash` appear as soon as WorkBuddy publishes them.
+- **WorkBuddy Discover / Save no longer deadlocks before browser sign-in.** Discover opens the sign-in flow when no session exists, and Save is allowed with an empty model list so login can complete first.
+- **Providers form no longer jumps the page on every click.** Opening Add/Edit still scrolls to the form once; later Discover / model toggles no longer re-fire `scrollIntoView`.
 - **`jevonian update` restarts the macOS background service.** The CLI used to install the new package and only print "Restart Jevonian…", so a LaunchAgent kept serving the old build until a manual stop/start. It now probes the running serve version and kickstarts the LaunchAgent onto the installed build when one is loaded.
 
 ## [0.5.0] - 2026-10-02

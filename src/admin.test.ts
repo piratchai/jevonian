@@ -413,8 +413,8 @@ describe("admin config writes", () => {
     writeConfig(path, [baseProvider("alpha")]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         expect(url).toBe("http://127.0.0.1:11434/v1/models");
         return new Response(JSON.stringify({ data: [{ id: "llama3.2" }, { id: "qwen2.5" }] }), {
           status: 200,
