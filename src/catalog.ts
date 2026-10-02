@@ -9,6 +9,7 @@ import { saveCursorCatalog } from "./cursor-catalog";
 import { DEVIN_DEFAULT_BASE_URL, fetchDevinModels } from "./devin";
 import { isRoutableDevinModel, saveDevinModelMeta } from "./devin-catalog";
 import { dataDir } from "./paths";
+import { workbuddyStaticModelIds } from "./workbuddy";
 
 export interface CatalogEntry {
   provider: string;
@@ -112,6 +113,40 @@ export function isCursorProvider(provider: Provider): boolean {
   );
 }
 
+/** WorkBuddy AI subscription: OAuth provider reading WorkBuddy AI credentials. */
+export function isWorkbuddyAiProvider(provider: Provider): boolean {
+  return provider.auth === "oauth" && provider.oauthSource === "workbuddy-ai";
+}
+
+async function discoverWorkbuddyModels(
+  provider: Provider,
+  fetchedAt: string,
+): Promise<CatalogEntry> {
+  const { resolveWorkbuddyCreds, fetchWorkbuddyModels, WORKBUDDY_AI_ENDPOINT } =
+    await import("./workbuddy");
+  const creds = await resolveWorkbuddyCreds(provider.login);
+  if ("error" in creds) {
+    return {
+      provider: provider.name,
+      models: workbuddyStaticModelIds(),
+      fetchedAt,
+      error: creds.error,
+    };
+  }
+  try {
+    const endpoint = provider.baseUrl.replace(/\/v2\/?$/, "") || WORKBUDDY_AI_ENDPOINT;
+    const models = await fetchWorkbuddyModels(creds, endpoint);
+    return { provider: provider.name, models, fetchedAt };
+  } catch (error) {
+    return {
+      provider: provider.name,
+      models: workbuddyStaticModelIds(),
+      fetchedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function discoverCursorModels(provider: Provider, fetchedAt: string): Promise<CatalogEntry> {
   try {
     const raw = await fetchCursorModels();
@@ -171,6 +206,7 @@ export async function discoverProviderModels(provider: Provider): Promise<Catalo
   const fetchedAt = new Date().toISOString();
   if (isDevinProvider(provider)) return discoverDevinModels(provider, fetchedAt);
   if (isCursorProvider(provider)) return discoverCursorModels(provider, fetchedAt);
+  if (isWorkbuddyAiProvider(provider)) return discoverWorkbuddyModels(provider, fetchedAt);
   if (
     provider.type === "gemini" ||
     (provider.auth === "oauth" && provider.oauthSource === "antigravity")

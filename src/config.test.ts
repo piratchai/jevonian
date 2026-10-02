@@ -26,6 +26,27 @@ describe("provider parsing", () => {
     expect(MODEL_SYNC_DEFAULT_SOURCES).toContain("devin");
   });
 
+  it("accepts oauthSource workbuddy-ai", () => {
+    const config = parseConfig({
+      providers: [
+        {
+          name: "workbuddy-ai-subscription",
+          type: "openai",
+          baseUrl: "https://www.workbuddy.ai/v2",
+          auth: "oauth",
+          oauthSource: "workbuddy-ai",
+          billing: "subscription",
+          models: ["primary-model"],
+        },
+      ],
+    });
+    const provider = config.providers[0];
+    expect(provider?.oauthSource).toBe("workbuddy-ai");
+    expect(provider?.billing).toBe("subscription");
+    expect(provider && providerSyncsModels(provider)).toBe(true);
+    expect(MODEL_SYNC_DEFAULT_SOURCES).toContain("workbuddy-ai");
+  });
+
   it("still accepts antigravity with the gemini type", () => {
     const config = parseConfig({
       providers: [

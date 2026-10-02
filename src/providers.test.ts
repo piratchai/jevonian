@@ -21,7 +21,7 @@ describe("providers", () => {
       if (preset.auth === "oauth") {
         expect(preset.oauthSource).toBeDefined();
         expect(preset.billing).toBe("subscription");
-      } else {
+      } else if (!preset.noKey) {
         expect(preset.apiKeyEnv?.length ?? 0).toBeGreaterThan(0);
       }
     }
@@ -32,12 +32,24 @@ describe("providers", () => {
     expect(findPreset("anthropic")?.type).toBe("anthropic");
     expect(findPreset("openrouter")?.type).toBe("both");
     expect(findPreset("opencode-go")?.type).toBe("both");
+    expect(findPreset("opencode-zen")?.type).toBe("both");
     expect(findPreset("commandcode")?.type).toBe("both");
+    expect(findPreset("mistral")?.baseUrl).toContain("mistral.ai");
+    expect(findPreset("groq")?.baseUrl).toContain("groq.com");
+    expect(findPreset("ollama")).toMatchObject({ noKey: true, type: "openai" });
+    expect(findPreset("lmstudio")).toMatchObject({ noKey: true });
     expect(findPreset("devin-subscription")).toMatchObject({
       type: "devin",
       auth: "oauth",
       oauthSource: "devin",
       billing: "subscription",
+    });
+    expect(findPreset("workbuddy-ai-subscription")).toMatchObject({
+      type: "openai",
+      auth: "oauth",
+      oauthSource: "workbuddy-ai",
+      billing: "subscription",
+      baseUrl: "https://www.workbuddy.ai/v2",
     });
     expect(findPreset("nope")).toBeUndefined();
   });

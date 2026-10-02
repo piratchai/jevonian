@@ -65,6 +65,8 @@ export interface PresetView {
   auth?: ProviderAuthView;
   oauthSource?: string;
   billing?: ProviderBillingView;
+  /** Local / keyless servers — no API key is required. */
+  noKey?: boolean;
 }
 
 export interface BrainView {
@@ -787,7 +789,7 @@ export const api = {
     syncModels?: boolean | null;
     excludeModels?: string[];
   }) =>
-    request<{ config: unknown }>("/api/providers", {
+    request<{ config: unknown; signedInAs?: string }>("/api/providers", {
       method: "POST",
       body: JSON.stringify(payload),
     }),

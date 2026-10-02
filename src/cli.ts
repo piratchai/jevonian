@@ -65,6 +65,7 @@ import {
 import { TunnelManager } from "./tunnel";
 import { formatUpdateNotice, isNewerVersion, UPDATE_INTERVAL_MS, UpdateManager } from "./updates";
 import { applyUserBinPath } from "./user-path";
+import { hasWorkbuddyCredential, signInWorkbuddyAi } from "./workbuddy";
 
 /** How often serve re-runs a (cache-aware) update check while staying up. */
 const UPDATE_POLL_MS = 60 * 60 * 1_000;
@@ -131,6 +132,7 @@ function isOAuthSource(value: string): value is OAuthSource {
     value === "antigravity" ||
     value === "devin" ||
     value === "cursor" ||
+    value === "workbuddy-ai" ||
     value === "static"
   );
 }
@@ -637,7 +639,7 @@ async function addProvider(): Promise<void> {
   }
   if (!id) {
     console.error(
-      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin|cursor] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|cursor|static] [--billing subscription] [--name NAME] [--login-home DIR|--login-file PATH] [--login-keychain SERVICE[:ACCOUNT]] [--login-label LABEL]",
+      "Usage: jevonian add <provider> [--key K] [--env NAME] [--models a,b] [--base-url URL] [--type openai|anthropic|responses|both|gemini|devin|cursor] [--auth oauth --oauth-source claude-code|codex|antigravity|devin|cursor|workbuddy-ai|static] [--billing subscription] [--name NAME] [--login-home DIR|--login-file PATH] [--login-keychain SERVICE[:ACCOUNT]] [--login-label LABEL]",
     );
     process.exit(1);
   }
@@ -659,7 +661,7 @@ async function addProvider(): Promise<void> {
   const flagSource = flags["oauth-source"];
   if (flagSource !== undefined && !isOAuthSource(flagSource)) {
     console.error(
-      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, cursor, or static.`,
+      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, cursor, workbuddy-ai, or static.`,
     );
     process.exit(1);
   }
@@ -744,7 +746,7 @@ async function addProvider(): Promise<void> {
   else if (preset?.keysUrl) console.log(`Get a key at ${preset.keysUrl}`);
   else if (preset?.hint) console.log(preset.hint);
 
-  const needsKey = auth !== "oauth" || oauthSource === "static";
+  const needsKey = !(preset?.noKey === true) && (auth !== "oauth" || oauthSource === "static");
   let apiKey = needsKey ? (flags.key ?? "") : "";
   if (needsKey && !apiKey && !flags.env && interactive) {
     apiKey = await askSecret(
@@ -761,8 +763,23 @@ async function addProvider(): Promise<void> {
             ? "Using Devin credentials from ~/.local/share/devin (run `devin auth login` to sign in)."
             : oauthSource === "cursor"
               ? "Using Cursor credentials from cursor-agent (run `cursor-agent login` to sign in)."
-              : "Using Antigravity credentials from the IDE / `agy` (run `agy` to sign in).",
+              : oauthSource === "workbuddy-ai"
+                ? "Using WorkBuddy AI credentials (browser sign-in, or a plaintext desktop session)."
+                : "Using Antigravity credentials from the IDE / `agy` (run `agy` to sign in).",
     );
+  }
+
+  if (oauthSource === "workbuddy-ai" && !hasWorkbuddyCredential(login)) {
+    console.log("Opening WorkBuddy AI sign-in in your browser…");
+    try {
+      const signed = await signInWorkbuddyAi(login ? { login } : {});
+      console.log(`Signed in as ${signed.user}.`);
+    } catch (error) {
+      console.error(
+        `WorkBuddy AI sign-in failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      process.exit(1);
+    }
   }
 
   const probe: Provider = {

@@ -6,8 +6,21 @@ import { promisify } from "node:util";
 
 import { cursorAuthPath, cursorToken } from "./cursor";
 import { retryingFetch } from "./retry";
+import {
+  hasWorkbuddyCredential,
+  isWorkbuddyAiSource,
+  resolveWorkbuddyCreds,
+  WORKBUDDY_AI_ID,
+} from "./workbuddy";
 
-export type OAuthSource = "claude-code" | "codex" | "antigravity" | "devin" | "cursor" | "static";
+export type OAuthSource =
+  | "claude-code"
+  | "codex"
+  | "antigravity"
+  | "devin"
+  | "cursor"
+  | "workbuddy-ai"
+  | "static";
 
 /**
  * Which local sign-in to read, when it is not the agent's own — a second account of the same
@@ -54,6 +67,8 @@ const REFRESH_SKEW_MS = 120_000;
 export interface OAuthToken {
   token: string;
   accountId?: string;
+  /** WorkBuddy AI `X-Domain` (and similar vendor-specific account hosts). */
+  domain?: string;
   expiresAt?: number;
 }
 
@@ -671,6 +686,7 @@ export function hasOAuthCredential(source: OAuthSource, login?: LoginSpec): bool
   if (source === "codex") return readCodexCredential(login) !== undefined;
   if (source === "devin") return Boolean(readDevinCredential(login)?.windsurf_api_key?.trim());
   if (source === "cursor") return hasCursorCredential(login);
+  if (isWorkbuddyAiSource(source)) return hasWorkbuddyCredential(login);
   if (source === "antigravity") {
     const override = login?.credentialsPath ?? process.env.JEVONIAN_ANTIGRAVITY_TOKEN;
     if (override && existsSync(override.trim())) return true;
@@ -714,7 +730,9 @@ export function resolveOAuthToken(options: {
           ? resolveDevin(login)
           : options.source === "cursor"
             ? resolveCursor(login)
-            : resolveAntigravity(login);
+            : options.source === WORKBUDDY_AI_ID
+              ? resolveWorkbuddy(login)
+              : resolveAntigravity(login);
   const task = resolve().then((result) => {
     if (!("error" in result)) cache.set(key, result);
     return result;
@@ -724,11 +742,23 @@ export function resolveOAuthToken(options: {
   return task;
 }
 
+async function resolveWorkbuddy(login?: LoginSpec): Promise<OAuthToken | OAuthFailure> {
+  const resolved = await resolveWorkbuddyCreds(login);
+  if ("error" in resolved) return resolved;
+  return {
+    token: resolved.accessToken,
+    accountId: resolved.uid,
+    domain: resolved.domain,
+    ...(resolved.expiresAt ? { expiresAt: resolved.expiresAt } : {}),
+  };
+}
+
 export function oauthCredentialLabel(source: OAuthSource): string {
   if (source === "claude-code") return "Claude Code credentials";
   if (source === "codex") return "Codex credentials";
   if (source === "antigravity") return "Antigravity credentials";
   if (source === "devin") return "Devin credentials";
   if (source === "cursor") return "Cursor credentials";
+  if (source === WORKBUDDY_AI_ID) return "WorkBuddy AI credentials";
   return "stored token";
 }

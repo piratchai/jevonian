@@ -118,6 +118,7 @@ export const MODEL_SYNC_DEFAULT_SOURCES: readonly OAuthSource[] = [
   "antigravity",
   "devin",
   "cursor",
+  "workbuddy-ai",
 ];
 
 export function providerSyncsByDefault(provider: Pick<Provider, "oauthSource">): boolean {
@@ -633,6 +634,7 @@ function parseOAuthSource(value: unknown): OAuthSource | undefined {
     value === "antigravity" ||
     value === "devin" ||
     value === "cursor" ||
+    value === "workbuddy-ai" ||
     value === "static"
   )
     return value;

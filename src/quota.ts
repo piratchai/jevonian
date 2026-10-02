@@ -8,6 +8,7 @@ import { fetchDevinUserStatus } from "./devin";
 import { readRecords, type LedgerRecord } from "./ledger";
 import { resolveOAuthToken } from "./oauth";
 import { dataDir } from "./paths";
+import { fetchWorkbuddyQuota, resolveWorkbuddyCreds, WORKBUDDY_AI_ENDPOINT } from "./workbuddy";
 
 export interface QuotaWindow {
   id: string;
@@ -1202,6 +1203,29 @@ async function withProbeTimeout<T>(
   }
 }
 
+async function workbuddyUsage(
+  provider: Provider,
+): Promise<{ windows: QuotaWindow[]; plan?: string; note?: string } | { error: string }> {
+  const creds = await resolveWorkbuddyCreds(provider.login);
+  if ("error" in creds) return { error: creds.error };
+  try {
+    const endpoint = provider.baseUrl.replace(/\/v2\/?$/, "") || WORKBUDDY_AI_ENDPOINT;
+    const quota = await fetchWorkbuddyQuota(creds, endpoint);
+    const creditNote = quota.windows[0]?.note;
+    return {
+      windows: quota.windows.map((window) => ({
+        id: window.id,
+        label: window.label,
+        usedPercent: window.usedPercent,
+      })),
+      ...(quota.plan ? { plan: quota.plan } : {}),
+      ...(creditNote ? { note: creditNote } : {}),
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 async function fetchLive(provider: Provider): Promise<LiveQuota | undefined> {
   try {
     const probe = async (): Promise<LiveQuota | undefined> => {
@@ -1217,6 +1241,9 @@ async function fetchLive(provider: Provider): Promise<LiveQuota | undefined> {
       }
       if (provider.auth === "oauth" && provider.oauthSource === "codex") {
         return await codexUsage(provider);
+      }
+      if (provider.auth === "oauth" && provider.oauthSource === "workbuddy-ai") {
+        return await workbuddyUsage(provider);
       }
       return undefined;
     };

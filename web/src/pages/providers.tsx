@@ -54,11 +54,16 @@ const AUTO_SELECT_LIMIT = 30;
  * Display name and an example config directory for each OAuth sign-in source, so the
  * second-account fields describe the credential the provider actually reads.
  */
-const LOGIN_SOURCE_HINTS: Record<string, { name: string; home: string }> = {
+const LOGIN_SOURCE_HINTS: Record<string, { name: string; home: string; file?: string }> = {
   "claude-code": { name: "Claude Code", home: "~/.claude-work" },
   codex: { name: "Codex", home: "~/.codex-work" },
   devin: { name: "Devin", home: "~/.local/share/devin-work" },
   cursor: { name: "Cursor", home: "~/.cursor-work" },
+  "workbuddy-ai": {
+    name: "WorkBuddy AI",
+    home: "",
+    file: "~/.config/jevonian/workbuddy-ai-work.json",
+  },
   // Antigravity redirects via a credential file or keychain entry, not a config directory.
   antigravity: { name: "Antigravity", home: "" },
 };
@@ -235,7 +240,9 @@ export function ProvidersPage() {
             ? "devin"
             : auth === "oauth" && oauthSource === "cursor"
               ? "cursor"
-              : undefined;
+              : auth === "oauth" && oauthSource === "workbuddy-ai"
+                ? "openai"
+                : undefined;
   const lockedBy =
     oauthSource === "codex"
       ? "Codex"
@@ -245,7 +252,9 @@ export function ProvidersPage() {
           ? "Devin"
           : oauthSource === "cursor"
             ? "Cursor"
-            : "Claude Code";
+            : oauthSource === "workbuddy-ai"
+              ? "WorkBuddy AI"
+              : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
     auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource);
@@ -303,7 +312,7 @@ export function ProvidersPage() {
         ...(numberOrUndefined(quotaWeekly) ? { weeklyUsd: numberOrUndefined(quotaWeekly) } : {}),
         ...(numberOrUndefined(quotaMonthly) ? { monthlyUsd: numberOrUndefined(quotaMonthly) } : {}),
       };
-      await api.addProvider({
+      const result = await api.addProvider({
         name,
         type: effectiveType,
         baseUrl,
@@ -317,7 +326,11 @@ export function ProvidersPage() {
         models: selected,
         syncModels: syncOverride,
       });
-      setMessage(`Saved provider "${name}"`);
+      setMessage(
+        result.signedInAs
+          ? `Saved provider "${name}" · signed in as ${result.signedInAs}`
+          : `Saved provider "${name}"`,
+      );
       resetForm(presetId);
       await load();
     } catch (cause) {
@@ -452,7 +465,8 @@ export function ProvidersPage() {
     return price ? `$${price.input}/$${price.output} per M` : "";
   };
 
-  const needsApiKey = auth === "api-key" || oauthSource === "static";
+  const needsApiKey =
+    !(helpPreset?.noKey === true) && (auth === "api-key" || oauthSource === "static");
 
   /**
    * Whether this credential source keeps its sign-in somewhere a `login` can point at. A stored
@@ -798,6 +812,7 @@ export function ProvidersPage() {
                         <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
                         <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                         <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
+                        <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
                         <SelectItem value="static">stored token</SelectItem>
                       </SelectContent>
                     </Select>
@@ -829,6 +844,10 @@ export function ProvidersPage() {
                       />
                     </div>
                   </>
+                ) : helpPreset?.noKey ? (
+                  <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
+                    Local server — no API key required. Make sure it is running at the base URL.
+                  </p>
                 ) : (
                   <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
                     {oauthSource === "claude-code"
@@ -839,14 +858,22 @@ export function ProvidersPage() {
                           ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
                           : oauthSource === "cursor"
                             ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
-                            : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                            : oauthSource === "workbuddy-ai"
+                              ? "Saving opens WorkBuddy AI sign-in in your browser; complete it there, or use a plaintext desktop session."
+                              : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
                   </p>
                 )}
               </div>
               <KeysHelp
                 keysUrl={helpPreset?.keysUrl}
                 hint={helpPreset?.hint}
-                linkLabel={auth === "oauth" ? "How to sign in" : "Get an API key"}
+                linkLabel={
+                  helpPreset?.noKey
+                    ? "Local server docs"
+                    : auth === "oauth"
+                      ? "How to sign in"
+                      : "Get an API key"
+                }
               />
               {loginSource ? (
                 <div className="flex flex-col gap-3 rounded-md border border-dashed p-3">
@@ -881,7 +908,7 @@ export function ProvidersPage() {
                       <Label htmlFor="loginFile">Credential file</Label>
                       <Input
                         id="loginFile"
-                        placeholder="/path/to/credentials.json"
+                        placeholder={loginHint.file ?? "/path/to/credentials.json"}
                         value={loginFile}
                         onChange={(event) => setLoginFile(event.target.value)}
                       />
@@ -1169,6 +1196,7 @@ export function ProvidersPage() {
                           <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
                           <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                           <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
+                          <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
                           <SelectItem value="static">stored token</SelectItem>
                         </SelectContent>
                       </Select>

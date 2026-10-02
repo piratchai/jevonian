@@ -14,6 +14,8 @@ export interface ProviderPreset {
   auth?: ProviderAuth;
   oauthSource?: OAuthSource;
   billing?: ProviderBilling;
+  /** Local / keyless servers — no API key is required to add the preset. */
+  noKey?: boolean;
 }
 
 export const PRESETS: ProviderPreset[] = [
@@ -129,6 +131,16 @@ export const PRESETS: ProviderPreset[] = [
     billing: "subscription",
   },
   {
+    id: "opencode-zen",
+    name: "OpenCode Zen",
+    type: "both",
+    baseUrl: "https://opencode.ai/zen/v1",
+    apiKeyEnv: "OPENCODE_API_KEY",
+    keysUrl: "https://opencode.ai/auth",
+    hint: "Sign in at opencode.ai/auth and copy a Zen API key.",
+    billing: "subscription",
+  },
+  {
     id: "commandcode",
     name: "Command Code",
     type: "both",
@@ -137,6 +149,42 @@ export const PRESETS: ProviderPreset[] = [
     keysUrl: "https://commandcode.ai",
     hint: "Sign in on Command Code and create a provider API key.",
     billing: "subscription",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    type: "openai",
+    baseUrl: "https://api.mistral.ai/v1",
+    apiKeyEnv: "MISTRAL_API_KEY",
+    keysUrl: "https://console.mistral.ai/api-keys",
+    hint: "Create an API key in the Mistral console.",
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    type: "openai",
+    baseUrl: "https://api.groq.com/openai/v1",
+    apiKeyEnv: "GROQ_API_KEY",
+    keysUrl: "https://console.groq.com/keys",
+    hint: "Create an API key in the Groq console.",
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    type: "openai",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    noKey: true,
+    keysUrl: "https://ollama.com",
+    hint: "Run Ollama locally; no API key required.",
+  },
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    type: "openai",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    noKey: true,
+    keysUrl: "https://lmstudio.ai",
+    hint: "Start LM Studio's local server; no API key required.",
   },
   {
     id: "claude-subscription",
@@ -191,6 +239,17 @@ export const PRESETS: ProviderPreset[] = [
     oauthSource: "cursor",
     keysUrl: "https://cursor.com/install",
     hint: "Install Cursor's CLI and sign in with `cursor-agent login`; Jevonian reads its keychain entry or auth.json.",
+    billing: "subscription",
+  },
+  {
+    id: "workbuddy-ai-subscription",
+    name: "WorkBuddy AI",
+    type: "openai",
+    baseUrl: "https://www.workbuddy.ai/v2",
+    auth: "oauth",
+    oauthSource: "workbuddy-ai",
+    keysUrl: "https://www.workbuddy.ai",
+    hint: "Sign in through Jevonian (browser); or use a plaintext WorkBuddy AI desktop session (credential protection off).",
     billing: "subscription",
   },
   {

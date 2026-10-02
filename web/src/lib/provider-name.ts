@@ -12,7 +12,12 @@ const NAME_OVERRIDES: Record<string, string> = {
   google: "Google Gemini",
   orcarouter: "OrcaRouter",
   "opencode-go": "OpenCode Go",
+  "opencode-zen": "OpenCode Zen",
   commandcode: "Command Code",
+  mistral: "Mistral",
+  groq: "Groq",
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
   antigravity: "Antigravity",
   "devin-subscription": "Devin",
   devin: "Devin",
@@ -20,6 +25,9 @@ const NAME_OVERRIDES: Record<string, string> = {
   "chatgpt-subscription": "ChatGPT",
   chatgpt: "ChatGPT",
   codex: "ChatGPT",
+  "workbuddy-ai-subscription": "WorkBuddy AI",
+  "workbuddy-ai": "WorkBuddy AI",
+  workbuddy: "WorkBuddy AI",
 };
 
 export function providerDisplayName(name: string): string {

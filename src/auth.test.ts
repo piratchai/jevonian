@@ -68,16 +68,21 @@ describe("withOpenRouterAttribution", () => {
 describe("resolveProviderAuth", () => {
   let dir = "";
   let previousDevin: string | undefined;
+  let previousWorkbuddy: string | undefined;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "jevonian-auth-"));
     previousDevin = process.env.JEVONIAN_DEVIN_CREDENTIALS;
+    previousWorkbuddy = process.env.JEVONIAN_WORKBUDDY_AI_AUTH;
   });
 
   afterEach(() => {
     invalidateOAuthToken("devin");
+    invalidateOAuthToken("workbuddy-ai");
     if (previousDevin === undefined) delete process.env.JEVONIAN_DEVIN_CREDENTIALS;
     else process.env.JEVONIAN_DEVIN_CREDENTIALS = previousDevin;
+    if (previousWorkbuddy === undefined) delete process.env.JEVONIAN_WORKBUDDY_AI_AUTH;
+    else process.env.JEVONIAN_WORKBUDDY_AI_AUTH = previousWorkbuddy;
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -131,5 +136,45 @@ describe("resolveProviderAuth", () => {
     if (!devin) throw new Error("missing provider");
     const auth = await resolveProviderAuth(devin, "openai");
     expect(auth.error).toContain("devin auth login");
+  });
+
+  it("returns WorkBuddy AI headers from a stored session", async () => {
+    const path = join(dir, "workbuddy-ai.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        uid: "uid-1",
+        accessToken: "wb-token",
+        refreshToken: "wb-refresh",
+        expiresAt: Date.now() + 3_600_000,
+        refreshExpiresAt: Date.now() + 7_200_000,
+        domain: "www.workbuddy.ai",
+      }),
+    );
+    process.env.JEVONIAN_WORKBUDDY_AI_AUTH = path;
+    const config = parseConfig({
+      providers: [
+        {
+          name: "workbuddy-ai-subscription",
+          type: "openai",
+          baseUrl: "https://www.workbuddy.ai/v2",
+          auth: "oauth",
+          oauthSource: "workbuddy-ai",
+          billing: "subscription",
+          models: ["primary-model"],
+        },
+      ],
+    });
+    const wb = config.providers[0];
+    if (!wb) throw new Error("missing provider");
+    const auth = await resolveProviderAuth(wb, "openai", "sessabcdef");
+    expect(auth.error).toBeUndefined();
+    expect(auth.headers.authorization).toBe("Bearer wb-token");
+    expect(auth.headers["x-user-id"]).toBe("uid-1");
+    expect(auth.headers["x-domain"]).toBe("www.workbuddy.ai");
+    expect(auth.headers["x-product"]).toBe("SaaS");
+    expect(auth.headers["user-agent"]).toMatch(/^WorkBuddy\//);
+    expect(auth.headers["x-requested-with"]).toBe("XMLHttpRequest");
+    expect(auth.headers["x-conversation-id"]).toBe("sessabcdef");
   });
 });

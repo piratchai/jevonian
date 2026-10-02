@@ -72,6 +72,7 @@ import { parseTokenSaver } from "./saver";
 import { summarize } from "./stats";
 import type { TunnelManager } from "./tunnel";
 import type { UpdateManager, UpdateStatus } from "./updates";
+import { hasWorkbuddyCredential, signInWorkbuddyAi } from "./workbuddy";
 
 export interface AppState {
   config: Config;
@@ -187,6 +188,7 @@ function parseOAuthSource(value: unknown): OAuthSource | undefined {
     value === "antigravity" ||
     value === "devin" ||
     value === "cursor" ||
+    value === "workbuddy-ai" ||
     value === "static"
   )
     return value;
@@ -841,6 +843,24 @@ export function createAdminApp(state: AppState): Hono {
     const stored = providerPayload(body, name, baseUrl, previous);
     if (apiKey) setCredential(name, apiKey);
 
+    // WorkBuddy AI needs a browser sign-in before any request works — same as `jevonian add`.
+    let signedInAs: string | undefined;
+    if (stored.auth === "oauth" && stored.oauthSource === "workbuddy-ai") {
+      if (!hasWorkbuddyCredential(stored.login)) {
+        try {
+          const signed = await signInWorkbuddyAi(stored.login ? { login: stored.login } : {});
+          signedInAs = signed.user;
+        } catch (error) {
+          return c.json(
+            {
+              error: `WorkBuddy AI sign-in failed: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            400,
+          );
+        }
+      }
+    }
+
     const index = config.providers.findIndex((provider) => provider.name === name);
     const providers = [...config.providers];
     if (index >= 0) providers[index] = stored;
@@ -862,7 +882,29 @@ export function createAdminApp(state: AppState): Hono {
       if (plan?.models[0]) next.routing.baselineModel = plan.models[0];
     }
     persist(next);
-    return c.json({ config: next, tiers: deriveTiers(next), routings: deriveRoutings(next) });
+    return c.json({
+      config: next,
+      tiers: deriveTiers(next),
+      routings: deriveRoutings(next),
+      ...(signedInAs ? { signedInAs } : {}),
+    });
+  });
+
+  /** Re-run WorkBuddy AI browser sign-in without adding a provider. */
+  app.post("/oauth/workbuddy-ai/signin", async (c) => {
+    const body = asRecord(await c.req.json().catch(() => ({})));
+    const login = loginFromBody(body.login, undefined);
+    try {
+      const signed = await signInWorkbuddyAi(login ? { login } : {});
+      return c.json({ ok: true, user: signed.user });
+    } catch (error) {
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        400,
+      );
+    }
   });
 
   app.delete("/providers/:name", (c) => {

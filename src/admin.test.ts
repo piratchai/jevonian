@@ -408,6 +408,55 @@ describe("admin config writes", () => {
     expect(written.providers.map((provider) => provider.name)).toEqual(["alpha", "gamma"]);
   });
 
+  it("adds WorkBuddy AI without re-signing when a session file already exists", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    const session = join(dir, "workbuddy-ai.json");
+    writeFileSync(
+      session,
+      JSON.stringify({
+        uid: "uid-1",
+        accessToken: "access",
+        refreshToken: "refresh",
+        expiresAt: Date.now() + 3_600_000,
+        refreshExpiresAt: Date.now() + 7_200_000,
+        domain: "www.workbuddy.ai",
+      }),
+    );
+    const previousAuth = process.env.JEVONIAN_WORKBUDDY_AI_AUTH;
+    process.env.JEVONIAN_WORKBUDDY_AI_AUTH = session;
+    try {
+      const state: AppState = { config: parseConfig({ providers: [baseProvider("alpha")] }) };
+      const app = createAdminApp(state);
+      const response = await app.request("/providers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "workbuddy-ai-subscription",
+          type: "openai",
+          baseUrl: "https://www.workbuddy.ai/v2",
+          auth: "oauth",
+          oauthSource: "workbuddy-ai",
+          billing: "subscription",
+          models: ["primary-model"],
+        }),
+      });
+      expect(response.status).toBe(200);
+      const json = (await response.json()) as { signedInAs?: string };
+      expect(json.signedInAs).toBeUndefined();
+      const written = JSON.parse(readFileSync(path, "utf8")) as {
+        providers: Array<{ name: string; oauthSource?: string }>;
+      };
+      expect(written.providers.at(-1)).toMatchObject({
+        name: "workbuddy-ai-subscription",
+        oauthSource: "workbuddy-ai",
+      });
+    } finally {
+      if (previousAuth === undefined) delete process.env.JEVONIAN_WORKBUDDY_AI_AUTH;
+      else process.env.JEVONIAN_WORKBUDDY_AI_AUTH = previousAuth;
+    }
+  });
+
   it("round-trips syncModels and records dashboard removals in excludeModels", async () => {
     const path = process.env.JEVONIAN_CONFIG ?? "";
     writeFileSync(

@@ -6,13 +6,18 @@ import cursor from "@/assets/logos/cursor.svg?raw";
 import deepseek from "@/assets/logos/deepseek.svg?raw";
 import devin from "@/assets/logos/devin.svg?raw";
 import google from "@/assets/logos/google.svg?raw";
+import groq from "@/assets/logos/groq.svg?raw";
+import lmstudio from "@/assets/logos/lmstudio.svg?raw";
 import minimax from "@/assets/logos/minimax.svg?raw";
+import mistral from "@/assets/logos/mistral.svg?raw";
 import moonshotai from "@/assets/logos/moonshotai.svg?raw";
+import ollama from "@/assets/logos/ollama.svg?raw";
 import openai from "@/assets/logos/openai.svg?raw";
 import opencode from "@/assets/logos/opencode.svg?raw";
 import openrouter from "@/assets/logos/openrouter.svg?raw";
 import orcarouter from "@/assets/logos/orcarouter.png";
 import qwen from "@/assets/logos/qwen.svg?raw";
+import workbuddy from "@/assets/logos/workbuddy.svg?raw";
 import xai from "@/assets/logos/xai.svg?raw";
 import zai from "@/assets/logos/zai.svg?raw";
 
@@ -27,14 +32,22 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   devin,
   "devin-subscription": devin,
   google,
+  groq,
+  lmstudio,
   minimax,
+  mistral,
   moonshotai,
+  ollama,
   openai,
   "chatgpt-subscription": openai,
   opencode,
   "opencode-go": opencode,
+  "opencode-zen": opencode,
   openrouter,
   qwen,
+  workbuddy,
+  "workbuddy-ai": workbuddy,
+  "workbuddy-ai-subscription": workbuddy,
   xai,
   zai,
 };

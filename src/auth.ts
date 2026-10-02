@@ -1,5 +1,6 @@
 import { resolveApiKey, type Provider } from "./config";
 import { resolveAntigravityProject, resolveOAuthToken } from "./oauth";
+import { applyWorkbuddyHeaders, isWorkbuddyAiSource, type WorkbuddyCreds } from "./workbuddy";
 
 export interface AuthResolution {
   headers: Record<string, string>;
@@ -90,6 +91,24 @@ function codexHeaders(
   headers["user-agent"] ??= "codex_cli_rs/0.114.0";
 }
 
+function workbuddyHeadersFromToken(
+  headers: Record<string, string>,
+  token: string,
+  accountId: string | undefined,
+  domain: string | undefined,
+  session?: string,
+): void {
+  const creds: WorkbuddyCreds = {
+    uid: accountId ?? "",
+    accessToken: token,
+    refreshToken: "",
+    expiresAt: 0,
+    refreshExpiresAt: 0,
+    domain: domain ?? "www.workbuddy.ai",
+  };
+  applyWorkbuddyHeaders(headers, creds, session);
+}
+
 export function withSessionAffinity(
   headers: Record<string, string>,
   provider: Provider,
@@ -103,6 +122,7 @@ export function withSessionAffinity(
 export async function resolveProviderAuth(
   provider: Provider,
   kind: "openai" | "anthropic" | "responses" = "openai",
+  session?: string,
 ): Promise<AuthResolution> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -110,6 +130,7 @@ export async function resolveProviderAuth(
   };
   let token: string | undefined;
   let accountId: string | undefined;
+  let domain: string | undefined;
 
   if (provider.auth === "oauth") {
     if (provider.oauthSource && provider.oauthSource !== "static") {
@@ -120,6 +141,7 @@ export async function resolveProviderAuth(
       if ("error" in resolved) return { headers: {}, error: resolved.error };
       token = resolved.token;
       accountId = resolved.accountId;
+      domain = resolved.domain;
     } else {
       token = resolveApiKey(provider);
       if (!token) {
@@ -142,6 +164,8 @@ export async function resolveProviderAuth(
     claudeHeaders(headers, provider, token);
   } else if (provider.type === "responses" && provider.auth === "oauth") {
     codexHeaders(headers, token, accountId);
+  } else if (isWorkbuddyAiSource(provider.oauthSource)) {
+    workbuddyHeadersFromToken(headers, token, accountId, domain, session);
   } else {
     headers.authorization = `Bearer ${token}`;
   }

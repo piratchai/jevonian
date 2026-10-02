@@ -4,19 +4,19 @@ Everything — providers, keys, routing, logs — is configured in the browser, 
 
 ## Provider fields
 
-| Field         | Values                                                        | Notes                                                                                                                             |
-| ------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `type`        | `openai`, `anthropic`, `responses`, `both`, `gemini`, `devin` | the wire protocol; `both` serves OpenAI and Anthropic from one entry; `gemini` is Cloud Code Assist; `devin` is Devin Connect-RPC |
-| `auth`        | `api-key` (default), `oauth`                                  | `oauth` adds bearer/beta headers and reads the credential from `oauthSource`                                                      |
-| `oauthSource` | `claude-code`, `codex`, `antigravity`, `devin`, `static`      | `static` uses the stored key as a bearer token                                                                                    |
-| `billing`     | `api` (default), `subscription`                               | subscription spend is recorded as quota value, not real money                                                                     |
-| `quota`       | `{ fiveHourUsd, weeklyUsd, monthlyUsd }`                      | optional caps for ledger-based quota meters                                                                                       |
+| Field         | Values                                                                             | Notes                                                                                                                                   |
+| ------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`        | `openai`, `anthropic`, `responses`, `both`, `gemini`, `devin`, `cursor`            | the wire protocol; `both` serves OpenAI and Anthropic from one entry; `gemini` is Cloud Code Assist; `devin` / `cursor` are Connect-RPC |
+| `auth`        | `api-key` (default), `oauth`                                                       | `oauth` adds bearer/beta headers and reads the credential from `oauthSource`                                                            |
+| `oauthSource` | `claude-code`, `codex`, `antigravity`, `devin`, `cursor`, `workbuddy-ai`, `static` | `static` uses the stored key as a bearer token                                                                                          |
+| `billing`     | `api` (default), `subscription`                                                    | subscription spend is recorded as quota value, not real money                                                                           |
+| `quota`       | `{ fiveHourUsd, weeklyUsd, monthlyUsd }`                                           | optional caps for ledger-based quota meters                                                                                             |
 
 A top-level `modelAliases` map pins irregular cross-provider names to a canonical id (see [routing.md](routing.md#canonical-models)).
 
 ## Presets
 
-Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, Command Code, Claude Pro/Max, ChatGPT (Codex), Antigravity, Devin, and another Jevonian instance. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
+Built-in presets cover DeepSeek, Anthropic (Claude), OpenAI, Moonshot (Kimi), Z.ai (GLM), MiniMax, Alibaba Qwen, xAI (Grok), Google Gemini, OpenRouter, OrcaRouter, OpenCode Go, OpenCode Zen, Command Code, Mistral, Groq, Ollama, LM Studio, Claude Pro/Max, ChatGPT (Codex), Antigravity, Devin, Cursor, WorkBuddy AI, and another Jevonian instance. Each preset carries its base URL, protocol type, key variable, and a hint for where to create a key.
 
 `jevonian init` (or `jevonian add`) walks through everything:
 
@@ -34,6 +34,7 @@ jevonian add opencode-go --key sk-... --models opencode-go/kimi-k3,opencode-go/d
 jevonian add claude-subscription            # reads your Claude Code login
 jevonian add chatgpt-subscription --models gpt-5.6-codex   # adds a responses provider
 jevonian add devin-subscription             # reads your `devin auth login` session
+jevonian add workbuddy-ai-subscription      # browser sign-in to WorkBuddy AI
 ```
 
 ## Subscriptions
@@ -49,18 +50,20 @@ Two families are supported:
 
 **OAuth subscriptions** — the credential lives with the agent you already signed into:
 
-| Provider         | Preset                 | Credential source                                                                   | Wire                                                                                 |
-| ---------------- | ---------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Claude Pro/Max   | `claude-subscription`  | `~/.claude/.credentials.json`, or the macOS keychain item `Claude Code-credentials` | Anthropic Messages (Bearer + `oauth-2025-04-20`, Claude Code system prompt injected) |
-| ChatGPT Plus/Pro | `chatgpt-subscription` | `~/.codex/auth.json`                                                                | OpenAI Responses (`store: false`, account + originator headers)                      |
-| Antigravity      | `antigravity`          | macOS keychain item `gemini`/`antigravity` and the local project id                 | Gemini / Cloud Code Assist                                                           |
-| Devin            | `devin-subscription`   | `~/.local/share/devin/credentials.toml` (`$XDG_DATA_HOME/devin`, `%APPDATA%\devin`) | Devin Connect-RPC (`GetChatMessage`)                                                 |
-| Cursor           | `cursor-subscription`  | macOS keychain item `cursor-access-token`/`cursor-user`, or `~/.cursor/auth.json`   | Cursor Connect-RPC (`AgentService/Run`, `cursor-agent` wire)                         |
+| Provider         | Preset                      | Credential source                                                                                  | Wire                                                                                 |
+| ---------------- | --------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Claude Pro/Max   | `claude-subscription`       | `~/.claude/.credentials.json`, or the macOS keychain item `Claude Code-credentials`                | Anthropic Messages (Bearer + `oauth-2025-04-20`, Claude Code system prompt injected) |
+| ChatGPT Plus/Pro | `chatgpt-subscription`      | `~/.codex/auth.json`                                                                               | OpenAI Responses (`store: false`, account + originator headers)                      |
+| Antigravity      | `antigravity`               | macOS keychain item `gemini`/`antigravity` and the local project id                                | Gemini / Cloud Code Assist                                                           |
+| Devin            | `devin-subscription`        | `~/.local/share/devin/credentials.toml` (`$XDG_DATA_HOME/devin`, `%APPDATA%\devin`)                | Devin Connect-RPC (`GetChatMessage`)                                                 |
+| Cursor           | `cursor-subscription`       | macOS keychain item `cursor-access-token`/`cursor-user`, or `~/.cursor/auth.json`                  | Cursor Connect-RPC (`AgentService/Run`, `cursor-agent` wire)                         |
+| WorkBuddy AI     | `workbuddy-ai-subscription` | `~/.config/jevonian/workbuddy-ai.json` (browser sign-in), or plaintext `workbuddy-desktop-ai.info` | OpenAI Chat Completions at `www.workbuddy.ai/v2` (forced stream, WorkBuddy headers)  |
 
 - Tokens are read on demand, cached in memory, and refreshed with the vendor's refresh-token endpoint when they are about to expire; rotated tokens are written back to the source file so Claude Code / Codex keep working. Set `oauthSource: "static"` to use a stored long-lived token instead.
 - Devin's session token (written by `devin auth login`) does not expire and has no refresh flow. When Devin rejects it, run `devin auth login` again; Jevonian re-reads the file on the next request. `JEVONIAN_DEVIN_CREDENTIALS` points at a different credentials file. The default upstream is `https://server.codeium.com`; set the provider's `baseUrl` explicitly for a different endpoint.
 - Cursor's token comes from the `cursor-agent` CLI's own sign-in. A token about to expire is renewed by running `cursor-agent status`; if it is still rejected, run `cursor-agent login` again. `JEVONIAN_CURSOR_AUTH` points at a specific `auth.json`. Cursor has no plain REST endpoint — the conversation is sent as a bidirectional Connect stream — so the docs' `/v1` surface is the only way to reach it.
-- Model discovery works for subscriptions too: Claude reads Anthropic's `/v1/models` with the OAuth token, ChatGPT reads the model list Codex caches at `~/.codex/models_cache.json` (run `codex` once if it is missing), Antigravity calls `v1internal:fetchAvailableModels` with the local token, Devin calls `GetCliModelConfigs`, and Cursor reads `cursor-agent models` (cached to `cursor-models.json`). Devin lists only the models your plan unlocks — the Free plan only offers `swe-1-6-slow`. The protocol field follows the credential source — Claude Code pins `anthropic`, Codex pins `responses`, Antigravity pins `gemini`, Devin and Cursor pin `devin` and `cursor` — so one entry gets the right wire automatically.
+- WorkBuddy AI uses Magpie's browser sign-in (`jevonian add workbuddy-ai-subscription` opens the WorkBuddy login and stores tokens under `~/.config/jevonian/workbuddy-ai.json`). A plaintext desktop session at `…/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop-ai.info` is used when credential protection is off; encrypted desktop tokens are not readable. `JEVONIAN_WORKBUDDY_AI_AUTH` points at a session file. Upstream chats must stream; non-stream clients get the SSE folded into one completion. Adding the preset from the dashboard also opens browser sign-in when no session is stored yet (`POST /api/oauth/workbuddy-ai/signin` re-runs it).
+- Model discovery works for subscriptions too: Claude reads Anthropic's `/v1/models` with the OAuth token, ChatGPT reads the model list Codex caches at `~/.codex/models_cache.json` (run `codex` once if it is missing), Antigravity calls `v1internal:fetchAvailableModels` with the local token, Devin calls `GetCliModelConfigs`, Cursor reads `cursor-agent models` (cached to `cursor-models.json`), and WorkBuddy AI reads `GET /v3/config` (CLI agent models). Devin lists only the models your plan unlocks — the Free plan only offers `swe-1-6-slow`. The protocol field follows the credential source — Claude Code pins `anthropic`, Codex pins `responses`, Antigravity pins `gemini`, Devin and Cursor pin `devin` and `cursor`, WorkBuddy AI pins `openai` — so one entry gets the right wire automatically.
 - Background auto-sync (see [configuration.md](configuration.md#model-auto-sync)) appends newly listed ids while `serve` runs. Removals are sticky via `excludeModels`. Fixed routings are never rewritten; only empty auto-derived routings can pick an unpriced new id as a last-resort candidate.
 - `/v1/responses` is proxied for clients that speak the Responses API (Codex CLI). A chat-completions request that routes to a Responses provider is translated on the fly (streaming chunks included), so any OpenAI-compatible agent can use the ChatGPT subscription. The reverse also works: a Responses client that routes to an Anthropic-only host (Claude Pro/Max) folds through Chat Completions → Anthropic Messages and back.
 - Subscription access through third-party clients is outside the vendors' official clients. Expect the usual caveats: it can break when upstream headers change, and use is at your own risk.
@@ -83,7 +86,7 @@ A subscription provider in `~/.config/jevonian/config.json`:
 
 The Overview and Providers pages show, per provider, the rolling windows, remaining quota, reset times, and local spend. Sources, in order:
 
-1. **Live** — vendor usage endpoints: OpenCode Go (`GET {baseUrl}/usage`), Claude (`GET https://api.anthropic.com/api/oauth/usage`), Codex (`GET https://chatgpt.com/backend-api/wham/usage`), Devin (`GetUserStatus` daily and weekly windows). Fetches are cached (Claude for 5 minutes, everything else for 1 minute) and refreshed with `jevonian quota --refresh` or the dashboard button. Claude reports its shared 5h/7d pools plus any model-scoped weekly limits (for example a Fable-only window); scoped windows are shown for visibility but never drive the quota guard, since a spent scoped pool says nothing about the rest of the account.
+1. **Live** — vendor usage endpoints: OpenCode Go (`GET {baseUrl}/usage`), Claude (`GET https://api.anthropic.com/api/oauth/usage`), Codex (`GET https://chatgpt.com/backend-api/wham/usage`), Devin (`GetUserStatus` daily and weekly windows), WorkBuddy AI (`POST /billing/meter/get-user-resource-summary`). Fetches are cached (Claude for 5 minutes, everything else for 1 minute) and refreshed with `jevonian quota --refresh` or the dashboard button. Claude reports its shared 5h/7d pools plus any model-scoped weekly limits (for example a Fable-only window); scoped windows are shown for visibility but never drive the quota guard, since a spent scoped pool says nothing about the rest of the account.
 2. **Response headers** — `anthropic-ratelimit-unified-*` and `x-codex-*` headers captured passively from every proxied response, persisted at `~/.local/share/jevonian/quota.json`.
 3. **Ledger** — dollar windows computed from the local ledger when a provider declares caps (`quota.fiveHourUsd` / `weeklyUsd` / `monthlyUsd`). Useful for Command Code and any subscription without a usage API.
 

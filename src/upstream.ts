@@ -130,6 +130,7 @@ import {
   sanitizeOpenAIChatStream,
   upstreamUrlFor,
 } from "./wire";
+import { ensureWorkbuddySystem, foldOpenAIChatStream, isWorkbuddyAiSource } from "./workbuddy";
 
 interface RequestMeta {
   id: string;
@@ -1731,12 +1732,15 @@ async function forward(
     // apart), the same accounting Anthropic uses, so cache observation must not subtract reads
     // from input again.
     meta.usageKind = devinWire || cursorWire ? "anthropic" : upstreamKind;
-    // Devin's and Cursor's RPCs only stream; non-stream clients get the stream folded into one
-    // reply.
+    // Devin's and Cursor's RPCs only stream; WorkBuddy AI refuses non-stream chats.
+    // Non-stream clients get the stream folded into one reply.
+    const workbuddyWire = isWorkbuddyAiSource(provider.oauthSource);
     const upstreamStream =
-      provider.type === "responses" || devinWire || cursorWire ? true : clientStream;
+      provider.type === "responses" || devinWire || cursorWire || workbuddyWire
+        ? true
+        : clientStream;
 
-    let auth = await resolveProviderAuth(provider, upstreamKind);
+    let auth = await resolveProviderAuth(provider, upstreamKind, decision.session);
     if (auth.error) return errorResponse(c, meta, 400, auth.error);
     if (devinWire && !auth.token) {
       return errorResponse(c, meta, 400, `Missing Devin token for provider "${provider.name}"`);
@@ -1945,6 +1949,9 @@ async function forward(
       upstreamBody.stream = upstreamStream;
       if (provider.auth === "oauth") upstreamBody.store = false;
     }
+    if (workbuddyWire) {
+      upstreamBody.stream = true;
+    }
     if (
       clientKind === "openai" &&
       provider.type === "openai" &&
@@ -1960,11 +1967,12 @@ async function forward(
         ? geminiEndpoint(provider.baseUrl, upstreamStream)
         : upstreamUrlFor(provider, wire);
     // The Claude Code system prompt belongs to the Anthropic wire only.
+    // WorkBuddy AI requires a leading system message on Chat Completions.
     const payloadFor = (wire: RequestKind): Record<string, unknown> => {
       const payload = wire === upstreamKind ? upstreamBody : bodyFor(wire);
-      return wire === "anthropic" && provider.auth === "oauth"
-        ? applyClaudeCodeSystem(payload)
-        : payload;
+      if (wire === "anthropic" && provider.auth === "oauth") return applyClaudeCodeSystem(payload);
+      if (wire === "openai" && workbuddyWire) return ensureWorkbuddySystem(payload);
+      return payload;
     };
     const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
     // Built once per wire, not per attempt: a retry repeats the same bytes, which is the whole
@@ -2058,7 +2066,7 @@ async function forward(
         provider.oauthSource !== "static"
       ) {
         invalidateOAuthToken(provider.oauthSource, provider.login);
-        const refreshed = await resolveProviderAuth(provider, upstreamKind);
+        const refreshed = await resolveProviderAuth(provider, upstreamKind, decision.session);
         if (!refreshed.error) {
           auth = refreshed;
           ({ response: upstream, text: failureText } = await postUpstream(
@@ -2455,6 +2463,19 @@ async function forward(
       const cost = costOf(decision.model, usage, new Date(), decision.provider);
       record(meta, 200, usage, cost.usd, cost.known);
       return c.json(json, 200, decisionHeaders(decision, meta.retries));
+    }
+
+    // WorkBuddy forces upstream streaming; fold SSE → JSON for non-stream OpenAI clients.
+    if (workbuddyWire && upstreamStream && !clientStream && upstreamKind === "openai") {
+      const json = await foldOpenAIChatStream(upstream.body, decision.model);
+      const sanitized = sanitizeOpenAIChatResponse(json);
+      if (passbackReasoning) {
+        rememberFromChatCompletion(sanitized, passbackMessages, decision.session);
+      }
+      const usage = openaiUsage(sanitized.usage);
+      const cost = costOf(decision.model, usage, new Date(), decision.provider);
+      record(meta, 200, usage, cost.usd, cost.known);
+      return c.json(sanitized, 200, decisionHeaders(decision, meta.retries));
     }
 
     if (upstreamKind === "responses") {
