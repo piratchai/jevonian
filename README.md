@@ -81,7 +81,7 @@ Automatic routing needs a brain. With none configured, `jevonian/auto` returns a
 
 ### The brain: TypeSafe Jev
 
-Jevonian doesn't use a slow LLM prompt or fragile JSON extraction to make routing decisions. Instead, its routing intelligence is powered by **Jev**, the fast decision model behind [TypeSafe](https://typesafe.ai)'s System One architecture (available directly via TypeSafe, OpenRouter as `typesafe/jev-1.13`, OpenCode Zen, or Vercel AI Gateway).
+Jevonian doesn't use a slow LLM prompt or fragile JSON extraction to make routing decisions. Instead, its routing intelligence is powered by **Jev**, the fast decision model behind [TypeSafe](https://typesafe.ai)'s System One architecture (available directly via TypeSafe, OpenRouter as `typesafe/jev-1.13`, OpenCode Zen, Vercel AI Gateway, or Cloudflare Workers AI — where Cloudflare's Jev-API-compatible **Clef** and **Clef-flash** models can serve the same role as a drop-in).
 
 - **Purpose-built for decision-making**: Rather than generating conversational prose, Jev evaluates a structured snapshot of session state (user intent, tool results, consecutive error counts, context headroom, candidate capabilities, and cache switch penalties) against discrete routing criteria.
 - **Single round-trip consultation**: One API call answers both _which route_ and _how deeply to think_. The compact state representation isolates the decision from long conversation histories while keeping the turn responsive.

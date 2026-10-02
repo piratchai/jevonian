@@ -79,6 +79,12 @@ export interface BrainView {
   keySource?: string;
 }
 
+export interface BrainModelView {
+  id: string;
+  label: string;
+  hint?: string;
+}
+
 export interface BrainChannelView {
   id: string;
   label: string;
@@ -89,6 +95,7 @@ export interface BrainChannelView {
   requiresAccountId?: boolean;
   keyOptional?: boolean;
   defaultMinConfidence?: number;
+  models?: BrainModelView[];
   hint?: string;
   keysUrl?: string;
 }

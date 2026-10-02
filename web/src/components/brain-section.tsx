@@ -57,6 +57,12 @@ export function BrainSection({
 
   const saved = typeof editing === "number" ? brains[editing] : undefined;
   const active = channelOf(channels, draft.channel);
+  const modelPresets = active?.models ?? [];
+  const selectedModelHint = modelPresets.find((option) => option.id === draft.model)?.hint;
+  // A channel with presets can still run an unlisted id typed into the advanced field; keep it
+  // visible in the picker instead of showing an empty trigger.
+  const customModel =
+    (draft.model ?? "") !== "" && !modelPresets.some((option) => option.id === draft.model);
   const dirty =
     editing === "new" ||
     key.length > 0 ||
@@ -369,7 +375,47 @@ export function BrainSection({
                     <span className="text-[11px] text-muted-foreground">
                       Used to call{" "}
                       <code className="text-[10px]">/client/v4/accounts/{"{id}"}/ai/run</code> with
-                      model <code className="text-[10px]">{active.model || "typesafe/jev"}</code>.
+                      model{" "}
+                      <code className="text-[10px]">
+                        {draft.model || active.model || "typesafe/jev"}
+                      </code>
+                      .
+                    </span>
+                  </div>
+                ) : null}
+                {modelPresets.length > 0 ? (
+                  <div className="col-span-2 flex flex-col gap-1.5">
+                    <Label htmlFor="brainModelPreset">Model</Label>
+                    <Select
+                      value={draft.model ?? ""}
+                      onValueChange={(value) => setDraft({ ...draft, model: String(value) })}
+                    >
+                      <SelectTrigger id="brainModelPreset" className="w-full">
+                        <SelectValue>
+                          {(value: string | null) =>
+                            modelPresets.find((option) => option.id === value)?.label ??
+                            (value ? `${value} (custom)` : "Pick a decision model")
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customModel ? (
+                          <SelectItem
+                            value={draft.model ?? ""}
+                          >{`${draft.model} (custom)`}</SelectItem>
+                        ) : null}
+                        {modelPresets.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-[11px] text-muted-foreground">
+                      {selectedModelHint ??
+                        (customModel
+                          ? "A model id not on this channel's preset list."
+                          : `Served by ${active?.label ?? draft.channel}.`)}
                     </span>
                   </div>
                 ) : null}
@@ -393,7 +439,9 @@ export function BrainSection({
                       </div>
                     )}
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="brainModel">Model</Label>
+                      <Label htmlFor="brainModel">
+                        {modelPresets.length > 0 ? "Model (override)" : "Model"}
+                      </Label>
                       <Input
                         id="brainModel"
                         value={draft.model ?? ""}

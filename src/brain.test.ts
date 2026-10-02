@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   askJev,
+  cloudflareAiRunModelUrl,
   cloudflareAiRunUrl,
+  cloudflareModelSelector,
   consumeAskJevFailure,
   httpQuestions,
+  isWorkersAiModelId,
   PLACEHOLDER_BRAIN_KEY,
   normalizeEvaluationResult,
   parseSystemOneResponse,
@@ -345,6 +348,48 @@ describe("askJev", () => {
     expect(Object.keys(body.input.questions)).toEqual(["model", "effort"]);
   });
 
+  it("sends a Clef model when the brain overrides the channel default", async () => {
+    let captured: { url: string; body: unknown } | undefined;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const rawBody = typeof init.body === "string" ? init.body : JSON.stringify(init.body);
+      captured = { url: String(url), body: JSON.parse(rawBody) };
+      return new Response(
+        JSON.stringify({
+          success: true,
+          result: { answers: { model: { choice: "plan", confidence: 0.9 } } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const verdict = await askJev({
+      brain: {
+        channel: "cloudflare",
+        accountId: "acct_123",
+        model: "@cf/cloudflare/clef-flash",
+        timeoutMs: 1_000,
+        minConfidence: 0.6,
+      },
+      state: { routings: [{ id: "plan", label: "Plan", description: "planning" }] },
+      apiKey: "cf-token",
+    });
+
+    expect(verdict?.model).toBe("plan");
+    expect(captured?.url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/acct_123/ai/run/@cf/cloudflare/clef-flash",
+    );
+    const body = captured?.body as {
+      model: string;
+      state: unknown;
+      questions: Record<string, unknown>;
+    };
+    expect(body.model).toBe("clef-flash");
+    expect(Object.keys(body.questions)).toEqual(["model", "effort"]);
+    expect(body.state).toEqual({
+      routings: [{ id: "plan", label: "Plan", description: "planning" }],
+    });
+  });
+
   it("returns undefined for Cloudflare without an account id", async () => {
     const verdict = await askJev({
       brain: { channel: "cloudflare", timeoutMs: 1_000, minConfidence: 0.6 },
@@ -401,6 +446,22 @@ describe("cloudflare helpers", () => {
       answers: { model: { choice: "plan" } },
     });
   });
+
+  it("tells Jev aliases apart from Workers AI catalog models", () => {
+    expect(isWorkersAiModelId("typesafe/jev")).toBe(false);
+    expect(isWorkersAiModelId(" @cf/cloudflare/clef ")).toBe(true);
+  });
+
+  it("builds a catalog model path with literal separators", () => {
+    expect(cloudflareAiRunModelUrl("acct_123", "@cf/cloudflare/clef-flash")).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/acct_123/ai/run/@cf/cloudflare/clef-flash",
+    );
+  });
+
+  it("takes the short Clef selector from the catalog id", () => {
+    expect(cloudflareModelSelector("@cf/cloudflare/clef")).toBe("clef");
+    expect(cloudflareModelSelector("@cf/cloudflare/clef-flash")).toBe("clef-flash");
+  });
 });
 
 describe("channels", () => {
@@ -411,6 +472,11 @@ describe("channels", () => {
     expect(findJevChannel("vercel")?.model).toBe("typesafe-ai/jev");
     expect(findJevChannel("cloudflare")?.requiresAccountId).toBe(true);
     expect(findJevChannel("cloudflare")?.model).toBe("typesafe/jev");
+    expect(findJevChannel("cloudflare")?.models?.map((model) => model.id)).toEqual([
+      "typesafe/jev",
+      "@cf/cloudflare/clef",
+      "@cf/cloudflare/clef-flash",
+    ]);
     expect(JEV_CHANNELS.some((channel) => channel.requiresBaseUrl)).toBe(true);
     expect(findJevChannel("kev")).toMatchObject({
       model: "kev-latest",
@@ -421,6 +487,13 @@ describe("channels", () => {
     // Hosted Jev channels keep the full state and Jev's own confidence.
     expect(findJevChannel("typesafe")?.compactState).toBeUndefined();
     expect(findJevChannel("typesafe")?.confidenceFromDistribution).toBeUndefined();
+  });
+
+  it("lists the channel default first among its model presets", () => {
+    for (const channel of JEV_CHANNELS) {
+      if (!channel.models) continue;
+      expect(channel.models[0]?.id).toBe(channel.model);
+    }
   });
 });
 

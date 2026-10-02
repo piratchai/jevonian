@@ -2,7 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
-## [0.4.1] - 2026-10-01
+## [Unreleased]
+
+### Added
+
+- **Clef and Clef-flash brain models on the Cloudflare channel.** The Cloudflare Workers AI brain can now run Cloudflare's open-source decision models — `@cf/cloudflare/clef` (27B, 64k context, vision) and `@cf/cloudflare/clef-flash` (latency-tuned) — alongside `typesafe/jev`. A model picker in the Providers brain form lists all three, and any other Workers AI id can still be typed into the advanced **Model (override)** field. Clef speaks the Jev API, so the existing confidence handling and compact/full state apply unchanged; catalog-model ids post to the documented `.../ai/run/@cf/...` path with a `model`/`state`/`questions` body while the Jev alias keeps the `input:{state,questions}` envelope.
 
 ### Fixed
 

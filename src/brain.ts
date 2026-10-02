@@ -4,6 +4,17 @@ import { getCredential } from "./credentials";
 import type { Usage } from "./pricing";
 import { configuredRetries, describeFailure, isRetryableStatus, withRetry } from "./retry";
 
+/**
+ * A decision model a channel can run. Channels that host more than one (Cloudflare Workers AI)
+ * list them here so the dashboard can offer a picker; the free-form model field stays available
+ * as an override for ids not listed yet.
+ */
+export interface BrainModelOption {
+  id: string;
+  label: string;
+  hint?: string;
+}
+
 export interface JevChannel {
   id: string;
   label: string;
@@ -11,6 +22,12 @@ export interface JevChannel {
   model: string;
   apiKeyEnv: string;
   requiresBaseUrl?: boolean;
+  /**
+   * Preset models this channel can serve, the first being the default. Set only when a channel
+   * hosts more than one decision model. The `model` field above stays the default; a brain may
+   * still override it with any valid id.
+   */
+  models?: BrainModelOption[];
   /** When set, the UI asks for a Cloudflare account id instead of a free-form endpoint. */
   requiresAccountId?: boolean;
   /** Short help shown next to the auth fields. */
@@ -90,6 +107,23 @@ export const JEV_CHANNELS: JevChannel[] = [
     model: "typesafe/jev",
     apiKeyEnv: "CLOUDFLARE_API_TOKEN",
     requiresAccountId: true,
+    models: [
+      {
+        id: "typesafe/jev",
+        label: "Jev · TypeSafe System One",
+        hint: "TypeSafe's decision model: 32k context, text only. The long-standing default on this channel.",
+      },
+      {
+        id: "@cf/cloudflare/clef",
+        label: "Clef · Cloudflare",
+        hint: "Cloudflare's decision model: 64k context, vision input, Jev-API compatible. Leads the Jev Decision Index on most boards, at a higher per-token price.",
+      },
+      {
+        id: "@cf/cloudflare/clef-flash",
+        label: "Clef-flash · Cloudflare",
+        hint: "The smaller Clef, tuned for latency (~40ms median vs Clef's ~210ms). Cheaper than Clef, still Jev-API compatible.",
+      },
+    ],
     keysUrl: "https://developers.cloudflare.com/workers-ai/",
     hint: "Account ID from the Cloudflare dashboard overview; API token needs Workers AI permission.",
   },
@@ -128,6 +162,38 @@ export function brainCredentialName(channel: string): string {
 /** Workers AI REST endpoint for a Cloudflare account. */
 export function cloudflareAiRunUrl(accountId: string): string {
   return `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId.trim())}/ai/run`;
+}
+
+/**
+ * Whether a brain model id is a Workers AI catalog model (`@cf/...`) rather than a Jev alias
+ * (`typesafe/jev`). Workers AI hosts several decision models — TypeSafe's Jev and Cloudflare's
+ * Clef pair — but they speak different request shapes.
+ */
+export function isWorkersAiModelId(model: string): boolean {
+  return model.trim().startsWith("@cf/");
+}
+
+/**
+ * Short selector a Clef-style Workers AI model takes in the body. Workers AI requires one of
+ * `clef` / `clef-flash` regardless of the catalog id in the path, so the tail of the id is it.
+ */
+export function cloudflareModelSelector(model: string): string {
+  const segments = model.trim().split("/");
+  return segments[segments.length - 1] || model.trim();
+}
+
+/**
+ * Path for a Workers AI catalog model, e.g. `.../ai/run/@cf/cloudflare/clef`. Each segment is
+ * escaped but the separators stay literal — an encoded `%2F` is not reliably decoded back into a
+ * path by the gateway.
+ */
+export function cloudflareAiRunModelUrl(accountId: string, model: string): string {
+  const segments = model
+    .trim()
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => (segment.startsWith("@") ? segment : encodeURIComponent(segment)));
+  return `${cloudflareAiRunUrl(accountId)}/${segments.join("/")}`;
 }
 
 /**
@@ -532,21 +598,36 @@ async function askCloudflareWorkersAi(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.brain.timeoutMs);
   try {
-    const response = await fetchBrain(cloudflareAiRunUrl(accountId), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        input: {
-          state: input.state,
-          questions: httpQuestions(input),
+    // Two request shapes share this channel: Jev posts `model` + `input:{state,questions}` to
+    // the bare /ai/run endpoint; Workers AI catalog models (Clef) take the model id in the path
+    // and `model` + `state` + `questions` in the body.
+    const isCatalogModel = isWorkersAiModelId(model);
+    const response = await fetchBrain(
+      isCatalogModel ? cloudflareAiRunModelUrl(accountId, model) : cloudflareAiRunUrl(accountId),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
         },
-      }),
-      signal: input.signal ?? controller.signal,
-    });
+        body: JSON.stringify(
+          isCatalogModel
+            ? {
+                model: cloudflareModelSelector(model),
+                state: input.state,
+                questions: httpQuestions(input),
+              }
+            : {
+                model,
+                input: {
+                  state: input.state,
+                  questions: httpQuestions(input),
+                },
+              },
+        ),
+        signal: input.signal ?? controller.signal,
+      },
+    );
     if (!response.ok) return undefined;
     const payload = unwrapCloudflareAiPayload(await response.json());
     if (payload === undefined) return undefined;
@@ -651,15 +732,23 @@ export async function askJevRaw(
       const accountId = brain.accountId?.trim();
       if (!accountId) throw new Error(`The "cloudflare" brain needs an account ID`);
       const model = transport.model || findJevChannel("cloudflare")?.model || "typesafe/jev";
-      const response = await fetchBrain(cloudflareAiRunUrl(accountId), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${transport.apiKey}`,
+      const isCatalogModel = isWorkersAiModelId(model);
+      const response = await fetchBrain(
+        isCatalogModel ? cloudflareAiRunModelUrl(accountId, model) : cloudflareAiRunUrl(accountId),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${transport.apiKey}`,
+          },
+          body: JSON.stringify(
+            isCatalogModel
+              ? { model: cloudflareModelSelector(model), state, questions }
+              : { model, input: { state, questions } },
+          ),
+          signal: controller.signal,
         },
-        body: JSON.stringify({ model, input: { state, questions } }),
-        signal: controller.signal,
-      });
+      );
       if (!response.ok) {
         throw new Error(`Jev request failed (${response.status})`);
       }
