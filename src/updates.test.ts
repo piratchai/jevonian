@@ -248,7 +248,9 @@ it("rejects a registry latest whose tarball is not yet public", async () => {
     }
     return new Response(null, { status: 404 });
   };
-  await expect(fetchRegistryVersion(fetchImpl)).rejects.toThrow(/tarball is not available yet \(404\)/);
+  await expect(fetchRegistryVersion(fetchImpl)).rejects.toThrow(
+    /tarball is not available yet \(404\)/,
+  );
   expect(calls).toEqual([
     { url: "https://registry.npmjs.org/jevonian/latest", method: undefined },
     { url: "https://registry.npmjs.org/jevonian/-/jevonian-0.4.1.tgz", method: "HEAD" },
@@ -274,7 +276,7 @@ it("accepts a registry latest only after the tarball HEAD succeeds", async () =>
 });
 
 it("includes installer stderr in the failure message", async () => {
-  await expect(spawnCommand("sh -c 'echo No matching version found for jevonian@0.4.1 >&2; exit 1'")).rejects.toThrow(
-    /installer exited 1:.*No matching version found for jevonian@0\.4\.1/,
-  );
+  await expect(
+    spawnCommand("sh -c 'echo No matching version found for jevonian@0.4.1 >&2; exit 1'"),
+  ).rejects.toThrow(/installer exited 1:.*No matching version found for jevonian@0\.4\.1/);
 });

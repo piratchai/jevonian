@@ -208,9 +208,7 @@ export function formatUpdateNotice(
  * `.tgz` is public — during that window `npm install` dies with ETARGET/E404
  * and the dashboard only shows "installer exited 1".
  */
-export async function fetchRegistryVersion(
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
+export async function fetchRegistryVersion(fetchImpl: typeof fetch = fetch): Promise<string> {
   const url = process.env.JEVONIAN_NPM_REGISTRY ?? "https://registry.npmjs.org/jevonian/latest";
   const response = await fetchImpl(url, {
     headers: { accept: "application/json", "user-agent": `${PACKAGE_NAME}-update-check` },

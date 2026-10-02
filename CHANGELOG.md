@@ -2,14 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.5.0] - 2026-10-02
 
 ### Added
 
 - **WorkBuddy AI subscription** (`workbuddy-ai-subscription`). Magpie-parity for the international WorkBuddy / CodeBuddy plan: OpenAI Chat Completions at `https://www.workbuddy.ai/v2`, browser sign-in via `/v2/plugin/auth/*` (tokens stored under `~/.config/jevonian/workbuddy-ai.json`), plaintext desktop-session fallback, forced streaming with SSE folding for non-stream clients, WorkBuddy request headers, system-prompt injection when missing, model discovery from `GET /v3/config`, and live credits from `/billing/meter/get-user-resource-summary`. Encrypted desktop tokens (`$wbEncrypted`) are not readable — sign in through Jevonian instead. `JEVONIAN_WORKBUDDY_AI_AUTH` points at a session file.
 - **Mistral, Groq, Ollama, LM Studio, and OpenCode Zen presets.** Common Magpie vendors Jevonian was missing: API-key Mistral/Groq, keyless local Ollama (`127.0.0.1:11434`) and LM Studio (`127.0.0.1:1234`), and the full OpenCode Zen endpoint beside the existing Go plan.
-
 - **Clef and Clef-flash brain models on the Cloudflare channel.** The Cloudflare Workers AI brain can now run Cloudflare's open-source decision models — `@cf/cloudflare/clef` (27B, 64k context, vision) and `@cf/cloudflare/clef-flash` (latency-tuned) — alongside `typesafe/jev`. A model picker in the Providers brain form lists all three, and any other Workers AI id can still be typed into the advanced **Model (override)** field. Clef speaks the Jev API, so the existing confidence handling and compact/full state apply unchanged; catalog-model ids post to the documented `.../ai/run/@cf/...` path with a `model`/`state`/`questions` body while the Jev alias keeps the `input:{state,questions}` envelope.
+
+### Changed
+
+- **Dashboard sidebar no longer draws borders.** The outer divider, header/footer rules, and logo ring are gone so the sidebar reads as one continuous surface.
+
+### Fixed
+
+- **Update checks wait for a public npm tarball.** Registry `/latest` can advertise a version before the `.tgz` is fetchable; Jevonian now HEAD-probes the tarball before offering an upgrade, so the dashboard no longer prompts install into an ETARGET/E404 window.
+
+## [0.4.1] - 2026-10-01
 
 ### Fixed
 
