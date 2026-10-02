@@ -50,6 +50,8 @@ export interface ProviderView {
    * `StateResponse.modelSyncDefaultSources`).
    */
   syncModels?: boolean;
+  /** Local / keyless server — requests and discovery run without a Bearer token. */
+  noKey?: boolean;
   /** Model ids discovery must not re-add after a deliberate removal. */
   excludeModels?: string[];
 }
@@ -67,6 +69,8 @@ export interface PresetView {
   billing?: ProviderBillingView;
   /** Local / keyless servers — no API key is required. */
   noKey?: boolean;
+  /** Newly added providers from this preset turn on background model sync. */
+  syncModels?: boolean;
 }
 
 export interface BrainView {
@@ -785,8 +789,10 @@ export const api = {
     billing?: ProviderBillingView;
     quota?: ProviderQuotaSpecView;
     models?: string[];
-    /** `null` clears the override so the provider follows the OAuth-source default. */
+    /** `null` clears the override so the provider follows the OAuth-source / preset default. */
     syncModels?: boolean | null;
+    /** Local / keyless server (Ollama, LM Studio). */
+    noKey?: boolean;
     excludeModels?: string[];
   }) =>
     request<{ config: unknown; signedInAs?: string }>("/api/providers", {
@@ -804,10 +810,18 @@ export const api = {
     apiKey?: string;
     auth?: ProviderAuthView;
     oauthSource?: string;
+    noKey?: boolean;
+    login?: ProviderLoginView | null;
   }) =>
-    request<{ models: string[]; error?: string }>("/api/providers/discover", {
+    request<{ models: string[]; error?: string; signedInAs?: string }>("/api/providers/discover", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  /** Opens WorkBuddy AI browser sign-in and stores the session. */
+  signInWorkbuddyAi: (payload?: { login?: ProviderLoginView | null }) =>
+    request<{ ok: boolean; user?: string }>("/api/oauth/workbuddy-ai/signin", {
+      method: "POST",
+      body: JSON.stringify(payload ?? {}),
     }),
   saveTokenSaver: (payload: Partial<TokenSaverConfigView>) =>
     request<{ tokenSaver: TokenSaverConfigView }>("/api/token-saver", {

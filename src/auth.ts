@@ -151,6 +151,8 @@ export async function resolveProviderAuth(
   } else {
     token = resolveApiKey(provider);
     if (!token) {
+      // Ollama / LM Studio and other keyless local servers talk without a Bearer token.
+      if (provider.noKey) return { headers };
       return { headers: {}, error: `Missing API key for provider "${provider.name}"` };
     }
   }

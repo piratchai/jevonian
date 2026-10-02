@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
   ensureWorkbuddySystem,
   foldOpenAIChatStream,
+  modelsFromWorkbuddyConfig,
   parseWorkbuddySession,
   workbuddyAuthHeaders,
   workbuddyClientHeaders,
@@ -238,5 +239,21 @@ describe("workbuddy", () => {
     // Even if a desktop file existed, an explicit path that fails must not leak into it.
     expect(readWorkbuddySession()).toBeUndefined();
     expect(readWorkbuddySession({ credentialsPath: missing })).toBeUndefined();
+  });
+
+  it("reads CLI models from WorkBuddy product config, including DeepSeek", () => {
+    const models = modelsFromWorkbuddyConfig({
+      agents: [
+        {
+          name: "cli",
+          models: ["default-model", "deepseek-v4.1-flash", "gpt-5.5", "kimi-k3"],
+        },
+      ],
+      models: [{ id: "ignored-when-cli-present" }],
+    });
+    expect(models).toEqual(["default-model", "deepseek-v4.1-flash", "gpt-5.5", "kimi-k3"]);
+    expect(
+      modelsFromWorkbuddyConfig({ models: [{ id: "gpt-5.5" }, { id: "deepseek-v4.1-flash" }] }),
+    ).toEqual(["gpt-5.5", "deepseek-v4.1-flash"]);
   });
 });

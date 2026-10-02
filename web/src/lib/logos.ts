@@ -1,58 +1,79 @@
-import anthropic from "@/assets/logos/anthropic.svg?raw";
-import antigravity from "@/assets/logos/antigravity.png";
-import claude from "@/assets/logos/claude.svg?raw";
-import commandcode from "@/assets/logos/commandcode.svg?raw";
-import cursor from "@/assets/logos/cursor.svg?raw";
-import deepseek from "@/assets/logos/deepseek.svg?raw";
-import devin from "@/assets/logos/devin.svg?raw";
-import google from "@/assets/logos/google.svg?raw";
-import groq from "@/assets/logos/groq.svg?raw";
-import lmstudio from "@/assets/logos/lmstudio.svg?raw";
-import minimax from "@/assets/logos/minimax.svg?raw";
-import mistral from "@/assets/logos/mistral.svg?raw";
-import moonshotai from "@/assets/logos/moonshotai.svg?raw";
-import ollama from "@/assets/logos/ollama.svg?raw";
-import openai from "@/assets/logos/openai.svg?raw";
-import opencode from "@/assets/logos/opencode.svg?raw";
-import openrouter from "@/assets/logos/openrouter.svg?raw";
-import orcarouter from "@/assets/logos/orcarouter.png";
-import qwen from "@/assets/logos/qwen.svg?raw";
-import workbuddy from "@/assets/logos/workbuddy.svg?raw";
-import xai from "@/assets/logos/xai.svg?raw";
-import zai from "@/assets/logos/zai.svg?raw";
+import {
+  Antigravity,
+  Anthropic,
+  Claude,
+  CodeBuddy,
+  CommandCode,
+  Cursor,
+  DeepSeek,
+  Devin,
+  Google,
+  Groq,
+  LmStudio,
+  Minimax,
+  Mistral,
+  Moonshot,
+  Ollama,
+  OpenAI,
+  OpenCode,
+  OpenRouter,
+  Qwen,
+  XAI,
+  Zhipu,
+} from "@lobehub/icons";
+import type { ComponentType, SVGProps } from "react";
 
-export const PROVIDER_LOGOS: Record<string, string> = {
-  anthropic,
-  claude,
-  "claude-subscription": claude,
-  commandcode,
-  cursor,
-  "cursor-subscription": cursor,
-  deepseek,
-  devin,
-  "devin-subscription": devin,
-  google,
-  groq,
-  lmstudio,
-  minimax,
-  mistral,
-  moonshotai,
-  ollama,
-  openai,
-  "chatgpt-subscription": openai,
-  opencode,
-  "opencode-go": opencode,
-  "opencode-zen": opencode,
-  openrouter,
-  qwen,
-  workbuddy,
-  "workbuddy-ai": workbuddy,
-  "workbuddy-ai-subscription": workbuddy,
-  xai,
-  zai,
+import orcarouter from "@/assets/logos/orcarouter.png";
+
+type IconProps = SVGProps<SVGSVGElement> & { size?: string | number };
+type LobeIcon = ComponentType<IconProps> & {
+  Color?: ComponentType<IconProps>;
+  title?: string;
 };
 
+/** Prefer the official color mark when Lobe ships one; otherwise the mono glyph. */
+function brandIcon(icon: LobeIcon): ComponentType<IconProps> {
+  return icon.Color ?? icon;
+}
+
+/**
+ * Map Jevonian provider / preset / client logo ids onto @lobehub/icons components.
+ * Keys cover both short ids (`openai`) and preset names (`chatgpt-subscription`).
+ */
+export const PROVIDER_ICONS: Record<string, ComponentType<IconProps>> = {
+  anthropic: brandIcon(Anthropic),
+  antigravity: brandIcon(Antigravity),
+  claude: brandIcon(Claude),
+  "claude-subscription": brandIcon(Claude),
+  commandcode: brandIcon(CommandCode),
+  cursor: brandIcon(Cursor),
+  "cursor-subscription": brandIcon(Cursor),
+  deepseek: brandIcon(DeepSeek),
+  devin: brandIcon(Devin),
+  "devin-subscription": brandIcon(Devin),
+  google: brandIcon(Google),
+  groq: brandIcon(Groq),
+  lmstudio: brandIcon(LmStudio),
+  minimax: brandIcon(Minimax),
+  mistral: brandIcon(Mistral),
+  moonshotai: brandIcon(Moonshot),
+  ollama: brandIcon(Ollama),
+  openai: brandIcon(OpenAI),
+  "chatgpt-subscription": brandIcon(OpenAI),
+  opencode: brandIcon(OpenCode),
+  "opencode-go": brandIcon(OpenCode),
+  "opencode-zen": brandIcon(OpenCode),
+  openrouter: brandIcon(OpenRouter),
+  qwen: brandIcon(Qwen),
+  // WorkBuddy AI (international) shares the CodeBuddy mark in Lobe's set.
+  workbuddy: brandIcon(CodeBuddy),
+  "workbuddy-ai": brandIcon(CodeBuddy),
+  "workbuddy-ai-subscription": brandIcon(CodeBuddy),
+  xai: brandIcon(XAI),
+  zai: brandIcon(Zhipu),
+};
+
+/** Raster fallbacks for brands Lobe does not ship yet. */
 export const PROVIDER_IMAGES: Record<string, string> = {
-  antigravity,
   orcarouter,
 };

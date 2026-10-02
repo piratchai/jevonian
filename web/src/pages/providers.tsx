@@ -108,6 +108,10 @@ export function ProvidersPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const initialized = useRef(false);
+  /** Stable card ref — never call scrollIntoView from an inline ref (that re-fires every render). */
+  const formCardRef = useRef<HTMLDivElement | null>(null);
+  /** Scroll the form into view once when Add/Edit opens; later clicks must not jump the page. */
+  const scrollFormOnce = useRef(false);
 
   const allPresets = useMemo<PresetView[]>(
     () => [...(state?.presets ?? []), CUSTOM_PRESET],
@@ -151,6 +155,12 @@ export function ProvidersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!formOpen || !scrollFormOnce.current) return;
+    scrollFormOnce.current = false;
+    formCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [formOpen]);
 
   const applyPreset = useCallback((preset: PresetView | undefined) => {
     if (!preset) return;
@@ -257,7 +267,8 @@ export function ProvidersPage() {
               : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
-    auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource);
+    (auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource)) ||
+    helpPreset?.syncModels === true;
   const syncModels = syncOverride ?? syncDefault;
 
   async function discover() {
@@ -272,6 +283,8 @@ export function ProvidersPage() {
         apiKey,
         auth,
         oauthSource,
+        login: loginPayload(),
+        ...(helpPreset?.noKey ? { noKey: true } : {}),
       });
       if (result.error) setError(result.error);
       setDiscovered(result.models);
@@ -279,12 +292,21 @@ export function ProvidersPage() {
         setSelected((current) => [...new Set([...current, ...result.models])]);
       }
       if (!prices || Object.keys(prices).length === 0) void loadPrices(presetId);
-      setMessage(`Discovered ${result.models.length} models`);
+      setMessage(
+        result.signedInAs
+          ? `Signed in as ${result.signedInAs} · discovered ${result.models.length} models`
+          : `Discovered ${result.models.length} models`,
+      );
     } catch (cause) {
       setError(String(cause));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function signInWorkbuddy() {
+    // Discover already opens browser sign-in when no session exists; reuse that path.
+    await discover();
   }
 
   function toggleModel(model: string) {
@@ -325,6 +347,7 @@ export function ProvidersPage() {
         quota: Object.keys(quota).length > 0 ? quota : undefined,
         models: selected,
         syncModels: syncOverride,
+        ...(helpPreset?.noKey ? { noKey: true } : {}),
       });
       setMessage(
         result.signedInAs
@@ -445,6 +468,7 @@ export function ProvidersPage() {
     setSelected(provider.models);
     setSyncOverride(typeof provider.syncModels === "boolean" ? provider.syncModels : null);
     setEditing(provider.name);
+    scrollFormOnce.current = true;
     setFormOpen(true);
     setMessage("");
     setError("");
@@ -452,6 +476,7 @@ export function ProvidersPage() {
 
   function beginAdd() {
     resetForm();
+    scrollFormOnce.current = true;
     setFormOpen(true);
   }
 
@@ -467,6 +492,8 @@ export function ProvidersPage() {
 
   const needsApiKey =
     !(helpPreset?.noKey === true) && (auth === "api-key" || oauthSource === "static");
+  // Save signs in then discovers when the list is empty — don't force a Discover-first deadlock.
+  const canSaveWithoutModels = auth === "oauth" && oauthSource === "workbuddy-ai";
 
   /**
    * Whether this credential source keeps its sign-in somewhere a `login` can point at. A stored
@@ -672,13 +699,7 @@ export function ProvidersPage() {
       {state ? <BrainSection state={state} onSaved={setState} /> : null}
 
       {formOpen ? (
-        <Card
-          ref={(node) => {
-            // The form mounts at the bottom of the page; bring it into view or the
-            // "Add provider" click appears to do nothing on a long page.
-            node?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-        >
+        <Card id="provider-form" ref={formCardRef}>
           <CardHeader className="flex-row items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
               <CardTitle>{editing ? `Edit provider "${editing}"` : "Add provider"}</CardTitle>
@@ -849,19 +870,33 @@ export function ProvidersPage() {
                     Local server — no API key required. Make sure it is running at the base URL.
                   </p>
                 ) : (
-                  <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
-                    {oauthSource === "claude-code"
-                      ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
-                      : oauthSource === "codex"
-                        ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
-                        : oauthSource === "devin"
-                          ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
-                          : oauthSource === "cursor"
-                            ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
-                            : oauthSource === "workbuddy-ai"
-                              ? "Saving opens WorkBuddy AI sign-in in your browser; complete it there, or use a plaintext desktop session."
-                              : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
-                  </p>
+                  <div className="col-span-2 flex flex-col gap-2 self-end xl:col-span-1">
+                    <p className="text-xs text-muted-foreground">
+                      {oauthSource === "claude-code"
+                        ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
+                        : oauthSource === "codex"
+                          ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
+                          : oauthSource === "devin"
+                            ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
+                            : oauthSource === "cursor"
+                              ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
+                              : oauthSource === "workbuddy-ai"
+                                ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
+                                : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                    </p>
+                    {oauthSource === "workbuddy-ai" ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="self-start"
+                        onClick={() => void signInWorkbuddy()}
+                        disabled={busy || !baseUrl}
+                      >
+                        Sign in & discover
+                      </Button>
+                    ) : null}
+                  </div>
                 )}
               </div>
               <KeysHelp
@@ -1040,8 +1075,10 @@ export function ProvidersPage() {
                   <span className="font-medium">Auto-sync new models</span>
                   <span className="block text-xs text-muted-foreground">
                     Append ids this provider newly lists. On by default for Codex, Claude Code,
-                    Antigravity, and Devin; off for API/reseller catalogs until you enable it.
-                    Unchecking a model remembers the removal so sync does not bring it back.
+                    Antigravity, Devin, Cursor, WorkBuddy AI, and presets that discover live
+                    (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code); off for other
+                    API/reseller catalogs until you enable it. Unchecking a model remembers the
+                    removal so sync does not bring it back.
                   </span>
                 </span>
               </label>
@@ -1221,7 +1258,9 @@ export function ProvidersPage() {
             <div className="flex items-center gap-3">
               <Button
                 onClick={() => void save()}
-                disabled={busy || !name || !baseUrl || selected.length === 0}
+                disabled={
+                  busy || !name || !baseUrl || (selected.length === 0 && !canSaveWithoutModels)
+                }
               >
                 {editing ? "Update provider" : "Save provider"}
               </Button>

@@ -16,6 +16,11 @@ export interface ProviderPreset {
   billing?: ProviderBilling;
   /** Local / keyless servers — no API key is required to add the preset. */
   noKey?: boolean;
+  /**
+   * When true, newly added providers from this preset turn on background model sync
+   * (discover `/models` or the vendor catalog periodically).
+   */
+  syncModels?: boolean;
 }
 
 export const PRESETS: ProviderPreset[] = [
@@ -129,6 +134,7 @@ export const PRESETS: ProviderPreset[] = [
     keysUrl: "https://opencode.ai/auth",
     hint: "Sign in at opencode.ai/auth and copy a Go / Zen API key.",
     billing: "subscription",
+    syncModels: true,
   },
   {
     id: "opencode-zen",
@@ -139,6 +145,7 @@ export const PRESETS: ProviderPreset[] = [
     keysUrl: "https://opencode.ai/auth",
     hint: "Sign in at opencode.ai/auth and copy a Zen API key.",
     billing: "subscription",
+    syncModels: true,
   },
   {
     id: "commandcode",
@@ -149,6 +156,7 @@ export const PRESETS: ProviderPreset[] = [
     keysUrl: "https://commandcode.ai",
     hint: "Sign in on Command Code and create a provider API key.",
     billing: "subscription",
+    syncModels: true,
   },
   {
     id: "mistral",
@@ -158,6 +166,7 @@ export const PRESETS: ProviderPreset[] = [
     apiKeyEnv: "MISTRAL_API_KEY",
     keysUrl: "https://console.mistral.ai/api-keys",
     hint: "Create an API key in the Mistral console.",
+    syncModels: true,
   },
   {
     id: "groq",
@@ -167,6 +176,7 @@ export const PRESETS: ProviderPreset[] = [
     apiKeyEnv: "GROQ_API_KEY",
     keysUrl: "https://console.groq.com/keys",
     hint: "Create an API key in the Groq console.",
+    syncModels: true,
   },
   {
     id: "ollama",
@@ -176,6 +186,7 @@ export const PRESETS: ProviderPreset[] = [
     noKey: true,
     keysUrl: "https://ollama.com",
     hint: "Run Ollama locally; no API key required.",
+    syncModels: true,
   },
   {
     id: "lmstudio",
@@ -185,6 +196,7 @@ export const PRESETS: ProviderPreset[] = [
     noKey: true,
     keysUrl: "https://lmstudio.ai",
     hint: "Start LM Studio's local server; no API key required.",
+    syncModels: true,
   },
   {
     id: "claude-subscription",

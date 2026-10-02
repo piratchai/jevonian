@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { createAdminApp, type AppState } from "./admin";
 import { saveBody } from "./bodies";
@@ -406,6 +406,55 @@ describe("admin config writes", () => {
       providers: Array<{ name: string }>;
     };
     expect(written.providers.map((provider) => provider.name)).toEqual(["alpha", "gamma"]);
+  });
+
+  it("discovers models for a keyless preset when the dashboard saves an empty list", async () => {
+    const path = process.env.JEVONIAN_CONFIG ?? "";
+    writeConfig(path, [baseProvider("alpha")]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        expect(url).toBe("http://127.0.0.1:11434/v1/models");
+        return new Response(JSON.stringify({ data: [{ id: "llama3.2" }, { id: "qwen2.5" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    try {
+      const state: AppState = { config: parseConfig({ providers: [baseProvider("alpha")] }) };
+      const app = createAdminApp(state);
+      const response = await app.request("/providers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "ollama",
+          type: "openai",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          auth: "api-key",
+          noKey: true,
+          models: [],
+        }),
+      });
+      expect(response.status).toBe(200);
+      const written = JSON.parse(readFileSync(path, "utf8")) as {
+        providers: Array<{
+          name: string;
+          noKey?: boolean;
+          syncModels?: boolean;
+          models: string[];
+        }>;
+      };
+      const ollama = written.providers.find((provider) => provider.name === "ollama");
+      expect(ollama).toMatchObject({
+        noKey: true,
+        syncModels: true,
+        models: ["llama3.2", "qwen2.5"],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("adds WorkBuddy AI without re-signing when a session file already exists", async () => {

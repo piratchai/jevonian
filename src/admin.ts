@@ -65,7 +65,7 @@ import { canonicalModelId, canonicalModels } from "./models";
 import { loadPricingSnapshot } from "./modelsdev";
 import type { OAuthSource } from "./oauth";
 import { initPricing, priceFor, pricingInfo } from "./pricing";
-import { PRESETS } from "./providers";
+import { findPreset, PRESETS } from "./providers";
 import { providerQuotaHealth, providerQuotas } from "./quota";
 import { claudeCodeModels, deriveRoutings, deriveTiers, desktopModels } from "./routing";
 import { parseTokenSaver } from "./saver";
@@ -249,15 +249,31 @@ function providerPayload(
     models.map((entry) => entry.id),
     explicitExclude,
   );
-  // `null` clears the override so the provider follows the OAuth-source default again; the
-  // dashboard sends it whenever the checkbox matches that default, so a save never pins a value
-  // the operator did not choose. Absent keeps whatever the file already had.
+  const preset = findPreset(name);
+  // Local keyless servers (Ollama, LM Studio): body wins, then previous, then the preset.
+  const noKey =
+    body.noKey === true
+      ? true
+      : body.noKey === false
+        ? false
+        : previous?.noKey === true || preset?.noKey === true;
+  // `null` means "follow the default": OAuth sources stay unset (MODEL_SYNC_DEFAULT_SOURCES);
+  // API presets that opt into discovery pin `syncModels: true`. Absent keeps the file value,
+  // falling back to the preset when creating a new provider.
   const syncModels =
     body.syncModels === false || body.syncModels === true
       ? body.syncModels
       : body.syncModels === null
-        ? undefined
-        : previous?.syncModels;
+        ? auth === "oauth" && oauthSource !== undefined && oauthSource !== "static"
+          ? undefined
+          : preset?.syncModels === true
+            ? true
+            : undefined
+        : typeof previous?.syncModels === "boolean"
+          ? previous.syncModels
+          : preset?.syncModels === true
+            ? true
+            : undefined;
   return {
     name,
     type: parseType(body.type),
@@ -268,6 +284,7 @@ function providerPayload(
     billing: parseBilling(body.billing),
     ...(quota ? { quota } : {}),
     ...(apiKey ? {} : apiKeyEnv ? { apiKeyEnv } : {}),
+    ...(noKey ? { noKey: true } : {}),
     models,
     injectStreamUsage: true,
     ...(syncModels === false
@@ -327,6 +344,7 @@ export function createAdminApp(state: AppState): Hono {
           keySource: apiKeySource(provider),
           models: providerModelIds(provider),
           ...(typeof provider.syncModels === "boolean" ? { syncModels: provider.syncModels } : {}),
+          ...(provider.noKey ? { noKey: true } : {}),
           ...(provider.excludeModels && provider.excludeModels.length > 0
             ? { excludeModels: provider.excludeModels }
             : {}),
@@ -840,7 +858,7 @@ export function createAdminApp(state: AppState): Hono {
     const config = loadConfig() ?? state.config;
     const previous = config.providers.find((provider) => provider.name === name);
 
-    const stored = providerPayload(body, name, baseUrl, previous);
+    let stored = providerPayload(body, name, baseUrl, previous);
     if (apiKey) setCredential(name, apiKey);
 
     // WorkBuddy AI needs a browser sign-in before any request works — same as `jevonian add`.
@@ -857,6 +875,26 @@ export function createAdminApp(state: AppState): Hono {
             },
             400,
           );
+        }
+      }
+    }
+
+    // Empty model list → discover live ids (OAuth / keyless / keyed). Never invent a static catalog.
+    if (stored.models.length === 0) {
+      const liveOAuth =
+        stored.auth === "oauth" &&
+        stored.oauthSource !== undefined &&
+        stored.oauthSource !== "static";
+      const resolved = liveOAuth || stored.noKey ? undefined : (resolveApiKey(stored) ?? apiKey);
+      if (liveOAuth || resolved || stored.noKey) {
+        const entry = await discoverProviderModels(
+          resolved ? { ...stored, apiKey: resolved } : stored,
+        );
+        if (entry.models.length > 0) {
+          stored = {
+            ...stored,
+            models: [...new Set(entry.models)].sort().map((id) => ({ id })),
+          };
         }
       }
     }
@@ -937,11 +975,35 @@ export function createAdminApp(state: AppState): Hono {
       (typeof body.apiKey === "string" ? body.apiKey.trim() : "") ||
       (existing ? (resolveApiKey(existing) ?? "") : "");
     const probe: Provider = {
-      ...providerPayload(body, name || "probe", baseUrl),
+      ...providerPayload(body, name || "probe", baseUrl, existing),
       ...(apiKey ? { apiKey } : {}),
     };
-    const entry = await discoverProviderModels(probe);
-    return c.json({ models: [...new Set(entry.models)].sort(), error: entry.error });
+    let entry = await discoverProviderModels(probe);
+    let signedInAs: string | undefined;
+    // WorkBuddy has no local CLI token until browser sign-in — Discover used to fail with a
+    // "run jevonian add" message while Save was disabled until models existed (deadlock).
+    if (
+      entry.error &&
+      probe.auth === "oauth" &&
+      probe.oauthSource === "workbuddy-ai" &&
+      !hasWorkbuddyCredential(probe.login)
+    ) {
+      try {
+        const signed = await signInWorkbuddyAi(probe.login ? { login: probe.login } : {});
+        signedInAs = signed.user;
+        entry = await discoverProviderModels(probe);
+      } catch (error) {
+        return c.json({
+          models: [],
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return c.json({
+      models: [...new Set(entry.models)].sort(),
+      error: entry.error,
+      ...(signedInAs ? { signedInAs } : {}),
+    });
   });
 
   app.get("/models", (c) => {

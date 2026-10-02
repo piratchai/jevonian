@@ -41,33 +41,6 @@ export interface WorkbuddyCreds {
   nickname?: string;
 }
 
-export interface WorkbuddyModel {
-  id: string;
-  name: string;
-  context: number;
-  efforts?: string[];
-}
-
-/** Static fallbacks from Magpie's WorkBuddy AI product config. */
-export const WORKBUDDY_AI_MODELS: WorkbuddyModel[] = [
-  { id: "default-model", name: "Default", context: 176_000 },
-  { id: "fast-model", name: "Fast", context: 200_000 },
-  { id: "balanced-model", name: "Balanced", context: 256_000 },
-  { id: "primary-model", name: "Primary", context: 272_000 },
-  { id: "deep-model", name: "Deep", context: 176_000 },
-  { id: "gpt-5.5", name: "GPT-5.5", context: 1_000_000 },
-  { id: "gpt-5.4", name: "GPT-5.4", context: 272_000 },
-  { id: "gpt-5.3-codex", name: "GPT-5.3-Codex", context: 272_000 },
-  { id: "gemini-3.1-pro", name: "Gemini-3.1-Pro", context: 400_000 },
-  { id: "gemini-3.5-flash", name: "Gemini-3.5-Flash", context: 1_000_000 },
-  { id: "glm-5.3", name: "GLM-5.3", context: 1_000_000, efforts: ["low", "high", "max"] },
-  { id: "glm-5.2", name: "GLM-5.2", context: 1_000_000, efforts: ["high", "xhigh"] },
-  { id: "hy3", name: "Hy3", context: 192_000, efforts: ["low", "high"] },
-  { id: "kimi-k3", name: "Kimi-K3", context: 1_000_000 },
-  { id: "kimi-k2.6", name: "Kimi-K2.6", context: 256_000 },
-  { id: "minimax-m3", name: "MiniMax-M3", context: 512_000 },
-];
-
 export function isWorkbuddyAiSource(source: string | undefined): boolean {
   return source === WORKBUDDY_AI_ID;
 }
@@ -360,7 +333,7 @@ export async function resolveWorkbuddyCreds(
   if (!creds) {
     return {
       error:
-        "WorkBuddy AI credentials not found. Run `jevonian add workbuddy-ai-subscription` to sign in, or point JEVONIAN_WORKBUDDY_AI_AUTH at a plaintext session file.",
+        "WorkBuddy AI credentials not found. Use Discover or Save on the dashboard to sign in (browser), run `jevonian add workbuddy-ai-subscription`, or point JEVONIAN_WORKBUDDY_AI_AUTH at a plaintext session file.",
     };
   }
   if (creds.accessToken && !nearExpiry(creds.expiresAt)) return creds;
@@ -511,20 +484,24 @@ export async function fetchWorkbuddyModels(
   if (typeof json.code === "number" && json.code !== 0) {
     throw new Error(`WorkBuddy config: ${typeof json.msg === "string" ? json.msg : json.code}`);
   }
-  const data = asRecord(json.data);
-  const agents = Array.isArray(data.agents) ? data.agents : [];
-  const cli = agents.find((raw) => asRecord(raw).name === "cli");
-  const models = Array.isArray(asRecord(cli).models)
-    ? (asRecord(cli).models as unknown[]).filter((id): id is string => typeof id === "string")
-    : [];
+  const data = asRecord(json.data ?? json);
+  const models = modelsFromWorkbuddyConfig(data);
   if (models.length === 0) {
     throw new Error("WorkBuddy's config lists no models for its CLI agent");
   }
   return models;
 }
 
-export function workbuddyStaticModelIds(): string[] {
-  return WORKBUDDY_AI_MODELS.map((model) => model.id);
+/** Prefer the CLI agent's model ids; fall back to the top-level product catalog. */
+export function modelsFromWorkbuddyConfig(data: Record<string, unknown>): string[] {
+  const agents = Array.isArray(data.agents) ? data.agents : [];
+  const cli = agents.find((raw) => asRecord(raw).name === "cli");
+  const fromCli = Array.isArray(asRecord(cli).models)
+    ? (asRecord(cli).models as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+  if (fromCli.length > 0) return fromCli;
+  const catalog = Array.isArray(data.models) ? data.models : [];
+  return catalog.map((raw) => workbuddyPlainString(asRecord(raw).id)).filter((id) => id.length > 0);
 }
 
 export interface WorkbuddyQuota {

@@ -9,7 +9,6 @@ import { saveCursorCatalog } from "./cursor-catalog";
 import { DEVIN_DEFAULT_BASE_URL, fetchDevinModels } from "./devin";
 import { isRoutableDevinModel, saveDevinModelMeta } from "./devin-catalog";
 import { dataDir } from "./paths";
-import { workbuddyStaticModelIds } from "./workbuddy";
 
 export interface CatalogEntry {
   provider: string;
@@ -128,7 +127,7 @@ async function discoverWorkbuddyModels(
   if ("error" in creds) {
     return {
       provider: provider.name,
-      models: workbuddyStaticModelIds(),
+      models: [],
       fetchedAt,
       error: creds.error,
     };
@@ -140,7 +139,7 @@ async function discoverWorkbuddyModels(
   } catch (error) {
     return {
       provider: provider.name,
-      models: workbuddyStaticModelIds(),
+      models: [],
       fetchedAt,
       error: error instanceof Error ? error.message : String(error),
     };

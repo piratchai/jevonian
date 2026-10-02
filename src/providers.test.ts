@@ -36,8 +36,13 @@ describe("providers", () => {
     expect(findPreset("commandcode")?.type).toBe("both");
     expect(findPreset("mistral")?.baseUrl).toContain("mistral.ai");
     expect(findPreset("groq")?.baseUrl).toContain("groq.com");
-    expect(findPreset("ollama")).toMatchObject({ noKey: true, type: "openai" });
-    expect(findPreset("lmstudio")).toMatchObject({ noKey: true });
+    expect(findPreset("opencode-go")).toMatchObject({ syncModels: true });
+    expect(findPreset("opencode-zen")).toMatchObject({ syncModels: true });
+    expect(findPreset("commandcode")).toMatchObject({ syncModels: true });
+    expect(findPreset("mistral")).toMatchObject({ syncModels: true });
+    expect(findPreset("groq")).toMatchObject({ syncModels: true });
+    expect(findPreset("ollama")).toMatchObject({ noKey: true, type: "openai", syncModels: true });
+    expect(findPreset("lmstudio")).toMatchObject({ noKey: true, syncModels: true });
     expect(findPreset("devin-subscription")).toMatchObject({
       type: "devin",
       auth: "oauth",

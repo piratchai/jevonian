@@ -91,6 +91,11 @@ export interface Provider {
    */
   syncModels?: boolean;
   /**
+   * Local / keyless server (Ollama, LM Studio). Requests and discovery run without a Bearer
+   * token; absent means a key is required for `api-key` auth.
+   */
+  noKey?: boolean;
+  /**
    * Model ids discovery must never re-add. Removing an id from `models` is otherwise temporary:
    * the next sync would see it as new and append it again, so a deliberate removal is recorded
    * here instead.
@@ -694,6 +699,7 @@ function parseProvider(raw: unknown, index: number): Provider {
       : value.syncModels === true
         ? { syncModels: true }
         : {}),
+    ...(value.noKey === true ? { noKey: true } : {}),
     ...(excludeModels.length > 0 ? { excludeModels } : {}),
   };
 }

@@ -793,6 +793,7 @@ async function addProvider(): Promise<void> {
     billing,
     ...(apiKey ? { apiKey } : {}),
     ...(apiKeyEnv ? { apiKeyEnv } : {}),
+    ...(preset?.noKey ? { noKey: true } : {}),
     models: [],
     injectStreamUsage: true,
   };
@@ -803,18 +804,22 @@ async function addProvider(): Promise<void> {
       .split(",")
       .map((model) => model.trim())
       .filter(Boolean);
+  const liveOAuth = auth === "oauth" && oauthSource !== undefined && oauthSource !== "static";
+  const keyless = preset?.noKey === true;
   if (models.length === 0) {
-    // Live OAuth sources (Claude Code, Codex, Antigravity, Devin) resolve their own token inside
-    // discovery; key-based providers need a resolved key first.
-    const liveOAuth = auth === "oauth" && oauthSource !== undefined && oauthSource !== "static";
-    const resolved = liveOAuth ? undefined : resolveApiKey(probe);
-    if (liveOAuth || resolved) {
-      const entry = await discoverProviderModels(resolved ? { ...probe, apiKey: resolved } : probe);
+    // Live OAuth and keyless locals resolve without a pasted key; key-based providers need one.
+    const resolved = liveOAuth || keyless ? undefined : resolveApiKey(probe);
+    if (liveOAuth || resolved || keyless) {
+      const entry = await discoverProviderModels(
+        resolved ? { ...probe, apiKey: resolved } : probe,
+      );
       if (entry.error) console.log(`model discovery failed: ${entry.error}`);
       models = [...new Set(entry.models)].sort();
     }
   }
-  if (models.length === 0) models = modelsFromSnapshot(name);
+  // models.dev snapshot is a last resort for ordinary API-key presets only — never invent a
+  // catalog for OAuth subscriptions or local servers that should discover live.
+  if (models.length === 0 && !liveOAuth && !keyless) models = modelsFromSnapshot(name);
   if (models.length === 0 && interactive) {
     const typed = await ask("Model ids to enable (comma separated, empty to skip)");
     models = typed
@@ -832,6 +837,12 @@ async function addProvider(): Promise<void> {
   // they had removed, and any id this run leaves out is itself a removal worth remembering.
   const previous = config.providers.find((provider) => provider.name === name);
   const excludeModels = reconcileExcludeModels(previous, models);
+  const syncModels =
+    typeof previous?.syncModels === "boolean"
+      ? previous.syncModels
+      : preset?.syncModels === true
+        ? true
+        : undefined;
   const stored: Provider = {
     name,
     type,
@@ -841,9 +852,14 @@ async function addProvider(): Promise<void> {
     ...(login ? { login } : {}),
     billing,
     ...(apiKey ? {} : apiKeyEnv ? { apiKeyEnv } : {}),
+    ...(preset?.noKey ? { noKey: true } : {}),
     models: models.map((id) => ({ id })),
     injectStreamUsage: true,
-    ...(typeof previous?.syncModels === "boolean" ? { syncModels: previous.syncModels } : {}),
+    ...(syncModels === false
+      ? { syncModels: false }
+      : syncModels === true
+        ? { syncModels: true }
+        : {}),
     ...(excludeModels ? { excludeModels } : {}),
   };
   if (apiKey) setCredential(name, apiKey);
