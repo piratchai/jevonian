@@ -58,6 +58,7 @@ import {
   ensureService,
   isManagedByLaunchd,
   readServeLogTail,
+  restartService,
   serviceStatus,
   stopService,
   uninstallService,
@@ -1069,6 +1070,40 @@ async function launchCommand(argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * Version the background (or foreground) serve process reports, when it is
+ * reachable on the configured listen port. Used so `jevonian update` can tell
+ * that LaunchAgent is still on an older build even though this CLI binary is new.
+ */
+async function runningServeVersion(): Promise<string | undefined> {
+  const config = loadConfig();
+  if (!config) return undefined;
+  const host = config.listen.host === "0.0.0.0" ? "127.0.0.1" : config.listen.host;
+  try {
+    const response = await fetch(`http://${host}:${config.listen.port}/api/update`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { update?: { current?: unknown } };
+    return typeof body.update?.current === "string" ? body.update.current : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Restart the macOS LaunchAgent when one is installed and loaded. */
+function restartBackgroundService(): boolean {
+  if (process.platform !== "darwin") return false;
+  if (isManagedByLaunchd()) return false;
+  try {
+    if (!serviceStatus().plistInstalled) return false;
+    restartService();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function updateCommand(): Promise<void> {
   const updates = new UpdateManager({ cachePath: updateStatePath() });
   const checkOnly = "check" in flags;
@@ -1100,17 +1135,31 @@ async function updateCommand(): Promise<void> {
       console.log(`update available: ${status.installCommand ?? "no supported install command"}`);
     return;
   }
-  if (!before.updateAvailable && !before.restartRequired) {
+
+  const packageAdvanced = isNewerVersion(status.installed, before.current);
+  const running = await runningServeVersion();
+  const serveStale = Boolean(running && isNewerVersion(status.installed, running));
+  const needsApply = packageAdvanced || before.restartRequired || serveStale;
+
+  if (!needsApply) {
     console.log("Jevonian is up to date.");
     return;
   }
-  if (before.restartRequired && !isNewerVersion(before.latest ?? "", before.installed)) {
+
+  if (restartBackgroundService()) {
     console.log(
-      `Jevonian ${status.current} is already installed. Restart Jevonian to use the new version.`,
+      packageAdvanced
+        ? `updated to ${status.installed} and restarted the background service.`
+        : `restarted the background service onto ${status.installed}.`,
     );
     return;
   }
-  console.log(`updated to ${status.latest}. Restart Jevonian to use the new version.`);
+
+  console.log(
+    packageAdvanced
+      ? `updated to ${status.installed}. Restart Jevonian to use the new version.`
+      : `Jevonian ${status.installed} is already installed. Restart Jevonian to use the new version.`,
+  );
 }
 
 function printServiceStatus(): void {

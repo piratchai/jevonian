@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **`jevonian update` restarts the macOS background service.** The CLI used to install the new package and only print "Restart Jevonian…", so a LaunchAgent kept serving the old build until a manual stop/start. It now probes the running serve version and kickstarts the LaunchAgent onto the installed build when one is loaded.
+
 ## [0.5.0] - 2026-10-02
 
 ### Added
