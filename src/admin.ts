@@ -63,7 +63,7 @@ import type { ServerLifecycle } from "./lifecycle";
 import { loadModelSyncState, runModelSync } from "./model-sync";
 import { canonicalModelId, canonicalModels } from "./models";
 import { loadPricingSnapshot } from "./modelsdev";
-import type { OAuthSource } from "./oauth";
+import { oauthWireMismatch, oauthWireType, parseOAuthSource } from "./oauth";
 import { initPricing, priceFor, pricingInfo } from "./pricing";
 import { findPreset, PRESETS } from "./providers";
 import { providerQuotaHealth, providerQuotas } from "./quota";
@@ -192,20 +192,6 @@ function parseType(value: unknown): ProviderType {
 
 function parseAuth(value: unknown): ProviderAuth {
   return value === "oauth" ? "oauth" : "api-key";
-}
-
-function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  )
-    return value;
-  return undefined;
 }
 
 function parseBilling(value: unknown): ProviderBilling {
@@ -872,6 +858,13 @@ export function createAdminApp(state: AppState): Hono {
     const previous = config.providers.find((provider) => provider.name === name);
 
     let stored = providerPayload(body, name, baseUrl, previous);
+    // Same pairing rule as `jevonian add`: a Devin or Cursor credential only speaks its own
+    // wire, so the dashboard cannot save a provider that would 401 on every request.
+    const forced = oauthWireType(stored.oauthSource, stored.type, body.type !== undefined);
+    if ("error" in forced) return c.json({ error: forced.error }, 400);
+    stored = { ...stored, type: forced.type as Provider["type"] };
+    const mismatch = oauthWireMismatch(stored.type, stored.auth, stored.oauthSource);
+    if (mismatch) return c.json({ error: mismatch }, 400);
     if (apiKey) setCredential(name, apiKey);
 
     // WorkBuddy AI needs a browser sign-in before any request works — same as `jevonian add`.

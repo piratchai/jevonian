@@ -750,6 +750,31 @@ describe("Devin subscription forwarding", () => {
       status: 429,
     });
   });
+
+  it("soft-closes a streaming client on a refusal instead of returning JSON", async () => {
+    routeFetch(
+      encodeConnectFrame(
+        encoder.encode(
+          JSON.stringify({
+            error: { code: "resource_exhausted", message: "Rate limit. Resets in: 1h0m0s" },
+          }),
+        ),
+        2,
+      ),
+    );
+    const response = await request("/v1/chat/completions", {
+      stream: true,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    // The harness rolls a turn back on a bare JSON error mid-stream; it must read a finished
+    // assistant message, while the ledger keeps the real 429.
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-soft-error")).toBe("1");
+    expect(await response.text()).toContain("[DONE]");
+    expect(readRecords().find((record) => record.provider === "devin-subscription")).toMatchObject({
+      status: 429,
+    });
+  });
 });
 
 describe("Devin discovery and quota", () => {

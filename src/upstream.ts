@@ -26,8 +26,6 @@ import {
   cursorToChatStream,
   resolveCursorAgentUrl,
   runCursor,
-  type CursorEvent,
-  type CursorFinish,
   type CursorStreamError,
 } from "./cursor";
 import { cursorModelId } from "./cursor-catalog";
@@ -41,7 +39,6 @@ import {
   peekDevinStream,
   stripAgentSystemMessages,
   type DevinErrorKind,
-  type DevinFinish,
   type DevinStreamError,
 } from "./devin";
 import {
@@ -67,7 +64,7 @@ import {
   PROVIDER_COOLDOWN_MS,
 } from "./quota";
 import { rememberFromChatCompletion, reasoningCaptureTransform } from "./reasoning-passback";
-import { cancelOutcome, trackEvents } from "./relay";
+import { cancelOutcome, trackEvents, type StreamEvent } from "./relay";
 import {
   chatCompletionFrom,
   chatResultFromResponse,
@@ -731,26 +728,6 @@ function devinErrorStatus(error: DevinStreamError): number {
   return error.status >= 400 && error.status <= 599 ? error.status : 502;
 }
 
-/** A classified Devin refusal, in the error envelope of the client's own wire. */
-function devinErrorResponse(
-  meta: RequestMeta,
-  clientKind: RequestKind,
-  error: DevinStreamError,
-  headers: Record<string, string>,
-): Response {
-  const status = devinErrorStatus(error);
-  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
-  const type = DEVIN_ERROR_TYPES[error.kind] ?? "api_error";
-  const payload =
-    clientKind === "anthropic"
-      ? { type: "error", error: { type, message: error.message } }
-      : { error: { message: error.message, type, code: error.kind } };
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
 /** Adds `reasoning_content` as a leading thinking block, which `chatToAnthropicMessage` drops. */
 function withThinkingBlock(
   message: Record<string, unknown>,
@@ -764,12 +741,87 @@ function withThinkingBlock(
 }
 
 /**
- * Answers the client from a Devin stream that already passed the error-trailer peek. Devin
- * always streams upstream; a non-stream client gets the folded completion instead.
+ * The wire-specific half of a Connect-RPC subscription (Devin, Cursor): how its refusals are
+ * classified, recorded, and spelled for the client. Everything else about answering the client
+ * — folding a stream for a non-stream client, relaying it across wires, recording usage, and
+ * a client hanging up — is shared by `rpcClientResponse`, so the two wires cannot drift.
  */
-type DevinOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+interface RpcWire<E extends { kind: string; message: string }> {
+  /** Error `type` per refusal kind, as the client's wire spells it. */
+  errorTypes: Record<string, string>;
+  status(error: E): number;
+  shouldFailover(error: E): boolean;
+  /** What a refusal means for routing, so the next turn walks past it. */
+  markRefusal(error: E): void;
+}
 
-async function devinClientResponse(input: {
+function devinWireAdapter(provider: Provider, model: string): RpcWire<DevinStreamError> {
+  return {
+    errorTypes: DEVIN_ERROR_TYPES,
+    status: devinErrorStatus,
+    shouldFailover: devinShouldFailover,
+    markRefusal: (error) => markDevinRefusal(provider, error, model),
+  };
+}
+
+function cursorWireAdapter(provider: Provider): RpcWire<CursorStreamError> {
+  return {
+    errorTypes: CURSOR_ERROR_TYPES,
+    status: cursorErrorStatus,
+    shouldFailover: cursorShouldFailover,
+    markRefusal: (error) => markCursorRefusal(provider, error),
+  };
+}
+
+/** A classified refusal, in the error envelope of the client's own wire. */
+function rpcErrorResponse<E extends { kind: string; message: string }>(
+  wire: RpcWire<E>,
+  meta: RequestMeta,
+  clientKind: RequestKind,
+  error: E,
+  headers: Record<string, string>,
+): Response {
+  const status = wire.status(error);
+  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
+  // A streaming client reads a bare JSON error as a malformed response and can roll the turn
+  // back, so it gets the same soft close every other wire gives it. The ledger row above still
+  // carries the real refusal.
+  if (meta.stream) {
+    return new Response(
+      softCompletionStream(clientKind, meta.model, softErrorMessage(error.message.slice(0, 300))),
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-store",
+          "x-jevonian-soft-error": "1",
+          ...headers,
+        },
+      },
+    );
+  }
+  const type = wire.errorTypes[error.kind] ?? "api_error";
+  const payload =
+    clientKind === "anthropic"
+      ? { type: "error", error: { type, message: error.message } }
+      : { error: { message: error.message, type, code: error.kind } };
+  return Response.json(payload, { status, headers });
+}
+
+/** Re-routed (`failover`), or answered (`response`). */
+type RpcOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+
+/** A completion an RPC wire produced, plus how it finished. */
+interface RpcFinish<E> {
+  usage: Usage;
+  error?: E;
+}
+
+/**
+ * Answers the client from an RPC subscription that already produced its first event. These
+ * wires always stream upstream; a non-stream client gets the folded completion instead.
+ */
+async function rpcClientResponse<E extends { kind: string; message: string }>(input: {
   c: Context<AppEnv>;
   meta: RequestMeta;
   provider: Provider;
@@ -777,28 +829,32 @@ async function devinClientResponse(input: {
   clientKind: RequestKind;
   clientStream: boolean;
   started: number;
-  stream: ReadableStream<Uint8Array>;
   headers: Record<string, string>;
-  token?: string;
+  wire: RpcWire<E>;
+  /** Folds the whole upstream into one `chat.completion`. */
+  fold: () => Promise<{ completion: Record<string, unknown>; finish: RpcFinish<E> }>;
+  /** Relays the upstream as Chat Completions SSE, reporting what it emits and how it ends. */
+  relay: (
+    onFinish: (finish: RpcFinish<E>) => void,
+    onEvent: (event: StreamEvent) => void,
+  ) => ReadableStream<Uint8Array>;
   /**
-   * Called when a non-stream Devin call ends in a refusal, before the error is surfaced.
-   * Returning true tells the caller the turn was re-routed, so the error response must not be
-   * written; the caller `continue`s the routing loop.
+   * Called when a non-stream call ends in a refusal, before the error is surfaced. Returning
+   * true tells the caller the turn was re-routed; the caller `continue`s the routing loop.
    */
   onFailover?: () => Promise<boolean>;
-}): Promise<DevinOutcome> {
-  const { c, meta, provider, decision, clientKind, clientStream, started, stream, headers, token } =
-    input;
+}): Promise<RpcOutcome> {
+  const { c, meta, provider, decision, clientKind, clientStream, started, headers, wire } = input;
   const model = decision.model;
-  const finalize = (finish: DevinFinish | undefined): void => {
+  const finalize = (finish: RpcFinish<E> | undefined): void => {
     const usage = finish?.usage ?? emptyUsage();
     if (finish?.error) {
       // A streaming answer is already on the wire, so the refusal can only be recorded here.
       // Failover happens on the folded (non-stream) path below, where nothing has been sent.
-      if (devinShouldFailover(finish.error)) markDevinRefusal(provider, finish.error, model);
+      if (wire.shouldFailover(finish.error)) wire.markRefusal(finish.error);
       record(
         meta,
-        devinErrorStatus(finish.error),
+        wire.status(finish.error),
         usage,
         null,
         true,
@@ -811,19 +867,17 @@ async function devinClientResponse(input: {
   };
 
   if (!clientStream) {
-    const { completion, finish } = await devinChatCompletion(stream, model, token);
+    const { completion, finish } = await input.fold();
     if (finish.error) {
-      if (devinShouldFailover(finish.error)) {
-        markDevinRefusal(provider, finish.error, model);
-        if (await input.onFailover?.()) {
-          // The turn moved to another provider. No ledger row is written for this dead
-          // attempt: the loop's next iteration records the turn under the new decision.
-          return { kind: "failover" };
-        }
+      if (wire.shouldFailover(finish.error)) {
+        wire.markRefusal(finish.error);
+        // The turn moved to another provider. No ledger row is written for this dead attempt:
+        // the loop's next iteration records the turn under the new decision.
+        if (await input.onFailover?.()) return { kind: "failover" };
       }
       return {
         kind: "response",
-        response: devinErrorResponse(meta, clientKind, finish.error, headers),
+        response: rpcErrorResponse(wire, meta, clientKind, finish.error, headers),
       };
     }
     finalize(finish);
@@ -864,32 +918,28 @@ async function devinClientResponse(input: {
     return { kind: "response", response: c.json(completion, 200, headers) };
   }
 
-  // The client hanging up is recorded from what it actually saw, before the transform's own
-  // cancel runs: a synthetic "aborted" error there must not turn a delivered turn into a 502.
+  // The client hanging up is recorded from what it actually saw, before the relay's own cancel
+  // runs: a synthetic "aborted" error there must not turn a delivered turn into a 502.
   const tracker = trackEvents();
   const onCancel = (): void => {
     const outcome = cancelOutcome(tracker);
     const cost = costOf(model, outcome.usage, new Date(), decision.provider, provider.type);
     record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
   };
-  let finish: DevinFinish | undefined;
+  const feed = (event: StreamEvent): void => tracker.feed(event);
   if (clientKind === "openai") {
-    const toChat = devinToChatStream(model, finalize, token, (event) => tracker.feed(event));
     return {
       kind: "response",
-      response: streamResponse(stream.pipeThrough(toChat), meta, headers, undefined, onCancel),
+      response: streamResponse(input.relay(finalize, feed), meta, headers, undefined, onCancel),
     };
   }
-  const toChat = devinToChatStream(
-    model,
-    (result) => {
-      finish = result;
-    },
-    token,
-    (event) => tracker.feed(event),
-  );
-  // The ledger row is written after the last stage flushes, from Devin's exclusive usage: the
-  // chat hop has no cache-write field, so letting a later stage's usage win would under-bill.
+  // The ledger row is written after the last stage flushes, from the wire's exclusive usage:
+  // the chat hop has no cache-write field, so letting a later stage's usage win would
+  // under-bill.
+  let finish: RpcFinish<E> | undefined;
+  const toChat = input.relay((result) => {
+    finish = result;
+  }, feed);
   const next =
     clientKind === "anthropic"
       ? chatToAnthropicStream(model, {
@@ -899,13 +949,7 @@ async function devinClientResponse(input: {
       : chatToResponsesStream(model, () => finalize(finish));
   return {
     kind: "response",
-    response: streamResponse(
-      stream.pipeThrough(toChat).pipeThrough(next),
-      meta,
-      headers,
-      undefined,
-      onCancel,
-    ),
+    response: streamResponse(toChat.pipeThrough(next), meta, headers, undefined, onCancel),
   };
 }
 
@@ -959,145 +1003,6 @@ function markCursorRefusal(provider: Provider, error: CursorStreamError): void {
       // `invalid` and `context` carry no verdict about the subscription.
       return;
   }
-}
-
-/** A classified Cursor refusal, in the error envelope of the client's own wire. */
-function cursorErrorResponse(
-  meta: RequestMeta,
-  clientKind: RequestKind,
-  error: CursorStreamError,
-  headers: Record<string, string>,
-): Response {
-  const status = cursorErrorStatus(error);
-  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
-  const type = CURSOR_ERROR_TYPES[error.kind] ?? "api_error";
-  if (clientKind === "anthropic") {
-    return Response.json(
-      { type: "error", error: { type, message: error.message } },
-      { status, headers },
-    );
-  }
-  if (clientKind === "responses") {
-    return Response.json(
-      { error: { type, code: error.kind, message: error.message } },
-      { status, headers },
-    );
-  }
-  return Response.json(
-    { error: { type, code: error.kind, message: error.message } },
-    { status, headers },
-  );
-}
-
-/**
- * Answers the client from a Cursor Run that already produced its first event. Cursor always
- * streams upstream; a non-stream client gets the folded completion instead.
- */
-type CursorOutcome = { kind: "response"; response: Response } | { kind: "failover" };
-
-async function cursorClientResponse(input: {
-  c: Context<AppEnv>;
-  meta: RequestMeta;
-  provider: Provider;
-  decision: RouteDecision;
-  clientKind: RequestKind;
-  clientStream: boolean;
-  started: number;
-  events: AsyncIterable<CursorEvent>;
-  headers: Record<string, string>;
-  onFailover?: () => Promise<boolean>;
-}): Promise<CursorOutcome> {
-  const { c, meta, provider, decision, clientKind, clientStream, started, events, headers } = input;
-  const model = decision.model;
-  const finalize = (finish: CursorFinish | undefined): void => {
-    const usage = finish?.usage ?? emptyUsage();
-    if (finish?.error) {
-      if (cursorShouldFailover(finish.error)) markCursorRefusal(provider, finish.error);
-      record(
-        meta,
-        cursorErrorStatus(finish.error),
-        usage,
-        null,
-        true,
-        `${finish.error.kind}: ${finish.error.message}`.slice(0, 300),
-      );
-      return;
-    }
-    const cost = costOf(model, usage, new Date(), decision.provider, provider.type);
-    record(meta, 200, usage, cost.usd, cost.known);
-  };
-
-  if (!clientStream) {
-    const { completion, finish } = await cursorChatCompletion(model, events);
-    if (finish.error) {
-      if (cursorShouldFailover(finish.error)) {
-        markCursorRefusal(provider, finish.error);
-        if (await input.onFailover?.()) return { kind: "failover" };
-      }
-      return {
-        kind: "response",
-        response: cursorErrorResponse(meta, clientKind, finish.error, headers),
-      };
-    }
-    finalize(finish);
-    if (clientKind === "anthropic") {
-      const message = chatToAnthropicMessage(completion, model);
-      return {
-        kind: "response",
-        response: c.json(
-          {
-            ...withThinkingBlock(message, completion),
-            usage: {
-              input_tokens: finish.usage.input,
-              output_tokens: finish.usage.output,
-              cache_read_input_tokens: finish.usage.cacheRead,
-              cache_creation_input_tokens: finish.usage.cacheWrite,
-            },
-          },
-          200,
-          headers,
-        ),
-      };
-    }
-    if (clientKind === "responses") {
-      return {
-        kind: "response",
-        response: c.json(
-          chatJsonToResponse(completion, {
-            model,
-            session: decision.session,
-            started,
-            usage: inclusiveUsage(finish.usage),
-          }),
-          200,
-          headers,
-        ),
-      };
-    }
-    return { kind: "response", response: c.json(completion, 200, headers) };
-  }
-
-  // Stream the answer as Chat Completions, then translate to the client's own wire when it is
-  // not OpenAI's.
-  if (clientKind === "openai") {
-    const toChat = cursorToChatStream(model, events, finalize);
-    return { kind: "response", response: streamResponse(toChat, meta, headers) };
-  }
-  let finish: CursorFinish | undefined;
-  const toChat = cursorToChatStream(model, events, (result) => {
-    finish = result;
-  });
-  const next =
-    clientKind === "anthropic"
-      ? chatToAnthropicStream(model, {
-          usage: () => finish?.usage,
-          onFinish: () => finalize(finish),
-        })
-      : chatToResponsesStream(model, () => finalize(finish));
-  return {
-    kind: "response",
-    response: streamResponse(toChat.pipeThrough(next), meta, headers),
-  };
 }
 
 async function forward(
@@ -1289,6 +1194,24 @@ async function forward(
     if (next.order && next.order.length > 0) weigh(requestId, next.order);
     return true;
   };
+  /**
+   * Closes an RPC subscription attempt that refused before streaming. Returns true when the
+   * turn moved to another provider (the caller `continue`s), false when the refusal is the
+   * client's answer.
+   */
+  const rpcRefused = async <E extends { kind: string; message: string }>(
+    wire: RpcWire<E>,
+    error: E,
+  ): Promise<boolean> => {
+    const refused = wire.shouldFailover(error);
+    endTry(requestId, {
+      status: wire.status(error),
+      fail: refused ? error.kind : `http-${wire.status(error)}`,
+    });
+    if (!refused) return false;
+    wire.markRefusal(error);
+    return quotaFailover();
+  };
   while (true) {
     const meta = decisionMeta(decision, endpoint, clientStream, started, requestId, keyId, keyName);
     const provider: Provider | undefined = findProviderByName(config, decision.provider);
@@ -1444,8 +1367,9 @@ async function forward(
 
     // A Cursor turn is a Connect stream that stays open both ways, so it is driven here rather
     // than through the shared POST path: the request body is built per attempt and the reply is
-    // folded or relayed by `cursorClientResponse`.
+    // folded or relayed by `rpcClientResponse`.
     if (cursorWire) {
+      const wire = cursorWireAdapter(provider);
       const conversation = cursorConversation(upstreamBody);
       const attempt = await runCursor({
         token: auth.token ?? "",
@@ -1457,22 +1381,16 @@ async function forward(
         lastUser: cursorLastUser(conversation.messages),
         requestId: crypto.randomUUID(),
       });
+      const rpcHeaders = (): Record<string, string> => ({
+        ...decisionHeaders(decision, meta.retries),
+        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+      });
       if (attempt.error) {
-        const refused = cursorShouldFailover(attempt.error);
-        endTry(requestId, {
-          status: cursorErrorStatus(attempt.error),
-          fail: refused ? attempt.error.kind : `http-${cursorErrorStatus(attempt.error)}`,
-        });
-        if (refused) {
-          markCursorRefusal(provider, attempt.error);
-          if (await quotaFailover()) continue;
-        }
-        return cursorErrorResponse(meta, clientKind, attempt.error, {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        });
+        if (await rpcRefused(wire, attempt.error)) continue;
+        return rpcErrorResponse(wire, meta, clientKind, attempt.error, rpcHeaders());
       }
-      const delivered = await cursorClientResponse({
+      const events = attempt.events;
+      const delivered = await rpcClientResponse({
         c,
         meta,
         provider,
@@ -1480,12 +1398,11 @@ async function forward(
         clientKind,
         clientStream,
         started,
-        events: attempt.events,
+        wire,
+        fold: () => cursorChatCompletion(decision.model, events),
+        relay: (onFinish, onEvent) => cursorToChatStream(decision.model, events, onFinish, onEvent),
         onFailover: quotaFailover,
-        headers: {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        },
+        headers: rpcHeaders(),
       });
       if (delivered.kind === "failover") continue;
       return delivered.response;
@@ -1548,6 +1465,11 @@ async function forward(
       // Devin refuses in two ways: a non-200 status, or a 200 whose Connect stream opens with an
       // end-of-stream error trailer before any data. Both classify into one error, so quota
       // failover and the client-facing error share one path.
+      const devin = devinWireAdapter(provider, decision.model);
+      const rpcHeaders = (): Record<string, string> => ({
+        ...decisionHeaders(decision, meta.retries),
+        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+      });
       let failure: DevinStreamError | undefined;
       let stream: ReadableStream<Uint8Array> | undefined;
       let policyRetried = false;
@@ -1609,21 +1531,12 @@ async function forward(
           kind: "other" as const,
           message: "Devin returned no stream",
         };
-        const refused = devinShouldFailover(error);
-        endTry(requestId, {
-          status: devinErrorStatus(error),
-          fail: refused ? error.kind : `http-${devinErrorStatus(error)}`,
-        });
-        if (refused) {
-          markDevinRefusal(provider, error, decision.model);
-          if (await quotaFailover()) continue;
-        }
-        return devinErrorResponse(meta, clientKind, error, {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        });
+        if (await rpcRefused(devin, error)) continue;
+        return rpcErrorResponse(devin, meta, clientKind, error, rpcHeaders());
       }
-      const delivered = await devinClientResponse({
+      const token = auth.token;
+      const body = stream;
+      const delivered = await rpcClientResponse({
         c,
         meta,
         provider,
@@ -1631,13 +1544,12 @@ async function forward(
         clientKind,
         clientStream,
         started,
-        stream,
-        token: auth.token,
+        wire: devin,
+        fold: () => devinChatCompletion(body, decision.model, token),
+        relay: (onFinish, onEvent) =>
+          body.pipeThrough(devinToChatStream(decision.model, onFinish, token, onEvent)),
         onFailover: quotaFailover,
-        headers: {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        },
+        headers: rpcHeaders(),
       });
       // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
       // so the client only sees an error once no alternative is left.

@@ -35,7 +35,7 @@ import { ServerLifecycle } from "./lifecycle";
 import { scheduleModelSync, runModelSync } from "./model-sync";
 import { canonicalVariants, identityGaps, modelGroupOf } from "./models";
 import { loadProviderMeta, loadPricingSnapshot } from "./modelsdev";
-import type { OAuthSource } from "./oauth";
+import { OAUTH_SOURCES, oauthWireMismatch, oauthWireType, type OAuthSource } from "./oauth";
 import {
   browserStatePath,
   configPath,
@@ -127,15 +127,7 @@ const rest = parsed.positionals.slice(1);
 const flags = parsed.flags;
 
 function isOAuthSource(value: string): value is OAuthSource {
-  return (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  );
+  return (OAUTH_SOURCES as readonly string[]).includes(value);
 }
 
 function pad(value: string, width: number): string {
@@ -671,36 +663,17 @@ async function addProvider(): Promise<void> {
     auth === "oauth"
       ? ((flagSource as OAuthSource | undefined) ?? preset?.oauthSource ?? "static")
       : undefined;
-  // A Devin session token only works on Devin's own Connect-RPC wire.
-  if (oauthSource === "devin") {
-    if (flags.type !== undefined && type !== "devin") {
-      console.error("Devin credentials require --type devin.");
-      process.exit(1);
-    }
-    type = "devin";
-  }
-  if (type === "devin" && auth !== "oauth") {
-    console.error("Devin wire requires --auth oauth --oauth-source devin (or static).");
+  // A subscription credential only speaks its own Connect-RPC wire; the registry names which
+  // type it forces, so adding the next one is one entry, not another twin block here.
+  const resolved = oauthWireType(oauthSource, type, flags.type !== undefined);
+  if ("error" in resolved) {
+    console.error(resolved.error);
     process.exit(1);
   }
-  if (type === "devin" && oauthSource !== "devin" && oauthSource !== "static") {
-    console.error("Devin wire requires --oauth-source devin (or static).");
-    process.exit(1);
-  }
-  // A Cursor sign-in only works on Cursor's own Connect-RPC wire.
-  if (oauthSource === "cursor") {
-    if (flags.type !== undefined && type !== "cursor") {
-      console.error("Cursor credentials require --type cursor.");
-      process.exit(1);
-    }
-    type = "cursor";
-  }
-  if (type === "cursor" && auth !== "oauth") {
-    console.error("Cursor wire requires --auth oauth --oauth-source cursor (or static).");
-    process.exit(1);
-  }
-  if (type === "cursor" && oauthSource !== "cursor" && oauthSource !== "static") {
-    console.error("Cursor wire requires --oauth-source cursor (or static).");
+  type = resolved.type as ProviderType;
+  const wireError = oauthWireMismatch(type, auth, oauthSource);
+  if (wireError) {
+    console.error(wireError);
     process.exit(1);
   }
   const billing: ProviderBilling =

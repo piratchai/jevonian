@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { isReasoningEffort, type ReasoningEffort } from "./capabilities";
 import { getCredential } from "./credentials";
 import type { OAuthSource } from "./oauth";
-import { hasOAuthCredential } from "./oauth";
+import { hasOAuthCredential, parseOAuthSource } from "./oauth";
 import { configPath } from "./paths";
 import { DEFAULT_PROMPT_POLICY, parsePromptPolicy, type PromptPolicyConfig } from "./prompt-policy";
 import { DEFAULT_TOKEN_SAVER, parseTokenSaver, type TokenSaverConfig } from "./saver";
@@ -630,20 +630,6 @@ function parseProviderType(value: unknown, index: number): ProviderType {
 /** Hosts that expose both OpenAI and Anthropic wires — see `normalizeProviderType` in wire.ts. */
 export function effectiveProviderType(type: ProviderType, baseUrl: string): ProviderType {
   return normalizeProviderType(type, baseUrl);
-}
-
-function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  )
-    return value;
-  return undefined;
 }
 
 function positiveNumber(value: unknown): number | undefined {
