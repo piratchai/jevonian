@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname } from "node:path";
 
 import { normalizeModelName } from "./identity";
+import { bareModelId } from "./model-id";
 import { identityOf } from "./models";
 import { leaderboardPath } from "./paths";
 
@@ -133,7 +134,7 @@ function number(value: unknown): number | undefined {
 }
 
 function bare(id: string): string {
-  return id.includes("/") ? id.slice(id.lastIndexOf("/") + 1) : id;
+  return bareModelId(id);
 }
 
 function tokensOf(label: string): string[] {

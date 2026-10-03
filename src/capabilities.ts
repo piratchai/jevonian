@@ -1,5 +1,6 @@
 import { loadCursorCatalog } from "./cursor-catalog";
 import { devinModelMeta } from "./devin-catalog";
+import { bareModelId } from "./model-id";
 import { canonicalModelId } from "./models";
 import { loadCapabilities } from "./modelsdev";
 
@@ -95,7 +96,7 @@ function toCapabilities(caps: {
  */
 export function modelCapabilities(model: string): ModelCapabilities {
   const index = catalogIndex();
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   const catalog = index.get(model) ?? index.get(tail) ?? index.get(canonicalModelId(model));
   const devin = devinCapabilities(model);
   const cursor = cursorCapabilities(model);
@@ -108,7 +109,7 @@ export function modelCapabilities(model: string): ModelCapabilities {
 function cursorCapabilities(model: string): ModelCapabilities | undefined {
   const file = loadCursorCatalog();
   if (!file) return undefined;
-  const id = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const id = bareModelId(model);
   const entry =
     file.models.find((item) => item.id === id) ?? file.raw.find((item) => item.id === id);
   if (!entry || entry.context <= 0) return undefined;

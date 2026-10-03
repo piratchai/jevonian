@@ -1,90 +1,84 @@
 import { identityFrom, type ModelIdentity } from "./identity";
-import { canonicalModelId } from "./models";
-import type { CatalogIdentity } from "./modelsdev";
-import { loadIdentities, OFFICIAL_PROVIDERS } from "./modelsdev";
+import { bareModelId, modelVendor } from "./model-id";
+import { loadIdentities, OFFICIAL_PROVIDERS, type CatalogIdentity } from "./modelsdev";
 
-/** A catalog row with the catalog key it was stored under. */
-export interface StoredIdentity {
-  key: string;
-  /** The bare model segment of the key. */
-  model: string;
-  identity: ModelIdentity;
-  /** The catalog lists this row under a vendor id, not a reseller id. */
-  official: boolean;
-}
-
-/** The raw snapshot materialized for lookup: rows, canonical fallbacks, official winners. */
-export interface IdentitySnapshot {
-  rows: StoredIdentity[];
-  /** Rows sharing a canonical id, so a differently spelled tier entry still finds its label. */
-  byCanonical: Map<string, StoredIdentity[]>;
+/**
+ * The model catalog indexed once for identity lookup, rebuilt only when the catalog snapshot
+ * changes. One index, one cache: every lookup that asks "what model is this id" — the label,
+ * the vendor that owns it, the canonical fallback — reads the same structure.
+ */
+export interface IdentityIndex {
+  /** The catalog entry as written: `deepseek/deepseek-v4.1-flash`. */
+  byKey: Map<string, CatalogIdentity>;
+  /** The bare model segment: `deepseek-v4.1-flash`. */
+  byBare: Map<string, CatalogIdentity>;
+  /** The canonical id, so a tier written `deepseek-v4-1-flash` still finds its label. */
+  byCanonical: Map<string, CatalogIdentity>;
   /** Vendor ids that publish a model under a given comparable label. */
   officialByLabel: Map<string, Set<string>>;
-  /** Rows grouped by label, for diagnostics and gap analysis. */
-  byLabel: Map<string, StoredIdentity[]>;
 }
 
-const snapshots = new WeakMap<object, IdentitySnapshot>();
+const indexes = new WeakMap<object, IdentityIndex>();
 
-/** The raw snapshot materialized once: canonical groups, official vendors, label rows. */
-export function identitySnapshot(): IdentitySnapshot {
+/**
+ * The index for the current catalog snapshot. `canonical` is passed in rather than imported
+ * because the canonical-id rule lives with the model grouping that owns it, and importing it
+ * here would make the two modules depend on each other.
+ */
+export function identityIndex(canonical: (model: string) => string): IdentityIndex {
   const raw = loadIdentities();
-  const cached = snapshots.get(raw);
+  const cached = indexes.get(raw);
   if (cached) return cached;
 
-  const rows: StoredIdentity[] = [];
-  for (const [key, entry] of Object.entries(raw)) {
-    const model = key.slice(key.lastIndexOf("/") + 1) || key;
-    const identity = identityFrom(model, entry as CatalogIdentity | undefined);
-    const vendor = key.includes("/") ? key.slice(0, key.indexOf("/")) : "";
-    rows.push({
-      key,
-      model,
-      identity,
-      official: Boolean(vendor) && OFFICIAL_PROVIDERS.has(vendor),
-    });
-  }
-
-  const byCanonical = new Map<string, StoredIdentity[]>();
-  for (const row of rows) {
-    const canonical = canonicalModelId(row.model);
-    if (canonical.length === 0) continue;
-    const list = byCanonical.get(canonical) ?? [];
-    list.push(row);
-    byCanonical.set(canonical, list);
-  }
-
+  const byKey = new Map<string, CatalogIdentity>();
+  const byBare = new Map<string, CatalogIdentity>();
+  const byCanonical = new Map<string, CatalogIdentity>();
   const officialByLabel = new Map<string, Set<string>>();
-  for (const row of rows) {
-    if (!row.official || !row.identity.label) continue;
-    const vendor = row.key.includes("/") ? row.key.slice(0, row.key.indexOf("/")) : "";
-    if (!vendor) continue;
-    const label = row.identity.label;
-    const set = officialByLabel.get(label) ?? new Set<string>();
-    set.add(vendor);
-    officialByLabel.set(label, set);
+
+  // Prefer an entry that actually names the model, and among those an official vendor's —
+  // resellers often ship the same id as the vendor with a reseller-flavoured label.
+  const claim = (
+    map: Map<string, CatalogIdentity>,
+    mapKey: string,
+    identity: CatalogIdentity,
+    official: boolean,
+  ): void => {
+    const existing = map.get(mapKey);
+    const better =
+      !existing ||
+      (!existing.name && Boolean(identity.name)) ||
+      (Boolean(existing.name) && Boolean(identity.name) && official);
+    if (better) map.set(mapKey, identity);
+  };
+
+  for (const [key, entry] of Object.entries(raw)) {
+    const model = bareModelId(key);
+    const resolved: ModelIdentity = identityFrom(model, entry as CatalogIdentity | undefined);
+    const vendor = modelVendor(key);
+    const official = Boolean(vendor) && OFFICIAL_PROVIDERS.has(vendor);
+    const identity = toCatalog(resolved);
+    // The official preference reads the map key's own vendor prefix, which only the full
+    // catalog key carries; the bare and canonical maps keep first-named-wins.
+    claim(byKey, key, identity, official);
+    claim(byBare, model, identity, false);
+    const canonicalId = canonical(model);
+    if (canonicalId.length > 0) claim(byCanonical, canonicalId, identity, false);
+    if (official && resolved.label) {
+      const set = officialByLabel.get(resolved.label) ?? new Set<string>();
+      set.add(vendor);
+      officialByLabel.set(resolved.label, set);
+    }
   }
 
-  const byLabel = new Map<string, StoredIdentity[]>();
-  for (const row of rows) {
-    if (!row.identity.label) continue;
-    const list = byLabel.get(row.identity.label) ?? [];
-    list.push(row);
-    byLabel.set(row.identity.label, list);
-  }
-
-  const snapshot: IdentitySnapshot = { rows, byCanonical, officialByLabel, byLabel };
-  snapshots.set(raw, snapshot);
-  return snapshot;
+  const index: IdentityIndex = { byKey, byBare, byCanonical, officialByLabel };
+  indexes.set(raw, index);
+  return index;
 }
 
-/** All catalog rows sharing a comparable label, for diagnostics. */
-export function identityRowsForLabel(label: string): StoredIdentity[] {
-  return identitySnapshot().byLabel.get(label) ?? [];
+function toCatalog(identity: ModelIdentity): CatalogIdentity {
+  return {
+    ...(identity.displayName ? { name: identity.displayName } : {}),
+    ...(identity.family ? { family: identity.family } : {}),
+    ...(identity.releaseDate ? { releaseDate: identity.releaseDate } : {}),
+  };
 }
-
-/** Resolved lookup helpers shared by routing and diagnostics. */
-export const identityCache = {
-  snapshot: identitySnapshot,
-  rowsForLabel: identityRowsForLabel,
-};

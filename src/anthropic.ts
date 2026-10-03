@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { rejectsAssistantPrefill } from "./anthropic-thinking";
+import { bareModelId } from "./model-id";
 import type { Usage } from "./pricing";
 import type { StreamEvent } from "./relay";
 import { splitSseEvents } from "./responses";
@@ -44,7 +45,7 @@ function number(value: unknown): number {
 }
 
 export function needsAnthropicWire(model: string): boolean {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   return /^claude/i.test(tail) || /anthropic/i.test(model);
 }
 

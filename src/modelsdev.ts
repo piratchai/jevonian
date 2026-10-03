@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, join } from "node:path";
 
 import type { ProviderType } from "./config";
+import { bareModelId } from "./model-id";
 import { dataDir } from "./paths";
 import type { ModelPrice } from "./pricing";
 import { typeFromNpm } from "./providers";
@@ -72,7 +73,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function bare(modelId: string): string {
-  return modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId;
+  return bareModelId(modelId);
 }
 
 function number(value: unknown): number | undefined {

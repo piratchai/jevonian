@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 
 import type { DevinModel } from "./devin";
+import { bareModelId } from "./model-id";
 import { dataDir } from "./paths";
 
 /**
@@ -128,7 +129,7 @@ export function devinModelMeta(model: string): DevinModelMeta | undefined {
   const models = loadDevinModelMeta();
   const direct = models[model];
   if (direct) return direct;
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   return models[tail];
 }
 

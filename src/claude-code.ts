@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import type { ApplyOptions } from "./clients";
 import { applyJsoncEdits, jsoncObjectKeys, jsoncPathExists, type JsoncEdit } from "./jsonc";
+import { bareModelId } from "./model-id";
 import { dataDir } from "./paths";
 
 /**
@@ -149,7 +150,7 @@ function clearRestoreState(): void {
 
 /** `jevonian/auto` → "Jevonian Auto". */
 export function claudeCodeModelLabel(model: string): string {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   const words = tail
     .split(/[-_.\s]+/)
     .filter((word) => word.length > 0)
