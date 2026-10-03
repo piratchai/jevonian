@@ -114,7 +114,9 @@ import {
   compactionEstimate,
   decideRoute,
   isDesktopRoutedModel,
+  nextFromPlan,
   phaseOfModel,
+  planKey,
   resolveSessionKey,
   type RequestKind,
   type RouteDecision,
@@ -1797,7 +1799,7 @@ async function forward(
    * subscriptions would still be cut off after two, and the client would see a rate-limit
    * error while three usable providers sat idle.
    */
-  const triedTargets = new Set<string>([`${decision.provider} ${decision.model}`]);
+  const triedTargets = new Set<string>([planKey(decision)]);
   /**
    * Re-routes the turn after the current provider refused it for quota. Returns true when a
    * provider/model that has not been tried yet took the turn, so the caller should `continue`
@@ -1808,22 +1810,10 @@ async function forward(
     // OpenRouter/DeepSeek would bridge to Chat Completions and Codex would then
     // see "got 0 compaction items" — or our bridge guard. Keep the upstream error.
     if (clientKind === "responses" && isRemoteCompactionV2(body)) return false;
-    const next = await decideRoute({
-      config,
-      body,
-      headers: incomingHeaders,
-      store,
-      kind: clientKind,
-      requestId,
-    });
-    if ("error" in next) return false;
-    const target = `${next.provider} ${next.model}`;
-    // The router may hand back the target we just gave up on when its own guard cannot see
-    // the refusal yet (guard disabled, or a live probe still reporting headroom). Looping on
-    // it would burn the turn; treating it as "nothing new" ends the chain honestly.
-    if (triedTargets.has(target)) return false;
-    triedTargets.add(target);
-    decision = { ...next, reason: `${next.reason}:quota-failover` };
+    const next = nextFromPlan(decision, triedTargets);
+    if (!next) return false;
+    triedTargets.add(planKey(next));
+    decision = { ...next, reason: `${decision.reason}:quota-failover` };
     quotaFailovers += 1;
     noteDecision(requestId, {
       phase: decision.phase,
@@ -1855,6 +1845,10 @@ async function forward(
     });
     meta.store = store;
     meta.billing = provider.billing;
+    // A failover moved the turn to a new target without re-deciding, so the session's record
+    // is brought with it. The turn count and the cache observation are untouched: a failover
+    // is not a new turn, and the observation names the provider that measured it.
+    if (attemptCount > 1) store.retarget(decision.session, decision, started);
 
     const translated = provider.type === "responses" && clientKind === "openai";
     const geminiWire = provider.type === "gemini";

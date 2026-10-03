@@ -775,4 +775,88 @@ describe("same-request quota failover", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("x-jevonian-quota-failovers")).toBe("2");
   });
+
+  it("fails over a 404 the quota guard cannot see", async () => {
+    const config = parseConfig({
+      defaultProvider: "provider-a",
+      providers: [
+        {
+          name: "provider-a",
+          type: "openai",
+          baseUrl: "https://a.example/v1",
+          apiKey: "a-key",
+          models: ["model-a"],
+        },
+        {
+          name: "provider-b",
+          type: "openai",
+          baseUrl: "https://b.example/v1",
+          apiKey: "b-key",
+          models: ["model-b"],
+        },
+      ],
+      routing: {
+        mode: "auto",
+        brains: [{ channel: "typesafe", apiKeyEnv: "TYPESAFE_API_KEY", timeoutMs: 1_000 }],
+        tiers: {
+          plan: ["model-a", "model-b"],
+          execute: ["model-a", "model-b"],
+          utility: ["model-b"],
+          chat: ["model-b"],
+        },
+      },
+    });
+
+    const hits = { a: 0, b: 0 };
+    let brainCalls = 0;
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        brainCalls += 1;
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "plan", confidence: 0.9 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("a.example")) {
+        hits.a += 1;
+        return new Response(JSON.stringify({ error: { message: "model not found" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (url.includes("b.example")) {
+        hits.b += 1;
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-1",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+
+    const app = createApp({ config }, new SessionStore(60_000));
+    const response = await app.request("/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    // A 404 never lands in quota state, yet the turn still moved along the plan — and paid
+    // for exactly one brain call, because failover walks it rather than routing again.
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-jevonian-provider")).toBe("provider-b");
+    expect(hits).toEqual({ a: 1, b: 1 });
+    expect(brainCalls).toBe(1);
+  });
 });
