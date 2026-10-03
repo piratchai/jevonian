@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.3] - 2026-10-03
+
+### Fixed
+
+- **Model usage stats no longer split one model into several rows.** Activity, `/api/stats`, and `jevonian stats` now group by canonical model id instead of the raw wire id, so a model sent under several names — `anthropic/claude-3-5-sonnet-20241022`, `claude-3.5-sonnet`, `claude-3-5-sonnet-20241022`, `openai/gpt-4o-2024-08-06` — merges into one entry labelled with its catalog display name ("Claude 3.5 Sonnet", "GPT-4o"). Merged rows show the canonical id and how many wire ids were folded in, with the full list on hover.
+- **Model picker labels stay readable.** In the Routing "Add model" combobox, provider badges on the right now wrap and are capped at 55% of the row width, so a long model name on the left is never squeezed out.
+
 ## [0.5.2] - 2026-10-02
 
 ### Added

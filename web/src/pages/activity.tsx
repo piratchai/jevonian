@@ -222,7 +222,10 @@ export function ActivitySection() {
                 <div key={m.model} className="flex items-center justify-between gap-3 text-sm">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="w-4 shrink-0 text-xs text-muted-foreground">{index + 1}</span>
-                    <span className="truncate font-medium" title={m.variants?.join(", ") ?? m.model}>
+                    <span
+                      className="truncate font-medium"
+                      title={m.variants?.join(", ") ?? m.model}
+                    >
                       {m.label ?? m.model}
                     </span>
                     {(m.variants?.length ?? 0) > 1 ? (
@@ -375,12 +378,18 @@ export function ActivitySection() {
                           {m.label ?? m.model}
                         </span>
                         {m.label && m.label !== m.model ? (
-                          <span className="truncate font-mono text-[10px] text-muted-foreground" title={m.variants?.join(", ") ?? m.model}>
+                          <span
+                            className="truncate font-mono text-[10px] text-muted-foreground"
+                            title={m.variants?.join(", ") ?? m.model}
+                          >
                             {m.model}
                             {(m.variants?.length ?? 0) > 1 ? ` · ${m.variants!.length} ids` : ""}
                           </span>
                         ) : (m.variants?.length ?? 0) > 1 ? (
-                          <span className="truncate font-mono text-[10px] text-muted-foreground" title={m.variants?.join(", ")}>
+                          <span
+                            className="truncate font-mono text-[10px] text-muted-foreground"
+                            title={m.variants?.join(", ")}
+                          >
                             {m.variants!.length} ids
                           </span>
                         ) : null}
