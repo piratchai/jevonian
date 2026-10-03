@@ -202,4 +202,63 @@ describe("Responses → Antigravity Gemini bridge", () => {
     // Completed must carry the assistant message — empty output was the silent-done bug.
     expect(text).toMatch(/"type":"response\.completed"[\s\S]*"output":\[\s*\{\s*"type":"message"/);
   });
+
+  it("keeps a non-stream Gemini tool call as a Responses function_call item", async () => {
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+      if (url.includes("typesafe") || url.includes("systemone") || url.includes("evaluation")) {
+        return new Response(
+          JSON.stringify({
+            model: "jev-1.13.0",
+            answers: { model: { choice: "chat", confidence: 0.99 } },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          response: {
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ functionCall: { name: "exec_command", args: { cmd: "ls" } } }],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const app = createApp({ config: config() }, new SessionStore(60_000));
+    const response = await app.request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "jevonian/auto",
+        stream: false,
+        input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "ls" }] }],
+        tools: [
+          {
+            type: "function",
+            name: "exec_command",
+            parameters: { type: "object", properties: { cmd: { type: "string" } } },
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const json = (await response.json()) as {
+      output?: Array<{ type?: string; name?: string; arguments?: string }>;
+    };
+    // The tool call used to vanish: only `choice.content` was read into the output.
+    const call = json.output?.find((item) => item.type === "function_call");
+    expect(call?.name).toBe("exec_command");
+    expect(JSON.parse(call?.arguments ?? "{}")).toEqual({ cmd: "ls" });
+  });
 });

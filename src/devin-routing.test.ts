@@ -261,7 +261,7 @@ describe("Devin subscription forwarding", () => {
     });
   });
 
-  it("records a 499 when the client cancels a Devin stream", async () => {
+  it("records a 200 when the client cancels a Devin stream after content", async () => {
     let cancelUpstream: (() => void) | undefined;
     vi.stubGlobal("fetch", async () => {
       const frame = encodeConnectFrame(bytes(3, "first"));
@@ -279,17 +279,23 @@ describe("Devin subscription forwarding", () => {
       stream: true,
       messages: [{ role: "user", content: "hi" }],
     });
-    expect(response.status).toBe(200);
     const reader = response.body?.getReader();
-    expect(reader).toBeDefined();
-    await reader?.read();
+    const decoder = new TextDecoder();
+    let seen = "";
+    // Read until the delivered text is on the client's screen, then hang up.
+    while (!seen.includes("first")) {
+      const { value, done } = (await reader?.read()) ?? { done: true, value: undefined };
+      if (done) break;
+      seen += decoder.decode(value, { stream: true });
+    }
+    expect(seen).toContain("first");
     const upstreamCancelled = new Promise<void>((resolve) => {
       cancelUpstream = resolve;
     });
     await reader?.cancel();
     await upstreamCancelled;
     const record = readRecords().find((entry) => entry.provider === "devin-subscription");
-    expect(record?.status).toBe(499);
+    expect(record?.status).toBe(200);
   });
 
   it("folds a Devin stream into non-stream OpenAI completion with tools", async () => {

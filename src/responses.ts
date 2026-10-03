@@ -484,6 +484,15 @@ export class ResponsesChatBridge {
   private failure: string | undefined;
   private completed = false;
 
+  /**
+   * Whether anything renderable reached the client: text or a tool call. A client cancel after
+   * this point closed a finished-looking turn, not an abandoned request — the difference
+   * between a 200 and a 499 on the ledger.
+   */
+  get delivered(): boolean {
+    return this.content.length > 0 || this.calls.size > 0 || this.completed;
+  }
+
   constructor(model: string) {
     this.model = model;
     this.id = `chatcmpl-${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -668,8 +677,8 @@ export function splitSseEvents(text: string): {
 export function responsesToChatStream(
   model: string,
   onFinish?: (result: ChatBridgeResult) => void,
+  bridge: ResponsesChatBridge = new ResponsesChatBridge(model),
 ): TransformStream<Uint8Array, Uint8Array> {
-  const bridge = new ResponsesChatBridge(model);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
@@ -726,6 +735,22 @@ export class ChatToResponsesBridge {
   private messageItemId: string | undefined;
   private messageOutputIndex: number | undefined;
   private nextOutputIndex = 0;
+
+  /**
+   * Whether anything renderable reached the client: text, reasoning, or a tool call. A client
+   * cancel after this point closed a finished-looking turn, not an abandoned request — the
+   * difference between a 200 and a 499 on the ledger.
+   */
+  get delivered(): boolean {
+    return (
+      this.content.length > 0 || this.reasoning.length > 0 || this.calls.size > 0 || this.completed
+    );
+  }
+
+  /** The usage the upstream reported, as far as the stream got before a cancel. */
+  get seenUsage(): Usage {
+    return this.usage;
+  }
 
   constructor(model: string) {
     this.model = model;
@@ -1031,8 +1056,9 @@ export class ChatToResponsesBridge {
 export function chatToResponsesStream(
   model: string,
   onFinish?: (result: ChatBridgeResult) => void,
+  bridge?: ChatToResponsesBridge,
 ): TransformStream<Uint8Array, Uint8Array> {
-  const bridge = new ChatToResponsesBridge(model);
+  bridge ??= new ChatToResponsesBridge(model);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";

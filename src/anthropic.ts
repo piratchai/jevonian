@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { rejectsAssistantPrefill } from "./anthropic-thinking";
 import type { Usage } from "./pricing";
+import type { StreamEvent } from "./relay";
 import { splitSseEvents } from "./responses";
 import { softErrorMessage } from "./soft-error";
 
@@ -472,6 +473,7 @@ export function anthropicToChat(
 export function anthropicToChatStream(
   model: string,
   onFinish?: (usage: Usage, failure?: string) => void,
+  onEvent?: (event: StreamEvent) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -531,6 +533,7 @@ export function anthropicToChatStream(
       const index = number(event.index);
       const toolIndex = toolIndexes.size;
       toolIndexes.set(index, toolIndex);
+      onEvent?.({ kind: "content" });
       emit(
         chunk(
           {
@@ -552,11 +555,13 @@ export function anthropicToChatStream(
     if (type === "content_block_delta") {
       const delta = asRecord(event.delta);
       if (delta.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+        onEvent?.({ kind: "content" });
         emit(chunk({ content: delta.text }, null), controller);
         return;
       }
       if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
         const toolIndex = toolIndexes.get(number(event.index)) ?? 0;
+        onEvent?.({ kind: "content" });
         emit(
           chunk(
             { tool_calls: [{ index: toolIndex, function: { arguments: delta.partial_json } }] },
@@ -573,6 +578,8 @@ export function anthropicToChatStream(
       const output = number(asRecord(event.usage).output_tokens);
       if (output > 0) usage.output = output;
       if (stop.length > 0 && !finished) {
+        onEvent?.({ kind: "usage", usage: { ...usage } });
+        onEvent?.({ kind: "finish" });
         finished = true;
         emit(
           {
@@ -587,6 +594,7 @@ export function anthropicToChatStream(
     if (type === "error") {
       const error = asRecord(event.error);
       failure = asString(error.message) || "upstream error";
+      onEvent?.({ kind: "error", message: failure });
     }
   };
 

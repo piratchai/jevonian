@@ -86,10 +86,12 @@ import {
   repairReasoningContent,
   reasoningCaptureTransform,
 } from "./reasoning-passback";
+import { cancelOutcome, trackEvents } from "./relay";
 import {
   chatCompletionFrom,
   chatResultFromResponse,
   chatToResponses,
+  ChatToResponsesBridge,
   chatToResponsesStream,
   ensureResponsesCallIds,
   isRemoteCompactionV2,
@@ -1413,12 +1415,20 @@ async function devinClientResponse(input: {
     return { kind: "response", response: c.json(completion, 200, headers) };
   }
 
+  // The client hanging up is recorded from what it actually saw, before the transform's own
+  // cancel runs: a synthetic "aborted" error there must not turn a delivered turn into a 502.
+  const tracker = trackEvents();
+  const onCancel = (): void => {
+    const outcome = cancelOutcome(tracker);
+    const cost = costOf(model, outcome.usage, new Date(), decision.provider, provider.type);
+    record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
+  };
   let finish: DevinFinish | undefined;
   if (clientKind === "openai") {
-    const toChat = devinToChatStream(model, finalize, token);
+    const toChat = devinToChatStream(model, finalize, token, (event) => tracker.feed(event));
     return {
       kind: "response",
-      response: streamResponse(stream.pipeThrough(toChat), meta, headers),
+      response: streamResponse(stream.pipeThrough(toChat), meta, headers, undefined, onCancel),
     };
   }
   const toChat = devinToChatStream(
@@ -1427,6 +1437,7 @@ async function devinClientResponse(input: {
       finish = result;
     },
     token,
+    (event) => tracker.feed(event),
   );
   // The ledger row is written after the last stage flushes, from Devin's exclusive usage: the
   // chat hop has no cache-write field, so letting a later stage's usage win would under-bill.
@@ -1439,7 +1450,13 @@ async function devinClientResponse(input: {
       : chatToResponsesStream(model, () => finalize(finish));
   return {
     kind: "response",
-    response: streamResponse(stream.pipeThrough(toChat).pipeThrough(next), meta, headers),
+    response: streamResponse(
+      stream.pipeThrough(toChat).pipeThrough(next),
+      meta,
+      headers,
+      undefined,
+      onCancel,
+    ),
   };
 }
 
@@ -2521,29 +2538,31 @@ async function forward(
         );
       }
       const usage = emptyUsage();
-      const transform = anthropicToChatStream(decision.model, (finalUsage, failure) => {
-        Object.assign(usage, finalUsage);
-        // The refusal was already closed softly for the client; the ledger must still carry the
-        // real status instead of a clean 200 for a failed turn.
-        if (failure) {
-          record(meta, 502, usage, null, true, failure);
-          return;
-        }
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-      });
+      const tracker = trackEvents();
+      const transform = anthropicToChatStream(
+        decision.model,
+        (finalUsage, failure) => {
+          Object.assign(usage, finalUsage);
+          // The refusal was already closed softly for the client; the ledger must still carry
+          // the real status instead of a clean 200 for a failed turn.
+          if (failure) {
+            record(meta, 502, usage, null, true, failure);
+            return;
+          }
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+        },
+        (event) => tracker.feed(event),
+      );
       return streamResponse(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
         "text/event-stream",
         () => {
-          if (usage.output > 0 || usage.input > 0) {
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          } else {
-            record(meta, 499, emptyUsage(), null, true, "client canceled");
-          }
+          const outcome = cancelOutcome(tracker);
+          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
         },
         redactProvider,
       );
@@ -2564,27 +2583,13 @@ async function forward(
           const usage = geminiUsage(response.usageMetadata);
           const cost = costOf(decision.model, usage, new Date(), decision.provider);
           record(meta, 200, usage, cost.usd, cost.known);
-          const choice = asRecord(asRecord((chat.choices as unknown[])?.[0]).message);
           return c.json(
-            {
-              id: `resp_${decision.session.slice(0, 16)}`,
-              object: "response",
-              created_at: Math.floor(started / 1000),
-              status: "completed",
+            chatJsonToResponse(chat, {
               model: decision.model,
-              output: [
-                {
-                  type: "message",
-                  role: "assistant",
-                  content: [{ type: "output_text", text: asString(choice.content) }],
-                },
-              ],
-              usage: {
-                input_tokens: usage.input,
-                output_tokens: usage.output,
-                total_tokens: usage.input + usage.output,
-              },
-            },
+              session: decision.session,
+              started,
+              usage,
+            }),
             200,
             decisionHeaders(decision, meta.retries),
           );
@@ -2622,23 +2627,25 @@ async function forward(
         );
       }
       const usage = emptyUsage();
-      const transform = geminiToChatStream(decision.model, (finalUsage) => {
-        Object.assign(usage, finalUsage);
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-      });
+      const tracker = trackEvents();
+      const transform = geminiToChatStream(
+        decision.model,
+        (finalUsage) => {
+          Object.assign(usage, finalUsage);
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+        },
+        (event) => tracker.feed(event),
+      );
       return streamResponse(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
         "text/event-stream",
         () => {
-          if (usage.output > 0 || usage.input > 0) {
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          } else {
-            record(meta, 499, emptyUsage(), null, true, "client canceled");
-          }
+          const outcome = cancelOutcome(tracker);
+          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
         },
         redactProvider,
       );
@@ -2648,29 +2655,34 @@ async function forward(
       if (clientKind === "responses") {
         if (clientStream) {
           const usage = emptyUsage();
-          const transform = chatToResponsesStream(decision.model, (result) => {
-            Object.assign(usage, result.usage);
-            // The bridge closes the turn softly for the client; the ledger must still record the
-            // real upstream failure rather than a clean 200.
-            if (result.failure) {
-              record(meta, 502, usage, null, true, result.failure);
-              return;
-            }
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          });
+          const responsesBridge = new ChatToResponsesBridge(decision.model);
+          const transform = chatToResponsesStream(
+            decision.model,
+            (result) => {
+              Object.assign(usage, result.usage);
+              // The bridge closes the turn softly for the client; the ledger must still record
+              // the real upstream failure rather than a clean 200.
+              if (result.failure) {
+                record(meta, 502, usage, null, true, result.failure);
+                return;
+              }
+              const cost = costOf(decision.model, usage, new Date(), decision.provider);
+              record(meta, 200, usage, cost.usd, cost.known);
+            },
+            responsesBridge,
+          );
           return streamResponse(
             upstream.body?.pipeThrough(transform) ?? null,
             meta,
             decisionHeaders(decision, meta.retries),
             "text/event-stream",
             () => {
-              if (usage.output > 0 || usage.input > 0) {
-                const cost = costOf(decision.model, usage, new Date(), decision.provider);
-                record(meta, 200, usage, cost.usd, cost.known);
-              } else {
-                record(meta, 499, emptyUsage(), null, true, "client canceled");
-              }
+              const outcome = cancelOutcome({
+                delivered: responsesBridge.delivered,
+                usage: responsesBridge.seenUsage,
+              });
+              const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+              record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
             },
             redactProvider,
           );
@@ -2916,11 +2928,8 @@ async function forward(
     stream = stream?.pipeThrough(usageTransform) ?? null;
 
     const onCancel = (): void => {
-      if (finished || hasDelivered) {
-        finalize(200);
-      } else {
-        finalize(499, "client canceled");
-      }
+      const outcome = cancelOutcome({ delivered: finished || hasDelivered, usage });
+      finalize(outcome.status, outcome.error);
     };
 
     return streamResponse(

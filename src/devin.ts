@@ -12,6 +12,7 @@ import { gunzipSync } from "node:zlib";
 
 import type { Usage } from "./pricing";
 import { sanitizeBuiltinPrompt } from "./prompt-policy";
+import type { StreamEvent } from "./relay";
 import { softErrorMessage } from "./soft-error";
 
 export const DEVIN_DEFAULT_BASE_URL = "https://server.codeium.com";
@@ -1059,6 +1060,7 @@ export function devinToChatStream(
   model: string,
   onFinish?: (finish: DevinFinish) => void,
   token?: string,
+  onEvent?: (event: StreamEvent) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
   const encoder = new TextEncoder();
   const id = completionId();
@@ -1089,6 +1091,7 @@ export function devinToChatStream(
     controller: TransformStreamDefaultController<Uint8Array>,
   ): void => {
     for (const event of events) {
+      onEvent?.({ kind: "content" });
       if (event.type === "text") emit(chunk({ content: event.text }, null), controller);
       else if (event.type === "thinking") {
         emit(chunk({ reasoning_content: event.text }, null), controller);
