@@ -1,13 +1,16 @@
-export type ProviderTypeView =
-  | "openai"
-  | "anthropic"
-  | "responses"
-  | "both"
-  | "gemini"
-  | "devin"
-  | "cursor";
-export type ProviderAuthView = "api-key" | "oauth";
-export type ProviderBillingView = "api" | "subscription";
+import type {
+  OAuthSourceName,
+  ProviderAuthName,
+  ProviderBillingName,
+  ProviderTypeName,
+} from "../../../src/admin-types";
+
+// The server's own vocabulary, type-only: a wire or sign-in source added on the server shows up
+// here without a second hand-copied union to forget.
+export type ProviderTypeView = ProviderTypeName;
+export type ProviderAuthView = ProviderAuthName;
+export type ProviderBillingView = ProviderBillingName;
+export type OAuthSourceView = OAuthSourceName;
 
 export interface ProviderQuotaSpecView {
   fiveHourUsd?: number;
@@ -38,7 +41,7 @@ export interface ProviderView {
   baseUrl: string;
   apiKeyEnv?: string;
   auth?: ProviderAuthView;
-  oauthSource?: string;
+  oauthSource?: OAuthSourceView;
   /** The local sign-in this provider reads; absent means the agent's own. */
   login?: ProviderLoginView;
   billing?: ProviderBillingView;
@@ -65,7 +68,7 @@ export interface PresetView {
   hint: string;
   keysUrl?: string;
   auth?: ProviderAuthView;
-  oauthSource?: string;
+  oauthSource?: OAuthSourceView;
   billing?: ProviderBillingView;
   /** Local / keyless servers — no API key is required. */
   noKey?: boolean;
@@ -813,7 +816,7 @@ export const api = {
     apiKey?: string;
     apiKeyEnv?: string;
     auth?: ProviderAuthView;
-    oauthSource?: string;
+    oauthSource?: OAuthSourceView;
     /** `null` clears the local sign-in so the provider reads the agent's own again. */
     login?: ProviderLoginView | null;
     billing?: ProviderBillingView;
@@ -839,7 +842,7 @@ export const api = {
     baseUrl: string;
     apiKey?: string;
     auth?: ProviderAuthView;
-    oauthSource?: string;
+    oauthSource?: OAuthSourceView;
     noKey?: boolean;
     login?: ProviderLoginView | null;
   }) =>

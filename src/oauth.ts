@@ -4,6 +4,7 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
+import type { OAuthSourceName } from "./admin-types";
 import { cursorAuthPath, cursorToken } from "./cursor";
 import { retryingFetch } from "./retry";
 import {
@@ -13,14 +14,7 @@ import {
   WORKBUDDY_AI_ID,
 } from "./workbuddy";
 
-export type OAuthSource =
-  | "claude-code"
-  | "codex"
-  | "antigravity"
-  | "devin"
-  | "cursor"
-  | "workbuddy-ai"
-  | "static";
+export type OAuthSource = OAuthSourceName;
 
 /** Every local sign-in the router can read; the one list every parser shares. */
 export const OAUTH_SOURCES: readonly OAuthSource[] = [

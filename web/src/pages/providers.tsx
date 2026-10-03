@@ -28,6 +28,7 @@ import {
 import {
   api,
   type ModelSyncResponse,
+  type OAuthSourceView,
   type PresetView,
   type PriceInfo,
   type ProviderAuthView,
@@ -35,6 +36,7 @@ import {
   type ProviderLoginView,
   type ProviderQuotaView,
   type ProviderTypeView,
+  type ProviderView,
   type QuotaHealthView,
   type StateResponse,
 } from "@/lib/api";
@@ -81,7 +83,7 @@ export function ProvidersPage() {
   const [name, setName] = useState("deepseek");
   const [type, setType] = useState("openai");
   const [auth, setAuth] = useState<ProviderAuthView>("api-key");
-  const [oauthSource, setOauthSource] = useState("claude-code");
+  const [oauthSource, setOauthSource] = useState<OAuthSourceView>("claude-code");
   const [billing, setBilling] = useState<ProviderBillingView>("api");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -429,19 +431,7 @@ export function ProvidersPage() {
     }
   }
 
-  function edit(provider: {
-    name: string;
-    type: string;
-    baseUrl: string;
-    apiKeyEnv?: string;
-    auth?: ProviderAuthView;
-    oauthSource?: string;
-    login?: ProviderLoginView;
-    billing?: ProviderBillingView;
-    quota?: { fiveHourUsd?: number; weeklyUsd?: number; monthlyUsd?: number };
-    models: string[];
-    syncModels?: boolean;
-  }) {
+  function edit(provider: ProviderView) {
     setPresetId("custom");
     setName(provider.name);
     setType(provider.type);
@@ -822,7 +812,7 @@ export function ProvidersPage() {
                     <Label htmlFor="oauthSource">Credential source</Label>
                     <Select
                       value={oauthSource}
-                      onValueChange={(value) => setOauthSource(String(value))}
+                      onValueChange={(value) => setOauthSource(String(value) as OAuthSourceView)}
                     >
                       <SelectTrigger id="oauthSource" className="w-full">
                         <SelectValue />
@@ -1222,7 +1212,7 @@ export function ProvidersPage() {
                       <Label htmlFor="oauthSourceAdvanced">Credential source</Label>
                       <Select
                         value={oauthSource}
-                        onValueChange={(value) => setOauthSource(String(value))}
+                        onValueChange={(value) => setOauthSource(String(value) as OAuthSourceView)}
                       >
                         <SelectTrigger id="oauthSourceAdvanced" className="w-full">
                           <SelectValue />

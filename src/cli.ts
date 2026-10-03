@@ -26,6 +26,9 @@ import {
   type ProviderBilling,
   type ProviderLogin,
   type ProviderType,
+  coerceProviderType,
+  isProviderType,
+  PROVIDER_TYPES,
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
 import { kevCommand } from "./kev";
@@ -640,23 +643,14 @@ async function addProvider(): Promise<void> {
 
   let name = flags.name ?? preset?.id ?? id;
   let baseUrl = flags["base-url"] ?? preset?.baseUrl ?? meta?.api ?? "";
-  let type: ProviderType =
-    flags.type === "anthropic" ||
-    flags.type === "openai" ||
-    flags.type === "responses" ||
-    flags.type === "both" ||
-    flags.type === "gemini" ||
-    flags.type === "devin" ||
-    flags.type === "cursor"
-      ? flags.type
-      : (preset?.type ?? meta?.type ?? "openai");
+  let type: ProviderType = isProviderType(flags.type)
+    ? flags.type
+    : (preset?.type ?? meta?.type ?? "openai");
   let apiKeyEnv = flags.env ?? preset?.apiKeyEnv ?? meta?.env[0] ?? "";
   const auth: ProviderAuth = flags.auth === "oauth" ? "oauth" : (preset?.auth ?? "api-key");
   const flagSource = flags["oauth-source"];
   if (flagSource !== undefined && !isOAuthSource(flagSource)) {
-    console.error(
-      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, cursor, workbuddy-ai, or static.`,
-    );
+    console.error(`Unknown --oauth-source "${flagSource}". Use ${OAUTH_SOURCES.join(", ")}.`);
     process.exit(1);
   }
   const oauthSource: OAuthSource | undefined =
@@ -696,19 +690,8 @@ async function addProvider(): Promise<void> {
     }
     name = await ask("Provider name", name === "custom" ? "my-provider" : name);
     baseUrl = await ask("Base URL (OpenAI-, Anthropic-, or Responses-compatible)", baseUrl);
-    const typed = await ask(
-      "Protocol type (openai/anthropic/responses/both/gemini/devin/cursor)",
-      type,
-    );
-    type =
-      typed === "anthropic" ||
-      typed === "responses" ||
-      typed === "both" ||
-      typed === "gemini" ||
-      typed === "devin" ||
-      typed === "cursor"
-        ? typed
-        : "openai";
+    const typed = await ask(`Protocol type (${PROVIDER_TYPES.join("/")})`, type);
+    type = coerceProviderType(typed);
     if (!apiKeyEnv) apiKeyEnv = await ask("Environment variable name for the key (optional)");
   } else if (unknown && interactive && name === "custom") {
     name = await ask("Provider name", "my-provider");

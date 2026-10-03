@@ -19,6 +19,7 @@ import {
 import {
   apiKeySource,
   applyTiersToRoutings,
+  coerceProviderType,
   DEFAULT_BRAIN,
   findProviderByName,
   isRoutingId,
@@ -33,6 +34,7 @@ import {
   MODEL_SYNC_DEFAULT_SOURCES,
   parseModelSync,
   parseProviderLogin,
+  parseProviderQuota,
   parseTunnel,
   parseLan,
   providerModelIds,
@@ -44,8 +46,6 @@ import {
   type ProviderAuth,
   type ProviderBilling,
   type ProviderLogin,
-  type ProviderQuotaSpec,
-  type ProviderType,
   type QuotaGuardConfig,
   type RoutingEntry,
 } from "./config";
@@ -170,20 +170,6 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
-function parseType(value: unknown): ProviderType {
-  if (
-    value === "anthropic" ||
-    value === "responses" ||
-    value === "both" ||
-    value === "gemini" ||
-    value === "devin" ||
-    value === "cursor"
-  ) {
-    return value;
-  }
-  return "openai";
-}
-
 function parseAuth(value: unknown): ProviderAuth {
   return value === "oauth" ? "oauth" : "api-key";
 }
@@ -206,21 +192,6 @@ function parseQuotaGuard(value: unknown, fallback: QuotaGuardConfig): QuotaGuard
   };
 }
 
-function parseQuota(value: unknown): ProviderQuotaSpec | undefined {
-  const record = asRecord(value);
-  const quota: ProviderQuotaSpec = {};
-  if (typeof record.fiveHourUsd === "number" && record.fiveHourUsd > 0) {
-    quota.fiveHourUsd = record.fiveHourUsd;
-  }
-  if (typeof record.weeklyUsd === "number" && record.weeklyUsd > 0) {
-    quota.weeklyUsd = record.weeklyUsd;
-  }
-  if (typeof record.monthlyUsd === "number" && record.monthlyUsd > 0) {
-    quota.monthlyUsd = record.monthlyUsd;
-  }
-  return Object.keys(quota).length > 0 ? quota : undefined;
-}
-
 function providerPayload(
   body: Record<string, unknown>,
   name: string,
@@ -230,7 +201,7 @@ function providerPayload(
   const auth = parseAuth(body.auth);
   const oauthSource = auth === "oauth" ? parseOAuthSource(body.oauthSource) : undefined;
   const login = loginFromBody(body.login, previous);
-  const quota = parseQuota(body.quota);
+  const quota = parseProviderQuota(body.quota);
   const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   const apiKeyEnv = typeof body.apiKeyEnv === "string" ? body.apiKeyEnv.trim() : "";
   const models = mergeModelEntries(previous?.models, body.models);
@@ -269,7 +240,7 @@ function providerPayload(
             : undefined;
   return {
     name,
-    type: parseType(body.type),
+    type: coerceProviderType(body.type),
     baseUrl,
     auth,
     ...(oauthSource ? { oauthSource } : {}),
