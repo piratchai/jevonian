@@ -1,5 +1,5 @@
 import { saveBody } from "./bodies";
-import { askJev, consumeAskJevFailure, findJevChannel, type BrainVerdict } from "./brain";
+import { askJevOutcome, findJevChannel, type BrainVerdict } from "./brain";
 import {
   clampEffort,
   effectiveCapabilities,
@@ -2160,12 +2160,15 @@ export async function decideRoute(
           ...(brainPicksEffort ? {} : { picks_effort: false }),
         };
         const state = brainStateFor(entry, ready, transcript);
-        const verdict = await askJev({
+        // The failure rides on this call's own result: a concurrent turn asking the same brain
+        // cannot swap its 402 in for ours.
+        const outcome = await askJevOutcome({
           brain: entry,
           state,
           ...(brainPicksEffort ? {} : { modelOnly: true }),
         });
-        const failure = verdict ? undefined : consumeAskJevFailure();
+        const verdict = "verdict" in outcome ? outcome.verdict : undefined;
+        const failure = "failure" in outcome ? outcome.failure : undefined;
         recordBrainCall({
           config,
           session,

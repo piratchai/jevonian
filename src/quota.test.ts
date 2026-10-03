@@ -20,6 +20,7 @@ import {
   providerSpendSignal,
   quotaStatePath,
   resetQuotaCache,
+  setQuotaClock,
 } from "./quota";
 
 let dir = "";
@@ -45,6 +46,7 @@ afterEach(() => {
   if (previousLedger === undefined) delete process.env.JEVONIAN_LEDGER;
   else process.env.JEVONIAN_LEDGER = previousLedger;
   resetQuotaCache();
+  setQuotaClock(undefined);
   rmSync(dir, { recursive: true, force: true });
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -1387,5 +1389,22 @@ describe("recovery from a recorded rejection", () => {
 
     await providerQuotas(parsed, { refresh: true });
     expect(headerQuotas().openrouter?.windows[0]?.usedPercent).toBe(0);
+  });
+});
+
+describe("quota clock", () => {
+  it("lifts a cooldown when the injected clock passes its reset, without sleeping", () => {
+    const provider = parseConfig({
+      providers: [{ name: "p", type: "openai", baseUrl: "https://p.example/v1", apiKey: "k" }],
+    }).providers[0]!;
+    let now = Date.parse("2026-01-01T00:00:00Z");
+    setQuotaClock(() => now);
+    markProviderSpent(provider, {
+      label: "rate-limit",
+      resetsAt: new Date(now + 60_000).toISOString(),
+    });
+    expect(providerQuotaHealth(provider).status).toBe("exhausted");
+    now += 61_000;
+    expect(providerQuotaHealth(provider).status).not.toBe("exhausted");
   });
 });

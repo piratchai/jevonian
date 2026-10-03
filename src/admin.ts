@@ -5,13 +5,7 @@ import { streamSSE } from "hono/streaming";
 
 import { computeActivityReport } from "./activity";
 import { loadBody } from "./bodies";
-import {
-  askJev,
-  brainCredentialName,
-  consumeAskJevFailure,
-  findJevChannel,
-  JEV_CHANNELS,
-} from "./brain";
+import { askJevOutcome, brainCredentialName, findJevChannel, JEV_CHANNELS } from "./brain";
 import { discoverProviderModels } from "./catalog";
 import { catalogStatus, refreshCatalogCaches } from "./catalog-sync";
 import {
@@ -793,7 +787,7 @@ export function createAdminApp(state: AppState): Hono {
       return c.json({ ok: false, error: "Add an API key for this channel." });
     }
     const started = Date.now();
-    const verdict = await askJev({
+    const outcome = await askJevOutcome({
       brain,
       ...(apiKey ? { apiKey } : {}),
       state: {
@@ -827,19 +821,18 @@ export function createAdminApp(state: AppState): Hono {
       },
     });
     const latencyMs = Date.now() - started;
-    if (!verdict) {
-      const failure = consumeAskJevFailure();
+    if ("failure" in outcome) {
       return c.json({
         ok: false,
-        error: failure?.error
-          ? `No verdict (${failure.error}). Check the endpoint, model, and key.`
+        error: outcome.failure.error
+          ? `No verdict (${outcome.failure.error}). Check the endpoint, model, and key.`
           : "No verdict. Check the endpoint, model, and key.",
         latencyMs,
       });
     }
     return c.json({
       ok: true,
-      verdict,
+      verdict: outcome.verdict,
       channel: preset?.label ?? channelId,
       model: brain.model || preset?.model,
       latencyMs,

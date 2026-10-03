@@ -224,21 +224,8 @@ export interface BrainVerdict {
   usage?: Usage;
 }
 
-/** Why askJev returned undefined — consumed by the router so a 402 can mark the provider spent. */
+/** Why askJev returned undefined — read by the router so a 402 can mark the provider spent. */
 export type AskJevFailure = { status?: number; error: string };
-
-let lastAskFailure: AskJevFailure | undefined;
-
-export function consumeAskJevFailure(): AskJevFailure | undefined {
-  const failure = lastAskFailure;
-  lastAskFailure = undefined;
-  return failure;
-}
-
-function failAsk(failure: AskJevFailure): undefined {
-  lastAskFailure = failure;
-  return undefined;
-}
 
 /** A one-off question shape, used when something other than model choice is being asked. */
 export interface FreeformQuestion {
@@ -559,9 +546,12 @@ async function fetchBrain(url: string, init: RequestInit): Promise<Response> {
   });
 }
 
+type FailAsk = (failure: AskJevFailure) => undefined;
+
 async function askVercelGateway(
   input: BrainInput,
   apiKey: string,
+  failAsk: FailAsk,
 ): Promise<BrainVerdict | undefined> {
   const modelId = input.brain.model || findJevChannel("vercel")?.model || "typesafe-ai/jev";
   const controller = new AbortController();
@@ -579,10 +569,10 @@ async function askVercelGateway(
       abortSignal: input.signal ?? controller.signal,
     });
     const parsed = parseSystemOneResponse(normalizeEvaluationResult(result));
-    if (!parsed.model) return undefined;
+    if (!parsed.model) return failAsk({ error: "empty verdict" });
     return verdictFromParsed({ ...parsed, model: parsed.model });
-  } catch {
-    return undefined;
+  } catch (error) {
+    return failAsk({ error: error instanceof Error ? error.message : String(error) });
   } finally {
     clearTimeout(timer);
   }
@@ -591,9 +581,10 @@ async function askVercelGateway(
 async function askCloudflareWorkersAi(
   input: BrainInput,
   apiKey: string,
+  failAsk: FailAsk,
 ): Promise<BrainVerdict | undefined> {
   const accountId = input.brain.accountId?.trim();
-  if (!accountId) return undefined;
+  if (!accountId) return failAsk({ error: "the cloudflare brain needs an account ID" });
   const model = input.brain.model || findJevChannel("cloudflare")?.model || "typesafe/jev";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.brain.timeoutMs);
@@ -628,14 +619,17 @@ async function askCloudflareWorkersAi(
         signal: input.signal ?? controller.signal,
       },
     );
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return failAsk({ status: response.status, error: `HTTP ${response.status}` });
+    }
     const payload = unwrapCloudflareAiPayload(await response.json());
-    if (payload === undefined) return undefined;
+    if (payload === undefined) return failAsk({ error: "empty response" });
     const parsed = parseSystemOneResponse(payload);
-    if (!parsed.model) return undefined;
+    if (!parsed.model) return failAsk({ error: "empty verdict" });
     return verdictFromParsed({ ...parsed, model: parsed.model });
-  } catch {
-    return undefined;
+  } catch (error) {
+    return failAsk({ error: error instanceof Error ? error.message : String(error) });
   } finally {
     clearTimeout(timer);
   }
@@ -655,16 +649,44 @@ function verdictFromParsed(
   };
 }
 
+/**
+ * Asks Jev and returns either the verdict or why there is none — on the call's own result,
+ * never through module state. Two turns asking at once each get their own failure; reading a
+ * shared "last failure" let one turn bench the other's provider on the wrong 402.
+ */
+export async function askJevOutcome(
+  input: BrainInput,
+): Promise<{ verdict: BrainVerdict } | { failure: AskJevFailure }> {
+  let failure: AskJevFailure | undefined;
+  const verdict = await askJevInner(input, (reason) => {
+    failure = reason;
+  });
+  if (verdict) return { verdict };
+  return { failure: failure ?? { error: "brain unavailable" } };
+}
+
+/** The verdict alone, for callers that do not act on why there is none. */
 export async function askJev(input: BrainInput): Promise<BrainVerdict | undefined> {
-  lastAskFailure = undefined;
+  const outcome = await askJevOutcome(input);
+  return "verdict" in outcome ? outcome.verdict : undefined;
+}
+
+async function askJevInner(
+  input: BrainInput,
+  onFailure: (failure: AskJevFailure) => void,
+): Promise<BrainVerdict | undefined> {
+  const failAsk = (failure: AskJevFailure): undefined => {
+    onFailure(failure);
+    return undefined;
+  };
   const transport = resolveTransport(input.brain, input.apiKey);
   if (!transport) return failAsk({ error: "no credential" });
 
   if (input.brain.channel === "vercel") {
-    return askVercelGateway(input, transport.apiKey);
+    return askVercelGateway(input, transport.apiKey, failAsk);
   }
   if (input.brain.channel === "cloudflare") {
-    return askCloudflareWorkersAi(input, transport.apiKey);
+    return askCloudflareWorkersAi(input, transport.apiKey, failAsk);
   }
   const { baseUrl, apiKey } = transport;
   if (!baseUrl) return failAsk({ error: "no endpoint" });

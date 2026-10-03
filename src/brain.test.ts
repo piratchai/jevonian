@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 import {
   askJev,
+  askJevOutcome,
   cloudflareAiRunModelUrl,
   cloudflareAiRunUrl,
   cloudflareModelSelector,
-  consumeAskJevFailure,
   httpQuestions,
   isWorkersAiModelId,
   PLACEHOLDER_BRAIN_KEY,
@@ -281,12 +281,47 @@ describe("askJev", () => {
   it("explains a 401 from a Kev server that was started with a key", async () => {
     process.env.JEVONIAN_UPSTREAM_RETRIES = "0";
     vi.stubGlobal("fetch", async () => new Response("unauthorized", { status: 401 }));
-    const verdict = await askJev({
+    const outcome = await askJevOutcome({
       brain: { channel: "kev", timeoutMs: 1_000, minConfidence: 0.4 },
       state: {},
     });
-    expect(verdict).toBeUndefined();
-    expect(consumeAskJevFailure()?.error).toContain("KEV_API_KEY");
+    expect("failure" in outcome && outcome.failure.error).toContain("KEV_API_KEY");
+    delete process.env.JEVONIAN_UPSTREAM_RETRIES;
+  });
+
+  it("keeps each concurrent call's failure on its own result", async () => {
+    process.env.JEVONIAN_UPSTREAM_RETRIES = "0";
+    // One brain answers 402, the other 403 — at the same moment. A shared "last failure" let
+    // whichever finished last overwrite the other's, so the wrong provider got benched.
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input instanceof Request ? input.url : input);
+      await new Promise((resolve) => setTimeout(resolve, url.includes("first") ? 20 : 0));
+      return new Response("nope", { status: url.includes("first") ? 402 : 403 });
+    });
+    const [first, second] = await Promise.all([
+      askJevOutcome({
+        brain: {
+          channel: "custom",
+          baseUrl: "https://first.example/v1",
+          timeoutMs: 1_000,
+          minConfidence: 0.4,
+        },
+        apiKey: "k",
+        state: {},
+      }),
+      askJevOutcome({
+        brain: {
+          channel: "custom",
+          baseUrl: "https://second.example/v1",
+          timeoutMs: 1_000,
+          minConfidence: 0.4,
+        },
+        apiKey: "k",
+        state: {},
+      }),
+    ]);
+    expect("failure" in first && first.failure.status).toBe(402);
+    expect("failure" in second && second.failure.status).toBe(403);
     delete process.env.JEVONIAN_UPSTREAM_RETRIES;
   });
 

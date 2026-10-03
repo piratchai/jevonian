@@ -137,7 +137,7 @@ function sameWindows(a: QuotaWindow[], b: QuotaWindow[]): boolean {
  */
 function snapshotStale(fetchedAt: string): boolean {
   const at = Date.parse(fetchedAt);
-  return Number.isNaN(at) || Date.now() - at >= HEADER_SNAPSHOT_TTL_MS;
+  return Number.isNaN(at) || clock() - at >= HEADER_SNAPSHOT_TTL_MS;
 }
 
 /**
@@ -150,7 +150,7 @@ function snapshotStale(fetchedAt: string): boolean {
 function stalenessNote(fetchedAt: string): string | undefined {
   const at = Date.parse(fetchedAt);
   if (Number.isNaN(at)) return "snapshot timestamp is unreadable";
-  const ageMs = Date.now() - at;
+  const ageMs = clock() - at;
   if (ageMs < HEADER_SNAPSHOT_TTL_MS) return undefined;
   const minutes = Math.floor(ageMs / 60_000);
   const age =
@@ -160,6 +160,18 @@ function stalenessNote(fetchedAt: string): string | undefined {
         ? `${Math.floor(minutes / 60)}h`
         : `${Math.floor(minutes / 1_440)}d`;
   return `measured ${age} ago`;
+}
+
+/**
+ * The quota book's clock. Every expiry, cooldown, and TTL check in this module reads it, so a
+ * test pins time with `setQuotaClock` instead of racing the wall clock or sleeping past a
+ * cooldown. Production never sets it.
+ */
+let clock: () => number = () => Date.now();
+
+/** Replaces the clock; `undefined` restores the wall clock. For tests and simulations only. */
+export function setQuotaClock(next: (() => number) | undefined): void {
+  clock = next ?? (() => Date.now());
 }
 
 export function quotaStatePath(): string {
@@ -237,7 +249,7 @@ function clearRejection(provider: string): void {
   if (!snapshot || !snapshot.windows.some((window) => window.status === "rejected")) return;
   const next = { ...current };
   const remaining = snapshot.windows.filter(
-    (window) => window.model !== undefined && activeWindow(window, Date.now()),
+    (window) => window.model !== undefined && activeWindow(window, clock()),
   );
   if (remaining.length > 0) next[provider] = { ...snapshot, windows: remaining };
   else delete next[provider];
@@ -251,7 +263,7 @@ function activeWindow(window: QuotaWindow, now: number): boolean {
 }
 
 /** A successful account-level probe does not prove that a model-specific refusal has cleared. */
-function modelRejections(provider: string, now = Date.now()): QuotaWindow[] {
+function modelRejections(provider: string, now = clock()): QuotaWindow[] {
   return (headerQuotas()[provider]?.windows ?? []).filter(
     (window) =>
       window.model !== undefined && window.status === "rejected" && activeWindow(window, now),
@@ -577,7 +589,7 @@ export function captureUsageLimit(provider: Provider, status: number, body: stri
     if (secondsMatch) {
       const seconds = Number(secondsMatch[1]);
       if (Number.isFinite(seconds)) {
-        resetsAt = new Date(Date.now() + seconds * 1000).toISOString();
+        resetsAt = new Date(clock() + seconds * 1000).toISOString();
       }
     }
   }
@@ -589,7 +601,7 @@ export function captureUsageLimit(provider: Provider, status: number, body: stri
       const hours = Number(resetsMatch[1] ?? 0);
       const minutes = Number(resetsMatch[2] ?? 0);
       if (Number.isFinite(hours)) {
-        resetsAt = new Date(Date.now() + (hours * 60 + minutes) * 60_000).toISOString();
+        resetsAt = new Date(clock() + (hours * 60 + minutes) * 60_000).toISOString();
       }
     }
   }
@@ -623,21 +635,19 @@ export function markProviderSpent(
   const current = headerQuotas();
   const previous = current[provider.name];
   const live = liveCache.get(provider.name);
-  const recentLive = live && Date.now() - live.at < liveTtl(provider) ? live.quota.windows : [];
+  const recentLive = live && clock() - live.at < liveTtl(provider) ? live.quota.windows : [];
   // Account-wide refusals supersede everything. Scoped refusals must not discard a live
   // account window or another model's refusal, and must be refreshed per model.
   const windows = model
     ? [
         ...(recentLive.some((entry) => entry.model === undefined)
-          ? recentLive.filter(
-              (entry) => entry.model === undefined && activeWindow(entry, Date.now()),
-            )
+          ? recentLive.filter((entry) => entry.model === undefined && activeWindow(entry, clock()))
           : (previous?.windows ?? []).filter(
-              (entry) => entry.model === undefined && activeWindow(entry, Date.now()),
+              (entry) => entry.model === undefined && activeWindow(entry, clock()),
             )),
         ...(previous?.windows ?? []).filter(
           (entry) =>
-            entry.model !== undefined && entry.model !== model && activeWindow(entry, Date.now()),
+            entry.model !== undefined && entry.model !== model && activeWindow(entry, clock()),
         ),
         window,
       ]
@@ -680,7 +690,7 @@ let spendCache:
   | undefined;
 
 function spendOf(records: LedgerRecord[], provider: string): ProviderSpend {
-  const now = Date.now();
+  const now = clock();
   if (
     spendCache?.records !== records ||
     spendCache.length !== records.length ||
@@ -1317,7 +1327,7 @@ function storedQuota(
   const base = baseQuota(provider);
   const header = headerQuotas()[provider.name];
   if (header && header.windows.length > 0) {
-    const active = header.windows.filter((window) => activeWindow(window, Date.now()));
+    const active = header.windows.filter((window) => activeWindow(window, clock()));
     const hasAccount = active.some((window) => window.model === undefined);
     const estimated = !hasAccount && provider.quota ? specWindows(provider.quota, spend) : [];
     const staleNote = stalenessNote(header.fetchedAt);
@@ -1444,7 +1454,7 @@ export function providerQuotaHealth(
   provider: Provider,
   options: { lowPercent?: number; now?: number } = {},
 ): QuotaHealth {
-  const now = options.now ?? Date.now();
+  const now = options.now ?? clock();
   const lowPercent = options.lowPercent ?? DEFAULT_LOW_PERCENT;
   const spend = spendOf(ledgerRecords(now), provider.name);
   const known = knownWindows(provider, now, spend);
@@ -1563,7 +1573,7 @@ function spanMinutesOf(label: string): number {
  * model, which {@link providerModelExhausted} answers for. A window whose reset has passed is
  * empty again, so it is left out too.
  */
-export function accountWindows(provider: Provider, now = Date.now()): AccountWindow[] {
+export function accountWindows(provider: Provider, now = clock()): AccountWindow[] {
   const spend = spendOf(ledgerRecords(now), provider.name);
   const out: AccountWindow[] = [];
   for (const window of knownWindows(provider, now, spend).windows) {
@@ -1586,7 +1596,7 @@ export function providerModelExhausted(
   model: string,
   options: { lowPercent?: number; now?: number } = {},
 ): boolean {
-  const now = options.now ?? Date.now();
+  const now = options.now ?? clock();
   if (providerQuotaHealth(provider, { ...options, now }).status === "exhausted") return true;
   const spend = spendOf(ledgerRecords(now), provider.name);
   return knownWindows(provider, now, spend).windows.some(
@@ -1605,7 +1615,7 @@ function refreshLiveInBackground(provider: Provider, spend: ProviderSpend): void
   liveRefreshing.add(provider.name);
   void buildQuota(provider, spend)
     .then((quota) => {
-      liveCache.set(provider.name, { at: Date.now(), quota });
+      liveCache.set(provider.name, { at: clock(), quota });
     })
     .catch(() => {
       // A failed probe leaves the previous snapshot; the next request tries again.
@@ -1638,7 +1648,7 @@ export async function providerQuotas(
   const resolved: Array<ProviderQuota | undefined> = config.providers.map((provider, index) => {
     const spend = spends[index]!;
     const cached = liveCache.get(provider.name);
-    if (cached && Date.now() - cached.at < liveTtl(provider)) {
+    if (cached && clock() - cached.at < liveTtl(provider)) {
       return {
         ...cached.quota,
         windows: withModelRejections(provider.name, cached.quota.windows),
@@ -1660,7 +1670,7 @@ export async function providerQuotas(
       if (already) return already;
       const spend = spends[index]!;
       const quota = await buildQuota(provider, spend);
-      liveCache.set(provider.name, { at: Date.now(), quota });
+      liveCache.set(provider.name, { at: clock(), quota });
       return { ...quota, spend };
     }),
   );
