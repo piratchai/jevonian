@@ -18,6 +18,7 @@ import { promisify } from "node:util";
 
 import type { Usage } from "./pricing";
 import { sanitizeBuiltinPrompt } from "./prompt-policy";
+import type { StreamEvent } from "./relay";
 import { softErrorMessage } from "./soft-error";
 
 /**
@@ -1720,6 +1721,7 @@ export function cursorToChatStream(
   model: string,
   events: AsyncIterable<CursorEvent>,
   onFinish?: (finish: CursorFinish) => void,
+  onEvent?: (event: StreamEvent) => void,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   const id = completionId();
@@ -1750,6 +1752,9 @@ export function cursorToChatStream(
       let index = 0;
       try {
         for await (const event of events) {
+          if (event.type === "text" || event.type === "thinking" || event.type === "tool") {
+            onEvent?.({ kind: "content" });
+          }
           if (event.type === "text") emit(chunk({ content: event.text }, null));
           else if (event.type === "thinking") emit(chunk({ reasoning_content: event.text }, null));
           else if (event.type === "tool") {
@@ -1771,6 +1776,7 @@ export function cursorToChatStream(
             );
           } else if (event.type === "usage") {
             usage = event.usage;
+            onEvent?.({ kind: "usage", usage: { ...usage } });
           } else if (event.type === "error") {
             error = event.error;
             // A refusal is Jevonian's failure to report, not a reason to lose the turn: close

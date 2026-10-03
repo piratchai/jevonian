@@ -4,6 +4,7 @@ import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
+import type { OAuthSourceName } from "./admin-types";
 import { cursorAuthPath, cursorToken } from "./cursor";
 import { retryingFetch } from "./retry";
 import {
@@ -13,14 +14,84 @@ import {
   WORKBUDDY_AI_ID,
 } from "./workbuddy";
 
-export type OAuthSource =
-  | "claude-code"
-  | "codex"
-  | "antigravity"
-  | "devin"
-  | "cursor"
-  | "workbuddy-ai"
-  | "static";
+export type OAuthSource = OAuthSourceName;
+
+/** Every local sign-in the router can read; the one list every parser shares. */
+export const OAUTH_SOURCES: readonly OAuthSource[] = [
+  "claude-code",
+  "codex",
+  "antigravity",
+  "devin",
+  "cursor",
+  "workbuddy-ai",
+  "static",
+];
+
+export function isOAuthSource(value: unknown): value is OAuthSource {
+  return typeof value === "string" && (OAUTH_SOURCES as readonly string[]).includes(value);
+}
+
+/** Parses an `oauthSource` field, or undefined when the value is not a source we know. */
+export function parseOAuthSource(value: unknown): OAuthSource | undefined {
+  return isOAuthSource(value) ? value : undefined;
+}
+
+/**
+ * Which wire a credential only speaks on. A Devin or Cursor sign-in yields a token for its own
+ * Connect-RPC wire; carried to any other wire it just 401s, so the pairing is enforced where a
+ * provider is added — one rule, whatever surface asks (config, admin API, or CLI).
+ */
+export const OAUTH_REQUIRED_TYPE: Readonly<Partial<Record<OAuthSource, string>>> = {
+  devin: "devin",
+  cursor: "cursor",
+};
+
+/**
+ * The wire type a credential forces, or an error string when `type`/`oauthSource` disagree.
+ * Returns the resolved type on success so a caller can adopt the forced wire when it was not
+ * asked for explicitly.
+ */
+export function oauthWireType(
+  oauthSource: OAuthSource | undefined,
+  type: string,
+  explicitType: boolean,
+): { type: string } | { error: string } {
+  const required = oauthSource ? OAUTH_REQUIRED_TYPE[oauthSource] : undefined;
+  if (required) {
+    if (explicitType && type !== required) {
+      return {
+        error: `${capitalize(required)} credentials require --type ${required}.`,
+      };
+    }
+    return { type: required };
+  }
+  return { type };
+}
+
+/**
+ * The inverse check: a wire that only a specific credential can drive must be configured with
+ * that credential (or a static token for it). Returns the message to show, or undefined.
+ */
+export function oauthWireMismatch(
+  type: string,
+  auth: string,
+  oauthSource: OAuthSource | undefined,
+): string | undefined {
+  for (const [source, wire] of Object.entries(OAUTH_REQUIRED_TYPE)) {
+    if (type !== wire) continue;
+    if (auth !== "oauth") {
+      return `${capitalize(wire)} wire requires --auth oauth --oauth-source ${source} (or static).`;
+    }
+    if (oauthSource !== source && oauthSource !== "static") {
+      return `${capitalize(wire)} wire requires --oauth-source ${source} (or static).`;
+    }
+  }
+  return undefined;
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 /**
  * Which local sign-in to read, when it is not the agent's own — a second account of the same

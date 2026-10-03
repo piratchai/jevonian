@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 import { rejectsAssistantPrefill } from "./anthropic-thinking";
+import { bareModelId } from "./model-id";
 import type { Usage } from "./pricing";
+import type { StreamEvent } from "./relay";
 import { splitSseEvents } from "./responses";
 import { softErrorMessage } from "./soft-error";
 
@@ -43,7 +45,7 @@ function number(value: unknown): number {
 }
 
 export function needsAnthropicWire(model: string): boolean {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   return /^claude/i.test(tail) || /anthropic/i.test(model);
 }
 
@@ -290,12 +292,18 @@ export function anthropicToChatRequest(
     }
     const content = Array.isArray(message.content) ? message.content : [];
     const texts: string[] = [];
+    const images: Array<Record<string, unknown>> = [];
     const toolCalls: unknown[] = [];
     for (const rawBlock of content) {
       const block = asRecord(rawBlock);
       if (block.type === "text") {
         const text = asString(block.text);
         if (text.length > 0) texts.push(text);
+        continue;
+      }
+      if (block.type === "image" && role === "user") {
+        const image = anthropicImageAsChat(block);
+        if (image) images.push(image);
         continue;
       }
       if (block.type === "tool_use") {
@@ -326,6 +334,15 @@ export function anthropicToChatRequest(
       messages.push(entry);
       continue;
     }
+    if (images.length > 0) {
+      // Images keep their place beside the text as Chat content parts; a text-only turn stays
+      // a plain string, which every Chat host accepts.
+      messages.push({
+        role: "user",
+        content: [...texts.map((text) => ({ type: "text", text })), ...images],
+      });
+      continue;
+    }
     if (texts.length > 0) messages.push({ role: "user", content: texts.join("\n") });
   }
 
@@ -334,11 +351,69 @@ export function anthropicToChatRequest(
     model,
     messages,
     max_tokens: typeof max === "number" && max > 0 ? max : 4_096,
+    // Without its tools the model cannot call any, and an agent turn silently degrades into
+    // a text answer — the tool definitions travel with the conversation.
+    ...anthropicToolsAsChat(body),
   };
   if (typeof body.temperature === "number") out.temperature = body.temperature;
   if (typeof body.top_p === "number") out.top_p = body.top_p;
   if (typeof body.stream === "boolean") out.stream = body.stream;
   return out;
+}
+
+/** An Anthropic image block as a Chat `image_url` part: inline base64 or a URL source. */
+function anthropicImageAsChat(block: Record<string, unknown>): Record<string, unknown> | undefined {
+  const source = asRecord(block.source);
+  if (
+    source.type === "base64" &&
+    typeof source.media_type === "string" &&
+    typeof source.data === "string"
+  ) {
+    return {
+      type: "image_url",
+      image_url: { url: `data:${source.media_type};base64,${source.data}` },
+    };
+  }
+  if (source.type === "url" && typeof source.url === "string") {
+    return { type: "image_url", image_url: { url: source.url } };
+  }
+  return undefined;
+}
+
+/** Anthropic `tools` as Chat Completions function tools. Server tools (no schema) are dropped. */
+export function anthropicToolsAsChat(body: Record<string, unknown>): Record<string, unknown> {
+  const tools = (Array.isArray(body.tools) ? body.tools : []).flatMap((raw) => {
+    const tool = asRecord(raw);
+    const name = asString(tool.name);
+    if (name.length === 0 || typeof tool.input_schema !== "object" || tool.input_schema === null) {
+      return [];
+    }
+    return [
+      {
+        type: "function",
+        function: {
+          name,
+          ...(typeof tool.description === "string" ? { description: tool.description } : {}),
+          parameters: tool.input_schema,
+        },
+      },
+    ];
+  });
+  const choice = asRecord(body.tool_choice);
+  const toolChoice =
+    choice.type === "any"
+      ? "required"
+      : choice.type === "none"
+        ? "none"
+        : choice.type === "tool" && asString(choice.name).length > 0
+          ? { type: "function", function: { name: asString(choice.name) } }
+          : choice.type === "auto"
+            ? "auto"
+            : undefined;
+  return {
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(tools.length > 0 && toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
+  };
 }
 
 const CHAT_STOP_REASONS: Record<string, string> = {
@@ -472,6 +547,7 @@ export function anthropicToChat(
 export function anthropicToChatStream(
   model: string,
   onFinish?: (usage: Usage, failure?: string) => void,
+  onEvent?: (event: StreamEvent) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -531,6 +607,7 @@ export function anthropicToChatStream(
       const index = number(event.index);
       const toolIndex = toolIndexes.size;
       toolIndexes.set(index, toolIndex);
+      onEvent?.({ kind: "content" });
       emit(
         chunk(
           {
@@ -552,11 +629,13 @@ export function anthropicToChatStream(
     if (type === "content_block_delta") {
       const delta = asRecord(event.delta);
       if (delta.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+        onEvent?.({ kind: "content" });
         emit(chunk({ content: delta.text }, null), controller);
         return;
       }
       if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
         const toolIndex = toolIndexes.get(number(event.index)) ?? 0;
+        onEvent?.({ kind: "content" });
         emit(
           chunk(
             { tool_calls: [{ index: toolIndex, function: { arguments: delta.partial_json } }] },
@@ -573,6 +652,8 @@ export function anthropicToChatStream(
       const output = number(asRecord(event.usage).output_tokens);
       if (output > 0) usage.output = output;
       if (stop.length > 0 && !finished) {
+        onEvent?.({ kind: "usage", usage: { ...usage } });
+        onEvent?.({ kind: "finish" });
         finished = true;
         emit(
           {
@@ -587,6 +668,7 @@ export function anthropicToChatStream(
     if (type === "error") {
       const error = asRecord(event.error);
       failure = asString(error.message) || "upstream error";
+      onEvent?.({ kind: "error", message: failure });
     }
   };
 

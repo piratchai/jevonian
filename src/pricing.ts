@@ -1,4 +1,5 @@
 import { devinModelMeta } from "./devin-catalog";
+import { bareModelId } from "./model-id";
 import { loadPricingSnapshot, OFFICIAL_PROVIDERS } from "./modelsdev";
 import bundled from "./pricing/models.json";
 
@@ -96,7 +97,7 @@ export function priceFor(
   provider?: string,
   providerType?: string,
 ): ModelPrice | undefined {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   const names = [...new Set([model, tail])].flatMap((name) => [name, ...pricingAliases(name)]);
   const providerIsOfficial = provider ? OFFICIAL_PROVIDERS.has(provider) : false;
   // Devin's exact catalog rate takes priority over models.dev aliases, including a vendor's

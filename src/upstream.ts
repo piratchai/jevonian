@@ -1,24 +1,11 @@
 import type { Context } from "hono";
 
 import { proxyNativeCodex, shouldProxyNativeCodex } from "./account";
-import {
-  anthropicToChat,
-  anthropicToChatRequest,
-  anthropicToChatStream,
-  chatToAnthropic,
-  chatToAnthropicMessage,
-  normalizeAnthropicPrefill,
-} from "./anthropic";
-import {
-  adaptiveEffort,
-  anthropicThinkingSupport,
-  fitThinkingMaxTokens,
-} from "./anthropic-thinking";
+import { anthropicToChat, anthropicToChatStream, chatToAnthropicMessage } from "./anthropic";
 import { resolveProviderAuth, withSessionAffinity, type AuthResolution } from "./auth";
 import { saveBody } from "./bodies";
 import { decodeBody } from "./body-encoding";
 import { askJevRaw } from "./brain";
-import { effectiveCapabilities, isReasoningEffort, type ReasoningEffort } from "./capabilities";
 import { chatToAnthropicStream } from "./chat-anthropic-stream";
 import { isClaudeGatewayRequest, resolveClaudeGatewayModel } from "./claude-gateway";
 import {
@@ -39,8 +26,6 @@ import {
   cursorToChatStream,
   resolveCursorAgentUrl,
   runCursor,
-  type CursorEvent,
-  type CursorFinish,
   type CursorStreamError,
 } from "./cursor";
 import { cursorModelId } from "./cursor-catalog";
@@ -54,11 +39,9 @@ import {
   peekDevinStream,
   stripAgentSystemMessages,
   type DevinErrorKind,
-  type DevinFinish,
   type DevinStreamError,
 } from "./devin";
 import {
-  chatToGemini,
   geminiChatCompletion,
   geminiEndpoint,
   geminiToChatStream,
@@ -67,9 +50,9 @@ import {
 } from "./gemini";
 import { appendRecord } from "./ledger";
 import { LOCAL_CLIENT_KEYS } from "./local-client";
-import { CLAUDE_CODE_SYSTEM_PROMPT, invalidateOAuthToken } from "./oauth";
+import { invalidateOAuthToken } from "./oauth";
+import { DevinImageError, payloadFor, prepareUpstream } from "./prepare";
 import { costOf, type Usage } from "./pricing";
-import { rewritePromptBodies } from "./prompt-policy";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
@@ -80,23 +63,17 @@ import {
   providerQuotaHealth,
   PROVIDER_COOLDOWN_MS,
 } from "./quota";
-import {
-  needsReasoningPassback,
-  rememberFromChatCompletion,
-  repairReasoningContent,
-  reasoningCaptureTransform,
-} from "./reasoning-passback";
+import { rememberFromChatCompletion, reasoningCaptureTransform } from "./reasoning-passback";
+import { cancelOutcome, trackEvents, type StreamEvent } from "./relay";
 import {
   chatCompletionFrom,
   chatResultFromResponse,
-  chatToResponses,
+  ChatToResponsesBridge,
   chatToResponsesStream,
-  ensureResponsesCallIds,
   isRemoteCompactionV2,
   repairResponsesOutput,
   responsesErrorMessage,
   responsesPassthroughRepairStream,
-  responsesToChatRequest,
   responsesToChatStream,
   responsesUsage,
   splitSseEvents,
@@ -114,14 +91,15 @@ import {
   compactionEstimate,
   decideRoute,
   isDesktopRoutedModel,
+  nextFromPlan,
   phaseOfModel,
+  planKey,
   resolveSessionKey,
   type RequestKind,
   type RouteDecision,
   type RouteSkip,
   type SessionStore,
 } from "./routing";
-import { saveTokens, warnSaverUnavailable } from "./saver";
 import type { AppEnv } from "./server";
 import {
   softCompletionStream,
@@ -141,13 +119,12 @@ import {
   type TryCause,
 } from "./trace";
 import {
-  normalizeOpenAIMessages,
   planUpstreamWire,
   sanitizeOpenAIChatResponse,
   sanitizeOpenAIChatStream,
   upstreamUrlFor,
 } from "./wire";
-import { ensureWorkbuddySystem, foldOpenAIChatStream, isWorkbuddyAiSource } from "./workbuddy";
+import { foldOpenAIChatStream, isWorkbuddyAiSource } from "./workbuddy";
 
 interface RequestMeta {
   id: string;
@@ -672,533 +649,6 @@ function requestHeaders(c: Context): Record<string, string | undefined> {
   return Object.fromEntries(c.req.raw.headers.entries());
 }
 
-/**
- * Writes the router's chosen thinking level into an outgoing body, in the field the target wire
- * expects. A level the client set itself wins: the caller was explicit, and overriding an
- * instruction with a guess is worse than ignoring the router's choice.
- *
- * `none` is expressed as an explicit off rather than by omitting the field, because a model that
- * defaults to thinking would otherwise keep thinking.
- */
-export function withEffort(
-  body: Record<string, unknown>,
-  effort: ReasoningEffort | undefined,
-  wire: RequestKind,
-  clientEffort?: string,
-): Record<string, unknown> {
-  const target = stripForeignEffort(body, wire);
-  if (wire === "anthropic") {
-    // Normalised on every Anthropic body, client-set levels included: newer models answer the
-    // legacy shapes with a 400, and a request that cannot be sent is worse than a translated one.
-    if (!effort || clientEffort) return normalizeAnthropicThinking(target);
-    return anthropicWithEffort(target, effort);
-  }
-  if (!effort || clientEffort) return target;
-  if (wire === "responses") {
-    // The Responses wire spells "off" as a null reasoning object.
-    if (effort === "none") return { ...target, reasoning: null };
-    return { ...target, reasoning: { effort } };
-  }
-  return { ...target, reasoning_effort: effort };
-}
-
-/** The thinking-level field each wire uses. */
-const EFFORT_FIELD: Record<RequestKind, string> = {
-  anthropic: "thinking",
-  openai: "reasoning_effort",
-  responses: "reasoning",
-};
-
-const EFFORT_FIELDS = Object.values(EFFORT_FIELD);
-
-/**
- * Drops thinking-level fields that do not belong to `wire`.
- *
- * A body can reach us spelled for a different wire than the endpoint it arrived on:
- * Codex sends the Chat Completions `reasoning_effort` on native `/v1/responses`
- * calls for custom model catalogs, and forwarding that spelling to a Responses
- * upstream is rejected outright with "Unsupported parameter: reasoning_effort".
- * Reducing every outgoing body to its own wire's field makes a mislabelled client
- * body routable instead of fatal, and keeps a wire from inheriting a spelling the
- * provider's schema does not have.
- */
-export function stripForeignEffort(
-  body: Record<string, unknown>,
-  wire: RequestKind,
-): Record<string, unknown> {
-  const keep = EFFORT_FIELD[wire];
-  const foreign = EFFORT_FIELDS.filter((field) => field !== keep && body[field] !== undefined);
-  if (foreign.length === 0) return body;
-  const next = { ...body };
-  for (const field of foreign) delete next[field];
-  return next;
-}
-
-/** Thinking budgets in tokens for the Anthropic wire, by depth. */
-const EFFORT_BUDGET: Record<string, number> = {
-  minimal: 1_024,
-  low: 2_048,
-  medium: 8_192,
-  high: 16_384,
-  xhigh: 24_576,
-  max: 32_768,
-  ultra: 32_768,
-};
-
-function effortBudget(effort: ReasoningEffort): number {
-  return EFFORT_BUDGET[effort] ?? 32_768;
-}
-
-/**
- * A Chat Completions body (native, or folded from Responses) as an Anthropic Messages body.
- *
- * `chatToAnthropic` has no Chat-side thinking field to carry, so the client's own
- * `reasoning_effort` would be dropped and Claude would run without thinking even when the
- * client asked for `high`. The client's level is therefore applied here as if the router had
- * chosen it — it still wins over the router's choice — and written in the shape the model takes.
- * `max_tokens` is then made consistent with that thinking configuration.
- */
-export function bridgedAnthropicBody(
-  chatBody: Record<string, unknown>,
-  options: {
-    model: string;
-    stream: boolean;
-    effort?: ReasoningEffort;
-    clientEffort?: ReasoningEffort;
-    maxOutput?: number;
-  },
-): Record<string, unknown> {
-  const base = { ...chatToAnthropic(chatBody), model: options.model, stream: options.stream };
-  const effort = options.clientEffort ?? options.effort;
-  const max = chatBody.max_completion_tokens ?? chatBody.max_tokens;
-  // Claude 4.6+ rejects a conversation ending on an assistant turn ("prefill"). A Chat client can
-  // re-send its last assistant reply, so drop the trailing prefill before the body leaves — after
-  // the thinking pass, which reads `model` but not the message list.
-  const fitted = fitThinkingMaxTokens(withEffort(base, effort, "anthropic"), {
-    clientSetMax: typeof max === "number" && max > 0,
-    maxOutput: options.maxOutput,
-  });
-  return normalizeAnthropicPrefill(fitted);
-}
-
-/** Writes `output_config.effort`, keeping any other `output_config` keys the body carries. */
-function withOutputEffort(body: Record<string, unknown>, effort: string): Record<string, unknown> {
-  return { ...body, output_config: { ...asRecord(body.output_config), effort } };
-}
-
-/**
- * The router's level in the shape the target Claude model accepts.
- *
- * Legacy models take a token budget. Adaptive models (Claude 4.6+) take
- * `thinking: {type: "adaptive"}` plus `output_config.effort`. "Off" stays an explicit
- * `disabled` where the model allows it, so a model that thinks by default cannot keep thinking
- * silently; always-on models reject `disabled`, so they get the lowest effort instead.
- */
-function anthropicWithEffort(
-  body: Record<string, unknown>,
-  effort: ReasoningEffort,
-): Record<string, unknown> {
-  const support = anthropicThinkingSupport(body.model);
-  if (!support.adaptive) {
-    if (effort === "none") return { ...body, thinking: { type: "disabled" } };
-    return { ...body, thinking: { type: "enabled", budget_tokens: effortBudget(effort) } };
-  }
-  if (effort === "none" && !support.rejectsDisabled) {
-    return { ...body, thinking: { type: "disabled" } };
-  }
-  // Keep a client's `display` choice; everything else in `thinking` is the router's to set.
-  const display = asRecord(body.thinking).display;
-  return withOutputEffort(
-    { ...body, thinking: { type: "adaptive", ...(display !== undefined ? { display } : {}) } },
-    adaptiveEffort(effort, support),
-  );
-}
-
-/**
- * Translates thinking shapes the target model rejects — typically sent by a client targeting an
- * older model — into the adaptive equivalent: `disabled` on always-on models becomes the lowest
- * effort, and a `budget_tokens` request on models without extended thinking becomes the nearest
- * effort level. An `output_config.effort` the client already set is kept.
- */
-export function normalizeAnthropicThinking(body: Record<string, unknown>): Record<string, unknown> {
-  const thinking = asRecord(body.thinking);
-  const support = anthropicThinkingSupport(body.model);
-  const disabled = thinking.type === "disabled" && support.rejectsDisabled;
-  const enabled = thinking.type === "enabled" && support.rejectsEnabled;
-  if (!disabled && !enabled) return body;
-
-  const { budget_tokens: budget, type: _type, ...rest } = thinking;
-  // `display` is invalid alongside `disabled` but valid with `adaptive`, so keep what remains.
-  const next = { ...body, thinking: { ...rest, type: "adaptive" } };
-  if (typeof asRecord(body.output_config).effort === "string") return next;
-  let level: ReasoningEffort = "low";
-  if (enabled && typeof budget === "number") {
-    // The shallowest level whose budget covers the request, so thinking is never cut short.
-    const match = Object.entries(EFFORT_BUDGET).find(([, tokens]) => tokens >= budget);
-    level = match && isReasoningEffort(match[0]) ? match[0] : "max";
-  }
-  return withOutputEffort(next, adaptiveEffort(level, support));
-}
-
-/** Reads an adaptive `output_config.effort` back as a router level, or undefined. */
-function adaptiveEffortInBody(
-  body: Record<string, unknown>,
-  hint?: ReasoningEffort,
-): ReasoningEffort | undefined {
-  const effort = asRecord(body.output_config).effort;
-  if (typeof effort !== "string" || !isReasoningEffort(effort)) return undefined;
-  // The router's own level wins when it is what was written (e.g. `minimal` sent as `low`);
-  // `none` is excluded, because an always-on model sent `low` really does think.
-  if (hint && hint !== "none") {
-    const support = anthropicThinkingSupport(body.model);
-    if (adaptiveEffort(hint, support) === effort) return hint;
-  }
-  return effort;
-}
-
-/**
- * The thinking level an outgoing body actually carries, read back from whichever field the wire
- * uses. This is what the log reports, so the ledger states the level the model was really sent
- * rather than the level the router meant to send — the two differ when the client set its own
- * level, or when the model takes no level at all.
- *
- * `hint` disambiguates budgets that collide (Anthropic takes tokens, and `max` and `ultra` share
- * a budget), so a level is never reported as a shallower one by accident.
- */
-export function effortInBody(
-  body: Record<string, unknown>,
-  wire: RequestKind,
-  hint?: ReasoningEffort,
-): ReasoningEffort | undefined {
-  if (wire === "anthropic") {
-    const thinking = asRecord(body.thinking);
-    if (thinking.type === "disabled") return "none";
-    const adaptive = adaptiveEffortInBody(body, hint);
-    if (adaptive) return adaptive;
-    const budget = thinking.budget_tokens;
-    if (typeof budget !== "number") return undefined;
-    if (hint && EFFORT_BUDGET[hint] === budget) return hint;
-    const match = Object.entries(EFFORT_BUDGET).find(([, tokens]) => tokens === budget);
-    return match && isReasoningEffort(match[0]) ? match[0] : undefined;
-  }
-  if (wire === "responses") {
-    if (body.reasoning === null) return "none";
-    const effort = asRecord(body.reasoning).effort;
-    return typeof effort === "string" && isReasoningEffort(effort) ? effort : undefined;
-  }
-  const effort = body.reasoning_effort;
-  return typeof effort === "string" && isReasoningEffort(effort) ? effort : undefined;
-}
-
-/**
- * The thinking level the client asked for itself, in whatever field its wire uses. Checked
- * before the router's own choice so an explicit instruction is never overridden — and so the
- * log reports the client's level rather than the one the router would have applied.
- */
-export function clientEffortOf(
-  body: Record<string, unknown>,
-  kind: RequestKind,
-): ReasoningEffort | undefined {
-  if (kind === "anthropic") {
-    const thinking = asRecord(body.thinking);
-    if (thinking.type === "disabled") return "none";
-    // A client on adaptive thinking states its level in `output_config.effort`.
-    const adaptive = adaptiveEffortInBody(body);
-    if (adaptive) return adaptive;
-    const budget = thinking.budget_tokens;
-    if (typeof budget !== "number") return undefined;
-    const match = Object.entries(EFFORT_BUDGET).find(([, tokens]) => tokens === budget);
-    return match && isReasoningEffort(match[0]) ? match[0] : undefined;
-  }
-  return effortInBody(body, kind === "responses" ? "responses" : "openai");
-}
-
-function applyClaudeCodeSystem(body: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...body };
-  injectClaudeCodeSystem(next);
-
-  const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
-  const support = anthropicThinkingSupport(model);
-
-  if (!support.adaptive) {
-    // `context_management` and `output_config` are adaptive-thinking-only; a legacy model
-    // rejects them outright.
-    delete next.context_management;
-    delete next.output_config;
-    // An `adaptive` thinking shape (Claude 4.6+) must not reach a legacy model. Keep a
-    // legacy-valid `enabled`/`disabled` shape: `withEffort` writes exactly that for these
-    // models, and deleting it here — after `withEffort` ran — would silently discard the
-    // thinking level the router chose.
-    if (asRecord(next.thinking).type === "adaptive") delete next.thinking;
-
-    if (Array.isArray(next.messages)) {
-      next.messages = next.messages.map((m: unknown) => {
-        if (
-          typeof m === "object" &&
-          m !== null &&
-          (m as Record<string, unknown>).role === "system"
-        ) {
-          return {
-            ...(m as Record<string, unknown>),
-            role: "user",
-          };
-        }
-        return m;
-      });
-    }
-  }
-
-  return next;
-}
-
-function injectClaudeCodeSystem(body: Record<string, unknown>): void {
-  const system = body.system;
-  const prompt = { type: "text", text: CLAUDE_CODE_SYSTEM_PROMPT };
-  if (typeof system === "string") {
-    // Native Anthropic clients still send a bare string; mark the user system
-    // (or the Claude Code prompt alone) so OAuth turns get the same cache hits.
-    body.system =
-      system.length > 0
-        ? [prompt, { type: "text", text: system, cache_control: { type: "ephemeral" } }]
-        : [{ ...prompt, cache_control: { type: "ephemeral" } }];
-    return;
-  }
-  if (Array.isArray(system)) {
-    body.system = [prompt, ...system];
-    return;
-  }
-  body.system = [{ ...prompt, cache_control: { type: "ephemeral" } }];
-}
-
-/** Anthropic `tools` as Chat Completions function tools. Server tools (no schema) are dropped. */
-function anthropicToolsAsChat(body: Record<string, unknown>): Record<string, unknown> {
-  const tools = (Array.isArray(body.tools) ? body.tools : []).flatMap((raw) => {
-    const tool = asRecord(raw);
-    const name = asString(tool.name);
-    if (name.length === 0 || typeof tool.input_schema !== "object" || tool.input_schema === null) {
-      return [];
-    }
-    return [
-      {
-        type: "function",
-        function: {
-          name,
-          ...(typeof tool.description === "string" ? { description: tool.description } : {}),
-          parameters: tool.input_schema,
-        },
-      },
-    ];
-  });
-  const choice = asRecord(body.tool_choice);
-  const toolChoice =
-    choice.type === "any"
-      ? "required"
-      : choice.type === "none"
-        ? "none"
-        : choice.type === "tool" && asString(choice.name).length > 0
-          ? { type: "function", function: { name: asString(choice.name) } }
-          : choice.type === "auto"
-            ? "auto"
-            : undefined;
-  return {
-    ...(tools.length > 0 ? { tools } : {}),
-    ...(tools.length > 0 && toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
-  };
-}
-
-class DevinImageError extends Error {}
-
-const DEVIN_INLINE_IMAGE = /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+$/i;
-
-/** Devin's protobuf encoder accepts image_url parts containing inline base64 data URLs only. */
-function devinImageUrl(url: unknown): string {
-  const value = typeof url === "string" ? url : asRecord(url).url;
-  if (typeof value !== "string" || !DEVIN_INLINE_IMAGE.test(value.replace(/\s/g, ""))) {
-    throw new DevinImageError(
-      "Devin only supports inline base64 images; remote URLs and file IDs are not supported",
-    );
-  }
-  return value;
-}
-
-function devinAnthropicImage(block: Record<string, unknown>): Record<string, unknown> {
-  const source = asRecord(block.source);
-  if (
-    source.type !== "base64" ||
-    typeof source.media_type !== "string" ||
-    typeof source.data !== "string"
-  ) {
-    throw new DevinImageError(
-      "Devin only supports Anthropic inline base64 image sources, not remote URLs",
-    );
-  }
-  return {
-    type: "image_url",
-    image_url: { url: devinImageUrl(`data:${source.media_type};base64,${source.data}`) },
-  };
-}
-
-/** Fold each multimodal block separately: Devin encodes images per turn, not between text spans. */
-function devinAnthropicMessages(body: Record<string, unknown>, model: string): unknown[] {
-  const base = anthropicToChatRequest(body, model);
-  const messages = Array.isArray(base.messages) ? base.messages : [];
-  const incoming = Array.isArray(body.messages) ? body.messages : [];
-  if (
-    !incoming.some(
-      (raw) =>
-        Array.isArray(asRecord(raw).content) &&
-        (asRecord(raw).content as unknown[]).some((block) => {
-          const entry = asRecord(block);
-          return (
-            entry.type === "image" ||
-            (entry.type === "tool_result" &&
-              Array.isArray(entry.content) &&
-              entry.content.some((part) => asRecord(part).type === "image"))
-          );
-        }),
-    )
-  ) {
-    return messages;
-  }
-  const system = anthropicToChatRequest({ system: body.system, messages: [] }, model);
-  const result: unknown[] = Array.isArray(system.messages) ? [...system.messages] : [];
-  for (const raw of incoming) {
-    const message = asRecord(raw);
-    if (message.role !== "user" && message.role !== "assistant") continue;
-    if (!Array.isArray(message.content)) {
-      result.push(
-        ...(anthropicToChatRequest({ messages: [message] }, model).messages as unknown[]),
-      );
-      continue;
-    }
-    for (const rawBlock of message.content) {
-      const block = asRecord(rawBlock);
-      if (block.type === "image") {
-        if (message.role !== "user")
-          throw new DevinImageError("Devin only supports images in user messages");
-        result.push({ role: "user", content: [devinAnthropicImage(block)] });
-      } else if (block.type === "tool_result") {
-        const parts = Array.isArray(block.content) ? block.content : [];
-        if (parts.some((part) => asRecord(part).type === "image")) {
-          throw new DevinImageError("Devin does not support images in Anthropic tool results");
-        }
-        result.push(
-          ...(anthropicToChatRequest({ messages: [{ ...message, content: [block] }] }, model)
-            .messages as unknown[]),
-        );
-      } else {
-        result.push(
-          ...(anthropicToChatRequest({ messages: [{ ...message, content: [block] }] }, model)
-            .messages as unknown[]),
-        );
-      }
-    }
-  }
-  return result;
-}
-
-function devinResponsesMessages(body: Record<string, unknown>, model: string): unknown[] {
-  const converted = responsesToChatRequest(body, model);
-  const input = Array.isArray(body.input) ? body.input : [];
-  const hasImages = input.some(
-    (raw) =>
-      Array.isArray(asRecord(raw).content) &&
-      (asRecord(raw).content as unknown[]).some((part) => asRecord(part).type === "input_image"),
-  );
-  if (!hasImages) return converted.messages as unknown[];
-  const system = responsesToChatRequest({ instructions: body.instructions }, model);
-  const messages: unknown[] = Array.isArray(system.messages) ? [...system.messages] : [];
-  for (const raw of input) {
-    const item = asRecord(raw);
-    const content = Array.isArray(item.content) ? item.content : null;
-    if (!content || !content.some((part) => asRecord(part).type === "input_image")) {
-      messages.push(...(responsesToChatRequest({ input: [raw] }, model).messages as unknown[]));
-      continue;
-    }
-    if (item.role === "assistant" || item.role === "system") {
-      throw new DevinImageError("Devin only supports images in user messages");
-    }
-    for (const rawPart of content) {
-      const part = asRecord(rawPart);
-      if (part.type === "input_image") {
-        if (part.file_id !== undefined) {
-          throw new DevinImageError(
-            "Devin does not support Responses image file IDs; supply inline base64 image_url instead",
-          );
-        }
-        messages.push({
-          role: "user",
-          content: [{ type: "image_url", image_url: { url: devinImageUrl(part.image_url) } }],
-        });
-      } else {
-        messages.push(
-          ...(responsesToChatRequest({ input: [{ ...item, content: [rawPart] }] }, model)
-            .messages as unknown[]),
-        );
-      }
-    }
-  }
-  return messages;
-}
-
-/** The Chat Completions body Devin's wire module encodes, keeping tools and image block order. */
-function devinChatBody(
-  body: Record<string, unknown>,
-  clientKind: RequestKind,
-  model: string,
-): Record<string, unknown> {
-  if (clientKind === "responses") {
-    return {
-      ...responsesToChatRequest(body, model),
-      messages: devinResponsesMessages(body, model),
-      model,
-    };
-  }
-  if (clientKind === "anthropic") {
-    return {
-      ...anthropicToChatRequest(body, model),
-      ...anthropicToolsAsChat(body),
-      messages: devinAnthropicMessages(body, model),
-      model,
-    };
-  }
-  // The native Chat Completions path can carry image_url parts too; Devin's encoder silently
-  // skips non-data URLs, so reject them before the request reaches the wire module.
-  for (const raw of Array.isArray(body.messages) ? body.messages : []) {
-    const message = asRecord(raw);
-    const content = Array.isArray(message.content) ? message.content : [];
-    for (const rawPart of content) {
-      const part = asRecord(rawPart);
-      if (part.type === "image_url") devinImageUrl(part.image_url);
-    }
-  }
-  return { ...body, model };
-}
-
-/** The Chat Completions body Cursor's wire module encodes, mirroring `devinChatBody`. */
-function cursorChatBody(
-  body: Record<string, unknown>,
-  clientKind: RequestKind,
-  model: string,
-): Record<string, unknown> {
-  if (clientKind === "responses") {
-    return {
-      ...responsesToChatRequest(body, model),
-      messages: devinResponsesMessages(body, model),
-      model,
-    };
-  }
-  if (clientKind === "anthropic") {
-    return {
-      ...anthropicToChatRequest(body, model),
-      ...anthropicToolsAsChat(body),
-      messages: devinAnthropicMessages(body, model),
-      model,
-    };
-  }
-  return { ...body, model };
-}
-
 /** Devin usage is exclusive; OpenAI-shaped client payloads expect inclusive prompt counts. */
 function inclusiveUsage(usage: Usage): Usage {
   return { ...usage, input: usage.input + usage.cacheRead + usage.cacheWrite };
@@ -1278,26 +728,6 @@ function devinErrorStatus(error: DevinStreamError): number {
   return error.status >= 400 && error.status <= 599 ? error.status : 502;
 }
 
-/** A classified Devin refusal, in the error envelope of the client's own wire. */
-function devinErrorResponse(
-  meta: RequestMeta,
-  clientKind: RequestKind,
-  error: DevinStreamError,
-  headers: Record<string, string>,
-): Response {
-  const status = devinErrorStatus(error);
-  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
-  const type = DEVIN_ERROR_TYPES[error.kind] ?? "api_error";
-  const payload =
-    clientKind === "anthropic"
-      ? { type: "error", error: { type, message: error.message } }
-      : { error: { message: error.message, type, code: error.kind } };
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
 /** Adds `reasoning_content` as a leading thinking block, which `chatToAnthropicMessage` drops. */
 function withThinkingBlock(
   message: Record<string, unknown>,
@@ -1311,12 +741,87 @@ function withThinkingBlock(
 }
 
 /**
- * Answers the client from a Devin stream that already passed the error-trailer peek. Devin
- * always streams upstream; a non-stream client gets the folded completion instead.
+ * The wire-specific half of a Connect-RPC subscription (Devin, Cursor): how its refusals are
+ * classified, recorded, and spelled for the client. Everything else about answering the client
+ * — folding a stream for a non-stream client, relaying it across wires, recording usage, and
+ * a client hanging up — is shared by `rpcClientResponse`, so the two wires cannot drift.
  */
-type DevinOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+interface RpcWire<E extends { kind: string; message: string }> {
+  /** Error `type` per refusal kind, as the client's wire spells it. */
+  errorTypes: Record<string, string>;
+  status(error: E): number;
+  shouldFailover(error: E): boolean;
+  /** What a refusal means for routing, so the next turn walks past it. */
+  markRefusal(error: E): void;
+}
 
-async function devinClientResponse(input: {
+function devinWireAdapter(provider: Provider, model: string): RpcWire<DevinStreamError> {
+  return {
+    errorTypes: DEVIN_ERROR_TYPES,
+    status: devinErrorStatus,
+    shouldFailover: devinShouldFailover,
+    markRefusal: (error) => markDevinRefusal(provider, error, model),
+  };
+}
+
+function cursorWireAdapter(provider: Provider): RpcWire<CursorStreamError> {
+  return {
+    errorTypes: CURSOR_ERROR_TYPES,
+    status: cursorErrorStatus,
+    shouldFailover: cursorShouldFailover,
+    markRefusal: (error) => markCursorRefusal(provider, error),
+  };
+}
+
+/** A classified refusal, in the error envelope of the client's own wire. */
+function rpcErrorResponse<E extends { kind: string; message: string }>(
+  wire: RpcWire<E>,
+  meta: RequestMeta,
+  clientKind: RequestKind,
+  error: E,
+  headers: Record<string, string>,
+): Response {
+  const status = wire.status(error);
+  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
+  // A streaming client reads a bare JSON error as a malformed response and can roll the turn
+  // back, so it gets the same soft close every other wire gives it. The ledger row above still
+  // carries the real refusal.
+  if (meta.stream) {
+    return new Response(
+      softCompletionStream(clientKind, meta.model, softErrorMessage(error.message.slice(0, 300))),
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-store",
+          "x-jevonian-soft-error": "1",
+          ...headers,
+        },
+      },
+    );
+  }
+  const type = wire.errorTypes[error.kind] ?? "api_error";
+  const payload =
+    clientKind === "anthropic"
+      ? { type: "error", error: { type, message: error.message } }
+      : { error: { message: error.message, type, code: error.kind } };
+  return Response.json(payload, { status, headers });
+}
+
+/** Re-routed (`failover`), or answered (`response`). */
+type RpcOutcome = { kind: "response"; response: Response } | { kind: "failover" };
+
+/** A completion an RPC wire produced, plus how it finished. */
+interface RpcFinish<E> {
+  usage: Usage;
+  error?: E;
+}
+
+/**
+ * Answers the client from an RPC subscription that already produced its first event. These
+ * wires always stream upstream; a non-stream client gets the folded completion instead.
+ */
+async function rpcClientResponse<E extends { kind: string; message: string }>(input: {
   c: Context<AppEnv>;
   meta: RequestMeta;
   provider: Provider;
@@ -1324,28 +829,32 @@ async function devinClientResponse(input: {
   clientKind: RequestKind;
   clientStream: boolean;
   started: number;
-  stream: ReadableStream<Uint8Array>;
   headers: Record<string, string>;
-  token?: string;
+  wire: RpcWire<E>;
+  /** Folds the whole upstream into one `chat.completion`. */
+  fold: () => Promise<{ completion: Record<string, unknown>; finish: RpcFinish<E> }>;
+  /** Relays the upstream as Chat Completions SSE, reporting what it emits and how it ends. */
+  relay: (
+    onFinish: (finish: RpcFinish<E>) => void,
+    onEvent: (event: StreamEvent) => void,
+  ) => ReadableStream<Uint8Array>;
   /**
-   * Called when a non-stream Devin call ends in a refusal, before the error is surfaced.
-   * Returning true tells the caller the turn was re-routed, so the error response must not be
-   * written; the caller `continue`s the routing loop.
+   * Called when a non-stream call ends in a refusal, before the error is surfaced. Returning
+   * true tells the caller the turn was re-routed; the caller `continue`s the routing loop.
    */
   onFailover?: () => Promise<boolean>;
-}): Promise<DevinOutcome> {
-  const { c, meta, provider, decision, clientKind, clientStream, started, stream, headers, token } =
-    input;
+}): Promise<RpcOutcome> {
+  const { c, meta, provider, decision, clientKind, clientStream, started, headers, wire } = input;
   const model = decision.model;
-  const finalize = (finish: DevinFinish | undefined): void => {
+  const finalize = (finish: RpcFinish<E> | undefined): void => {
     const usage = finish?.usage ?? emptyUsage();
     if (finish?.error) {
       // A streaming answer is already on the wire, so the refusal can only be recorded here.
       // Failover happens on the folded (non-stream) path below, where nothing has been sent.
-      if (devinShouldFailover(finish.error)) markDevinRefusal(provider, finish.error, model);
+      if (wire.shouldFailover(finish.error)) wire.markRefusal(finish.error);
       record(
         meta,
-        devinErrorStatus(finish.error),
+        wire.status(finish.error),
         usage,
         null,
         true,
@@ -1358,19 +867,17 @@ async function devinClientResponse(input: {
   };
 
   if (!clientStream) {
-    const { completion, finish } = await devinChatCompletion(stream, model, token);
+    const { completion, finish } = await input.fold();
     if (finish.error) {
-      if (devinShouldFailover(finish.error)) {
-        markDevinRefusal(provider, finish.error, model);
-        if (await input.onFailover?.()) {
-          // The turn moved to another provider. No ledger row is written for this dead
-          // attempt: the loop's next iteration records the turn under the new decision.
-          return { kind: "failover" };
-        }
+      if (wire.shouldFailover(finish.error)) {
+        wire.markRefusal(finish.error);
+        // The turn moved to another provider. No ledger row is written for this dead attempt:
+        // the loop's next iteration records the turn under the new decision.
+        if (await input.onFailover?.()) return { kind: "failover" };
       }
       return {
         kind: "response",
-        response: devinErrorResponse(meta, clientKind, finish.error, headers),
+        response: rpcErrorResponse(wire, meta, clientKind, finish.error, headers),
       };
     }
     finalize(finish);
@@ -1411,23 +918,28 @@ async function devinClientResponse(input: {
     return { kind: "response", response: c.json(completion, 200, headers) };
   }
 
-  let finish: DevinFinish | undefined;
+  // The client hanging up is recorded from what it actually saw, before the relay's own cancel
+  // runs: a synthetic "aborted" error there must not turn a delivered turn into a 502.
+  const tracker = trackEvents();
+  const onCancel = (): void => {
+    const outcome = cancelOutcome(tracker);
+    const cost = costOf(model, outcome.usage, new Date(), decision.provider, provider.type);
+    record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
+  };
+  const feed = (event: StreamEvent): void => tracker.feed(event);
   if (clientKind === "openai") {
-    const toChat = devinToChatStream(model, finalize, token);
     return {
       kind: "response",
-      response: streamResponse(stream.pipeThrough(toChat), meta, headers),
+      response: streamResponse(input.relay(finalize, feed), meta, headers, undefined, onCancel),
     };
   }
-  const toChat = devinToChatStream(
-    model,
-    (result) => {
-      finish = result;
-    },
-    token,
-  );
-  // The ledger row is written after the last stage flushes, from Devin's exclusive usage: the
-  // chat hop has no cache-write field, so letting a later stage's usage win would under-bill.
+  // The ledger row is written after the last stage flushes, from the wire's exclusive usage:
+  // the chat hop has no cache-write field, so letting a later stage's usage win would
+  // under-bill.
+  let finish: RpcFinish<E> | undefined;
+  const toChat = input.relay((result) => {
+    finish = result;
+  }, feed);
   const next =
     clientKind === "anthropic"
       ? chatToAnthropicStream(model, {
@@ -1437,7 +949,7 @@ async function devinClientResponse(input: {
       : chatToResponsesStream(model, () => finalize(finish));
   return {
     kind: "response",
-    response: streamResponse(stream.pipeThrough(toChat).pipeThrough(next), meta, headers),
+    response: streamResponse(toChat.pipeThrough(next), meta, headers, undefined, onCancel),
   };
 }
 
@@ -1491,145 +1003,6 @@ function markCursorRefusal(provider: Provider, error: CursorStreamError): void {
       // `invalid` and `context` carry no verdict about the subscription.
       return;
   }
-}
-
-/** A classified Cursor refusal, in the error envelope of the client's own wire. */
-function cursorErrorResponse(
-  meta: RequestMeta,
-  clientKind: RequestKind,
-  error: CursorStreamError,
-  headers: Record<string, string>,
-): Response {
-  const status = cursorErrorStatus(error);
-  record(meta, status, emptyUsage(), null, true, `${error.kind}: ${error.message}`.slice(0, 300));
-  const type = CURSOR_ERROR_TYPES[error.kind] ?? "api_error";
-  if (clientKind === "anthropic") {
-    return Response.json(
-      { type: "error", error: { type, message: error.message } },
-      { status, headers },
-    );
-  }
-  if (clientKind === "responses") {
-    return Response.json(
-      { error: { type, code: error.kind, message: error.message } },
-      { status, headers },
-    );
-  }
-  return Response.json(
-    { error: { type, code: error.kind, message: error.message } },
-    { status, headers },
-  );
-}
-
-/**
- * Answers the client from a Cursor Run that already produced its first event. Cursor always
- * streams upstream; a non-stream client gets the folded completion instead.
- */
-type CursorOutcome = { kind: "response"; response: Response } | { kind: "failover" };
-
-async function cursorClientResponse(input: {
-  c: Context<AppEnv>;
-  meta: RequestMeta;
-  provider: Provider;
-  decision: RouteDecision;
-  clientKind: RequestKind;
-  clientStream: boolean;
-  started: number;
-  events: AsyncIterable<CursorEvent>;
-  headers: Record<string, string>;
-  onFailover?: () => Promise<boolean>;
-}): Promise<CursorOutcome> {
-  const { c, meta, provider, decision, clientKind, clientStream, started, events, headers } = input;
-  const model = decision.model;
-  const finalize = (finish: CursorFinish | undefined): void => {
-    const usage = finish?.usage ?? emptyUsage();
-    if (finish?.error) {
-      if (cursorShouldFailover(finish.error)) markCursorRefusal(provider, finish.error);
-      record(
-        meta,
-        cursorErrorStatus(finish.error),
-        usage,
-        null,
-        true,
-        `${finish.error.kind}: ${finish.error.message}`.slice(0, 300),
-      );
-      return;
-    }
-    const cost = costOf(model, usage, new Date(), decision.provider, provider.type);
-    record(meta, 200, usage, cost.usd, cost.known);
-  };
-
-  if (!clientStream) {
-    const { completion, finish } = await cursorChatCompletion(model, events);
-    if (finish.error) {
-      if (cursorShouldFailover(finish.error)) {
-        markCursorRefusal(provider, finish.error);
-        if (await input.onFailover?.()) return { kind: "failover" };
-      }
-      return {
-        kind: "response",
-        response: cursorErrorResponse(meta, clientKind, finish.error, headers),
-      };
-    }
-    finalize(finish);
-    if (clientKind === "anthropic") {
-      const message = chatToAnthropicMessage(completion, model);
-      return {
-        kind: "response",
-        response: c.json(
-          {
-            ...withThinkingBlock(message, completion),
-            usage: {
-              input_tokens: finish.usage.input,
-              output_tokens: finish.usage.output,
-              cache_read_input_tokens: finish.usage.cacheRead,
-              cache_creation_input_tokens: finish.usage.cacheWrite,
-            },
-          },
-          200,
-          headers,
-        ),
-      };
-    }
-    if (clientKind === "responses") {
-      return {
-        kind: "response",
-        response: c.json(
-          chatJsonToResponse(completion, {
-            model,
-            session: decision.session,
-            started,
-            usage: inclusiveUsage(finish.usage),
-          }),
-          200,
-          headers,
-        ),
-      };
-    }
-    return { kind: "response", response: c.json(completion, 200, headers) };
-  }
-
-  // Stream the answer as Chat Completions, then translate to the client's own wire when it is
-  // not OpenAI's.
-  if (clientKind === "openai") {
-    const toChat = cursorToChatStream(model, events, finalize);
-    return { kind: "response", response: streamResponse(toChat, meta, headers) };
-  }
-  let finish: CursorFinish | undefined;
-  const toChat = cursorToChatStream(model, events, (result) => {
-    finish = result;
-  });
-  const next =
-    clientKind === "anthropic"
-      ? chatToAnthropicStream(model, {
-          usage: () => finish?.usage,
-          onFinish: () => finalize(finish),
-        })
-      : chatToResponsesStream(model, () => finalize(finish));
-  return {
-    kind: "response",
-    response: streamResponse(toChat.pipeThrough(next), meta, headers),
-  };
 }
 
 async function forward(
@@ -1797,7 +1170,7 @@ async function forward(
    * subscriptions would still be cut off after two, and the client would see a rate-limit
    * error while three usable providers sat idle.
    */
-  const triedTargets = new Set<string>([`${decision.provider} ${decision.model}`]);
+  const triedTargets = new Set<string>([planKey(decision)]);
   /**
    * Re-routes the turn after the current provider refused it for quota. Returns true when a
    * provider/model that has not been tried yet took the turn, so the caller should `continue`
@@ -1808,22 +1181,10 @@ async function forward(
     // OpenRouter/DeepSeek would bridge to Chat Completions and Codex would then
     // see "got 0 compaction items" — or our bridge guard. Keep the upstream error.
     if (clientKind === "responses" && isRemoteCompactionV2(body)) return false;
-    const next = await decideRoute({
-      config,
-      body,
-      headers: incomingHeaders,
-      store,
-      kind: clientKind,
-      requestId,
-    });
-    if ("error" in next) return false;
-    const target = `${next.provider} ${next.model}`;
-    // The router may hand back the target we just gave up on when its own guard cannot see
-    // the refusal yet (guard disabled, or a live probe still reporting headroom). Looping on
-    // it would burn the turn; treating it as "nothing new" ends the chain honestly.
-    if (triedTargets.has(target)) return false;
-    triedTargets.add(target);
-    decision = { ...next, reason: `${next.reason}:quota-failover` };
+    const next = nextFromPlan(decision, triedTargets);
+    if (!next) return false;
+    triedTargets.add(planKey(next));
+    decision = { ...next, reason: `${decision.reason}:quota-failover` };
     quotaFailovers += 1;
     noteDecision(requestId, {
       phase: decision.phase,
@@ -1832,6 +1193,24 @@ async function forward(
     });
     if (next.order && next.order.length > 0) weigh(requestId, next.order);
     return true;
+  };
+  /**
+   * Closes an RPC subscription attempt that refused before streaming. Returns true when the
+   * turn moved to another provider (the caller `continue`s), false when the refusal is the
+   * client's answer.
+   */
+  const rpcRefused = async <E extends { kind: string; message: string }>(
+    wire: RpcWire<E>,
+    error: E,
+  ): Promise<boolean> => {
+    const refused = wire.shouldFailover(error);
+    endTry(requestId, {
+      status: wire.status(error),
+      fail: refused ? error.kind : `http-${wire.status(error)}`,
+    });
+    if (!refused) return false;
+    wire.markRefusal(error);
+    return quotaFailover();
   };
   while (true) {
     const meta = decisionMeta(decision, endpoint, clientStream, started, requestId, keyId, keyName);
@@ -1855,6 +1234,10 @@ async function forward(
     });
     meta.store = store;
     meta.billing = provider.billing;
+    // A failover moved the turn to a new target without re-deciding, so the session's record
+    // is brought with it. The turn count and the cache observation are untouched: a failover
+    // is not a new turn, and the observation names the provider that measured it.
+    if (attemptCount > 1) store.retarget(decision.session, decision, started);
 
     const translated = provider.type === "responses" && clientKind === "openai";
     const geminiWire = provider.type === "gemini";
@@ -1924,110 +1307,20 @@ async function forward(
       body,
     });
 
-    const maxOutput = effectiveCapabilities(
-      decision.model,
-      config.routing.capacities?.[decision.model],
-    ).maxOutput;
-    const bodyFor = (wire: RequestKind): Record<string, unknown> => {
-      // The client's own level, in whatever field its wire uses. Detected per wire so the router
-      // never overrides an explicit instruction, and so the log can say who chose the level.
-      const clientEffort = clientEffortOf(body, clientKind);
-      // Devin and Cursor, like Gemini, win over the OpenAI bridge: their wire modules encode a
-      // Chat Completions body into Connect-RPC protobuf, so every client folds onto that body.
-      // Effort is part of the model ids for both, so no effort field is written.
-      if (devinWire) return devinChatBody(body, clientKind, decision.model);
-      if (cursorWire) return cursorChatBody(body, clientKind, decision.model);
-      if (wire === "anthropic" && bridgeToAnthropic) {
-        // Responses clients fold through Chat Completions first (same two-hop as
-        // Responses→Antigravity), then chatToAnthropic builds the Messages body.
-        const chatBody =
-          clientKind === "responses" ? responsesToChatRequest(body, decision.model) : body;
-        return bridgedAnthropicBody(chatBody, {
-          model: decision.model,
-          stream: upstreamStream,
-          effort: decision.effort,
-          clientEffort,
-          maxOutput,
-        });
-      }
-      // Gemini must win over the OpenAI bridge: planUpstreamWire sets wire=openai +
-      // bridge=to-openai for Responses→Antigravity so the body can be folded through
-      // Chat Completions first, but the egress envelope is still Gemini (`contents`,
-      // not `messages`). Returning the bridged chat body here used to POST OpenAI JSON
-      // at generateContent and get INVALID_ARGUMENT Unknown name "messages".
-      if (geminiWire) {
-        const chatBody =
-          clientKind === "responses"
-            ? responsesToChatRequest(body, decision.model)
-            : clientKind === "anthropic"
-              ? anthropicToChatRequest(body, decision.model)
-              : {
-                  ...body,
-                  messages: normalizeOpenAIMessages(
-                    (Array.isArray(body.messages) ? body.messages : []) as Record<
-                      string,
-                      unknown
-                    >[],
-                  ),
-                };
-        return {
-          project: auth.project ?? "default-cli-project",
-          model: decision.model,
-          userAgent: "antigravity",
-          requestId: crypto.randomUUID(),
-          request: chatToGemini(chatBody),
-        };
-      }
-      if (wire === "openai" && bridgeToOpenAI) {
-        if (clientKind === "responses") {
-          return withEffort(
-            {
-              ...responsesToChatRequest(body, decision.model),
-              stream: upstreamStream,
-            },
-            decision.effort,
-            "openai",
-            clientEffort,
-          );
-        }
-        return withEffort(
-          {
-            ...anthropicToChatRequest(body, decision.model),
-            // Reply is folded into one Anthropic message; an SSE dialect bridge is not wired yet.
-            stream: false,
-          },
-          decision.effort,
-          "openai",
-          clientEffort,
-        );
-      }
-      if (translated) {
-        return withEffort(
-          chatToResponses(body, decision.model),
-          decision.effort,
-          "responses",
-          clientEffort,
-        );
-      }
-      const native = withEffort(
-        { ...body, model: decision.model },
-        decision.effort,
-        // The body is already in the client's own shape here, so the effort field
-        // must use that wire's spelling. Mapping everything non-Anthropic to
-        // "openai" wrote `reasoning_effort` into a native Responses body, which
-        // the upstream rejects with "Unsupported parameter: reasoning_effort".
-        wire,
-        clientEffort,
-      );
-      // A router-written budget can exceed the client's own `max_tokens`, which Anthropic rejects.
-      return wire === "anthropic"
-        ? fitThinkingMaxTokens(native, { clientSetMax: true, maxOutput })
-        : native;
-    };
-
-    let upstreamBody: Record<string, unknown>;
+    let prep;
     try {
-      upstreamBody = bodyFor(upstreamKind);
+      prep = await prepareUpstream({
+        config,
+        provider,
+        decision,
+        clientKind,
+        clientStream,
+        body,
+        upstreamStream,
+        planned,
+        translated,
+        auth,
+      });
     } catch (error) {
       if (error instanceof DevinImageError) {
         record(meta, 400, emptyUsage(), null, true, error.message);
@@ -2039,106 +1332,22 @@ async function forward(
       }
       throw error;
     }
-    // OpenAI Responses rejects empty call_id / name (minLength 1) and call_id
-    // longer than 64 chars. Sanitize before egress — Cursor / bridged history
-    // can leave "" or oversized ids on function_call(_output) items.
-    if (upstreamKind === "responses") {
-      upstreamBody = ensureResponsesCallIds(upstreamBody);
-    }
-    // Prompt hygiene runs last, so every wire's own assembly (the Chat fold, the Anthropic
-    // bridge) sees the rewritten text. The Devin wire applies its built-ins again while
-    // encoding; both passes are idempotent.
-    upstreamBody = rewritePromptBodies(upstreamBody, config.promptPolicy);
-
-    // OpenAI Chat Completions sanitizer: normalize Anthropic-style blocks (tool_use / tool_result)
-    // inside `content` array into standard OpenAI tool_calls and tool messages.
-    // Also sanitizes invalid array items that cause strict backends (e.g. Alibaba Cloud Model Studio)
-    // to fail with "if content is list. item must be dict and key[type] should in dict".
-    if (upstreamKind === "openai" && Array.isArray(upstreamBody.messages)) {
-      upstreamBody.messages = normalizeOpenAIMessages(
-        upstreamBody.messages as Record<string, unknown>[],
-      );
-    }
-
-    // The token saver compresses prior tool results on the fully assembled upstream body, so
-    // whichever wire the turn took — chat, Anthropic, Responses, or the Devin fold — gets the
-    // same `rtk` filtering. The estimate lands on the ledger row written by `record`.
-    if (config.tokenSaver.enabled) {
-      const saved = await saveTokens(upstreamBody, config.tokenSaver);
-      warnSaverUnavailable(config.tokenSaver, saved.stats.unavailable === true);
-      if (saved.stats.savedTokens > 0) {
-        upstreamBody = saved.body;
-        meta.savedTokens = saved.stats.savedTokens;
-      }
-    }
-    // DeepSeek / Kimi thinking mode: clients often drop `reasoning_content` after
-    // tool calls. Restore it from the previous upstream response before egress.
-    const passbackReasoning =
-      upstreamKind === "openai" &&
-      !devinWire &&
-      needsReasoningPassback(decision.provider, decision.model, provider.baseUrl);
-    if (passbackReasoning) {
-      upstreamBody = repairReasoningContent(upstreamBody, decision.session).body;
-    }
-    const passbackMessages = Array.isArray(upstreamBody.messages)
-      ? (upstreamBody.messages as Record<string, unknown>[])
-      : [];
-
-    // The log reports the level the model was actually sent, read back from the body rather than
-    // from the router's intent: those differ when the client set its own level. `gemini` takes no
-    // effort field and Devin / Cursor bake effort into their model ids, so nothing is recorded.
-    const sentEffort =
-      geminiWire || devinWire || cursorWire
-        ? undefined
-        : effortInBody(upstreamBody, upstreamKind, decision.effort);
-    meta.effort = sentEffort;
-    if (decision.effort && sentEffort && sentEffort !== decision.effort) {
-      // The body carries a different level than the router chose — the client overrode it, and
-      // the log should say so rather than silently disagreeing with the router's own choice.
-      meta.effortNote = `client set "${sentEffort}"; router chose "${decision.effort}"`;
-    } else if (decision.effortNote) {
-      meta.effortNote = decision.effortNote;
-    }
-
-    if (provider.type === "responses") {
-      upstreamBody.stream = upstreamStream;
-      if (provider.auth === "oauth") upstreamBody.store = false;
-    }
-    if (workbuddyWire) {
-      upstreamBody.stream = true;
-    }
-    if (
-      clientKind === "openai" &&
-      provider.type === "openai" &&
-      clientStream &&
-      provider.injectStreamUsage &&
-      upstreamBody.stream_options === undefined
-    ) {
-      upstreamBody.stream_options = { include_usage: true };
-    }
+    let upstreamBody = prep.body;
+    const { passbackReasoning, passbackMessages, maxOutput } = prep;
+    if (prep.savedTokens) meta.savedTokens = prep.savedTokens;
+    meta.effort = prep.sentEffort;
+    if (prep.effortNote) meta.effortNote = prep.effortNote;
 
     const urlFor = (wire: RequestKind): string =>
       geminiWire
         ? geminiEndpoint(provider.baseUrl, upstreamStream)
         : upstreamUrlFor(provider, wire);
-    // The Claude Code system prompt belongs to the Anthropic wire only.
-    // WorkBuddy AI requires a leading system message on Chat Completions.
-    const payloadFor = (wire: RequestKind): Record<string, unknown> => {
-      let payload = wire === upstreamKind ? upstreamBody : bodyFor(wire);
-      if (wire === "anthropic" && provider.auth === "oauth")
-        payload = applyClaudeCodeSystem(payload);
-      if (wire === "openai" && workbuddyWire) payload = ensureWorkbuddySystem(payload);
-      // Claude 4.6+ rejects a conversation that ends on an assistant turn ("prefill"). A Chat or
-      // Responses client can legitimately re-send the last assistant reply, and the bridge would
-      // forward it and fail the whole turn, so drop trailing plain-assistant turns on models that
-      // reject prefill. A trailing `tool_use` turn is an in-flight call, not a prefill, and stays.
-      if (wire === "anthropic") payload = normalizeAnthropicPrefill(payload);
-      return payload;
-    };
     const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
     // Built once per wire, not per attempt: a retry repeats the same bytes, which is the whole
     // point of retrying a POST that failed on the network.
-    const payload = devinWire ? "" : JSON.stringify(payloadFor(upstreamKind));
+    const payload = devinWire
+      ? ""
+      : JSON.stringify(payloadFor({ body: upstreamBody }, upstreamKind, provider));
     // Devin carries its session token inside the protobuf body, so its request is rebuilt when
     // a 401 forces a fresh token; everything else only swaps headers.
     const requestInit = (current: AuthResolution): RequestInit => {
@@ -2158,8 +1367,9 @@ async function forward(
 
     // A Cursor turn is a Connect stream that stays open both ways, so it is driven here rather
     // than through the shared POST path: the request body is built per attempt and the reply is
-    // folded or relayed by `cursorClientResponse`.
+    // folded or relayed by `rpcClientResponse`.
     if (cursorWire) {
+      const wire = cursorWireAdapter(provider);
       const conversation = cursorConversation(upstreamBody);
       const attempt = await runCursor({
         token: auth.token ?? "",
@@ -2171,22 +1381,16 @@ async function forward(
         lastUser: cursorLastUser(conversation.messages),
         requestId: crypto.randomUUID(),
       });
+      const rpcHeaders = (): Record<string, string> => ({
+        ...decisionHeaders(decision, meta.retries),
+        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+      });
       if (attempt.error) {
-        const refused = cursorShouldFailover(attempt.error);
-        endTry(requestId, {
-          status: cursorErrorStatus(attempt.error),
-          fail: refused ? attempt.error.kind : `http-${cursorErrorStatus(attempt.error)}`,
-        });
-        if (refused) {
-          markCursorRefusal(provider, attempt.error);
-          if (await quotaFailover()) continue;
-        }
-        return cursorErrorResponse(meta, clientKind, attempt.error, {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        });
+        if (await rpcRefused(wire, attempt.error)) continue;
+        return rpcErrorResponse(wire, meta, clientKind, attempt.error, rpcHeaders());
       }
-      const delivered = await cursorClientResponse({
+      const events = attempt.events;
+      const delivered = await rpcClientResponse({
         c,
         meta,
         provider,
@@ -2194,12 +1398,11 @@ async function forward(
         clientKind,
         clientStream,
         started,
-        events: attempt.events,
+        wire,
+        fold: () => cursorChatCompletion(decision.model, events),
+        relay: (onFinish, onEvent) => cursorToChatStream(decision.model, events, onFinish, onEvent),
         onFailover: quotaFailover,
-        headers: {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        },
+        headers: rpcHeaders(),
       });
       if (delivered.kind === "failover") continue;
       return delivered.response;
@@ -2262,6 +1465,11 @@ async function forward(
       // Devin refuses in two ways: a non-200 status, or a 200 whose Connect stream opens with an
       // end-of-stream error trailer before any data. Both classify into one error, so quota
       // failover and the client-facing error share one path.
+      const devin = devinWireAdapter(provider, decision.model);
+      const rpcHeaders = (): Record<string, string> => ({
+        ...decisionHeaders(decision, meta.retries),
+        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+      });
       let failure: DevinStreamError | undefined;
       let stream: ReadableStream<Uint8Array> | undefined;
       let policyRetried = false;
@@ -2323,21 +1531,12 @@ async function forward(
           kind: "other" as const,
           message: "Devin returned no stream",
         };
-        const refused = devinShouldFailover(error);
-        endTry(requestId, {
-          status: devinErrorStatus(error),
-          fail: refused ? error.kind : `http-${devinErrorStatus(error)}`,
-        });
-        if (refused) {
-          markDevinRefusal(provider, error, decision.model);
-          if (await quotaFailover()) continue;
-        }
-        return devinErrorResponse(meta, clientKind, error, {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        });
+        if (await rpcRefused(devin, error)) continue;
+        return rpcErrorResponse(devin, meta, clientKind, error, rpcHeaders());
       }
-      const delivered = await devinClientResponse({
+      const token = auth.token;
+      const body = stream;
+      const delivered = await rpcClientResponse({
         c,
         meta,
         provider,
@@ -2345,13 +1544,12 @@ async function forward(
         clientKind,
         clientStream,
         started,
-        stream,
-        token: auth.token,
+        wire: devin,
+        fold: () => devinChatCompletion(body, decision.model, token),
+        relay: (onFinish, onEvent) =>
+          body.pipeThrough(devinToChatStream(decision.model, onFinish, token, onEvent)),
         onFailover: quotaFailover,
-        headers: {
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        },
+        headers: rpcHeaders(),
       });
       // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
       // so the client only sees an error once no alternative is left.
@@ -2527,29 +1725,31 @@ async function forward(
         );
       }
       const usage = emptyUsage();
-      const transform = anthropicToChatStream(decision.model, (finalUsage, failure) => {
-        Object.assign(usage, finalUsage);
-        // The refusal was already closed softly for the client; the ledger must still carry the
-        // real status instead of a clean 200 for a failed turn.
-        if (failure) {
-          record(meta, 502, usage, null, true, failure);
-          return;
-        }
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-      });
+      const tracker = trackEvents();
+      const transform = anthropicToChatStream(
+        decision.model,
+        (finalUsage, failure) => {
+          Object.assign(usage, finalUsage);
+          // The refusal was already closed softly for the client; the ledger must still carry
+          // the real status instead of a clean 200 for a failed turn.
+          if (failure) {
+            record(meta, 502, usage, null, true, failure);
+            return;
+          }
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+        },
+        (event) => tracker.feed(event),
+      );
       return streamResponse(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
         "text/event-stream",
         () => {
-          if (usage.output > 0 || usage.input > 0) {
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          } else {
-            record(meta, 499, emptyUsage(), null, true, "client canceled");
-          }
+          const outcome = cancelOutcome(tracker);
+          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
         },
         redactProvider,
       );
@@ -2570,27 +1770,13 @@ async function forward(
           const usage = geminiUsage(response.usageMetadata);
           const cost = costOf(decision.model, usage, new Date(), decision.provider);
           record(meta, 200, usage, cost.usd, cost.known);
-          const choice = asRecord(asRecord((chat.choices as unknown[])?.[0]).message);
           return c.json(
-            {
-              id: `resp_${decision.session.slice(0, 16)}`,
-              object: "response",
-              created_at: Math.floor(started / 1000),
-              status: "completed",
+            chatJsonToResponse(chat, {
               model: decision.model,
-              output: [
-                {
-                  type: "message",
-                  role: "assistant",
-                  content: [{ type: "output_text", text: asString(choice.content) }],
-                },
-              ],
-              usage: {
-                input_tokens: usage.input,
-                output_tokens: usage.output,
-                total_tokens: usage.input + usage.output,
-              },
-            },
+              session: decision.session,
+              started,
+              usage,
+            }),
             200,
             decisionHeaders(decision, meta.retries),
           );
@@ -2628,23 +1814,25 @@ async function forward(
         );
       }
       const usage = emptyUsage();
-      const transform = geminiToChatStream(decision.model, (finalUsage) => {
-        Object.assign(usage, finalUsage);
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-      });
+      const tracker = trackEvents();
+      const transform = geminiToChatStream(
+        decision.model,
+        (finalUsage) => {
+          Object.assign(usage, finalUsage);
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+        },
+        (event) => tracker.feed(event),
+      );
       return streamResponse(
         upstream.body?.pipeThrough(transform) ?? null,
         meta,
         decisionHeaders(decision, meta.retries),
         "text/event-stream",
         () => {
-          if (usage.output > 0 || usage.input > 0) {
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          } else {
-            record(meta, 499, emptyUsage(), null, true, "client canceled");
-          }
+          const outcome = cancelOutcome(tracker);
+          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
         },
         redactProvider,
       );
@@ -2654,29 +1842,34 @@ async function forward(
       if (clientKind === "responses") {
         if (clientStream) {
           const usage = emptyUsage();
-          const transform = chatToResponsesStream(decision.model, (result) => {
-            Object.assign(usage, result.usage);
-            // The bridge closes the turn softly for the client; the ledger must still record the
-            // real upstream failure rather than a clean 200.
-            if (result.failure) {
-              record(meta, 502, usage, null, true, result.failure);
-              return;
-            }
-            const cost = costOf(decision.model, usage, new Date(), decision.provider);
-            record(meta, 200, usage, cost.usd, cost.known);
-          });
+          const responsesBridge = new ChatToResponsesBridge(decision.model);
+          const transform = chatToResponsesStream(
+            decision.model,
+            (result) => {
+              Object.assign(usage, result.usage);
+              // The bridge closes the turn softly for the client; the ledger must still record
+              // the real upstream failure rather than a clean 200.
+              if (result.failure) {
+                record(meta, 502, usage, null, true, result.failure);
+                return;
+              }
+              const cost = costOf(decision.model, usage, new Date(), decision.provider);
+              record(meta, 200, usage, cost.usd, cost.known);
+            },
+            responsesBridge,
+          );
           return streamResponse(
             upstream.body?.pipeThrough(transform) ?? null,
             meta,
             decisionHeaders(decision, meta.retries),
             "text/event-stream",
             () => {
-              if (usage.output > 0 || usage.input > 0) {
-                const cost = costOf(decision.model, usage, new Date(), decision.provider);
-                record(meta, 200, usage, cost.usd, cost.known);
-              } else {
-                record(meta, 499, emptyUsage(), null, true, "client canceled");
-              }
+              const outcome = cancelOutcome({
+                delivered: responsesBridge.delivered,
+                usage: responsesBridge.seenUsage,
+              });
+              const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+              record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
             },
             redactProvider,
           );
@@ -2922,11 +2115,8 @@ async function forward(
     stream = stream?.pipeThrough(usageTransform) ?? null;
 
     const onCancel = (): void => {
-      if (finished || hasDelivered) {
-        finalize(200);
-      } else {
-        finalize(499, "client canceled");
-      }
+      const outcome = cancelOutcome({ delivered: finished || hasDelivered, usage });
+      finalize(outcome.status, outcome.error);
     };
 
     return streamResponse(

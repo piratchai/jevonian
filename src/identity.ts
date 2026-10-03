@@ -1,3 +1,4 @@
+import { bareModelId } from "./model-id";
 import type { CatalogIdentity } from "./modelsdev";
 
 /**
@@ -33,9 +34,7 @@ const MODE_TOKENS: Array<{ mode: ServingMode; pattern: RegExp }> = [
 
 /** The serving mode an id or label declares. Absent evidence means the standard mode. */
 export function servingMode(model: string): ServingMode {
-  const tail = (
-    model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model
-  ).toLowerCase();
+  const tail = bareModelId(model).toLowerCase();
   for (const { mode, pattern } of MODE_TOKENS) {
     if (pattern.test(tail)) return mode;
   }

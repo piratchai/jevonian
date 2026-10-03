@@ -26,6 +26,9 @@ import {
   type ProviderBilling,
   type ProviderLogin,
   type ProviderType,
+  coerceProviderType,
+  isProviderType,
+  PROVIDER_TYPES,
 } from "./config";
 import { credentialsPath, getCredential, removeCredential, setCredential } from "./credentials";
 import { kevCommand } from "./kev";
@@ -35,7 +38,7 @@ import { ServerLifecycle } from "./lifecycle";
 import { scheduleModelSync, runModelSync } from "./model-sync";
 import { canonicalVariants, identityGaps, modelGroupOf } from "./models";
 import { loadProviderMeta, loadPricingSnapshot } from "./modelsdev";
-import type { OAuthSource } from "./oauth";
+import { OAUTH_SOURCES, oauthWireMismatch, oauthWireType, type OAuthSource } from "./oauth";
 import {
   browserStatePath,
   configPath,
@@ -127,15 +130,7 @@ const rest = parsed.positionals.slice(1);
 const flags = parsed.flags;
 
 function isOAuthSource(value: string): value is OAuthSource {
-  return (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  );
+  return (OAUTH_SOURCES as readonly string[]).includes(value);
 }
 
 function pad(value: string, width: number): string {
@@ -648,59 +643,31 @@ async function addProvider(): Promise<void> {
 
   let name = flags.name ?? preset?.id ?? id;
   let baseUrl = flags["base-url"] ?? preset?.baseUrl ?? meta?.api ?? "";
-  let type: ProviderType =
-    flags.type === "anthropic" ||
-    flags.type === "openai" ||
-    flags.type === "responses" ||
-    flags.type === "both" ||
-    flags.type === "gemini" ||
-    flags.type === "devin" ||
-    flags.type === "cursor"
-      ? flags.type
-      : (preset?.type ?? meta?.type ?? "openai");
+  let type: ProviderType = isProviderType(flags.type)
+    ? flags.type
+    : (preset?.type ?? meta?.type ?? "openai");
   let apiKeyEnv = flags.env ?? preset?.apiKeyEnv ?? meta?.env[0] ?? "";
   const auth: ProviderAuth = flags.auth === "oauth" ? "oauth" : (preset?.auth ?? "api-key");
   const flagSource = flags["oauth-source"];
   if (flagSource !== undefined && !isOAuthSource(flagSource)) {
-    console.error(
-      `Unknown --oauth-source "${flagSource}". Use claude-code, codex, antigravity, devin, cursor, workbuddy-ai, or static.`,
-    );
+    console.error(`Unknown --oauth-source "${flagSource}". Use ${OAUTH_SOURCES.join(", ")}.`);
     process.exit(1);
   }
   const oauthSource: OAuthSource | undefined =
     auth === "oauth"
       ? ((flagSource as OAuthSource | undefined) ?? preset?.oauthSource ?? "static")
       : undefined;
-  // A Devin session token only works on Devin's own Connect-RPC wire.
-  if (oauthSource === "devin") {
-    if (flags.type !== undefined && type !== "devin") {
-      console.error("Devin credentials require --type devin.");
-      process.exit(1);
-    }
-    type = "devin";
-  }
-  if (type === "devin" && auth !== "oauth") {
-    console.error("Devin wire requires --auth oauth --oauth-source devin (or static).");
+  // A subscription credential only speaks its own Connect-RPC wire; the registry names which
+  // type it forces, so adding the next one is one entry, not another twin block here.
+  const resolved = oauthWireType(oauthSource, type, flags.type !== undefined);
+  if ("error" in resolved) {
+    console.error(resolved.error);
     process.exit(1);
   }
-  if (type === "devin" && oauthSource !== "devin" && oauthSource !== "static") {
-    console.error("Devin wire requires --oauth-source devin (or static).");
-    process.exit(1);
-  }
-  // A Cursor sign-in only works on Cursor's own Connect-RPC wire.
-  if (oauthSource === "cursor") {
-    if (flags.type !== undefined && type !== "cursor") {
-      console.error("Cursor credentials require --type cursor.");
-      process.exit(1);
-    }
-    type = "cursor";
-  }
-  if (type === "cursor" && auth !== "oauth") {
-    console.error("Cursor wire requires --auth oauth --oauth-source cursor (or static).");
-    process.exit(1);
-  }
-  if (type === "cursor" && oauthSource !== "cursor" && oauthSource !== "static") {
-    console.error("Cursor wire requires --oauth-source cursor (or static).");
+  type = resolved.type as ProviderType;
+  const wireError = oauthWireMismatch(type, auth, oauthSource);
+  if (wireError) {
+    console.error(wireError);
     process.exit(1);
   }
   const billing: ProviderBilling =
@@ -723,19 +690,8 @@ async function addProvider(): Promise<void> {
     }
     name = await ask("Provider name", name === "custom" ? "my-provider" : name);
     baseUrl = await ask("Base URL (OpenAI-, Anthropic-, or Responses-compatible)", baseUrl);
-    const typed = await ask(
-      "Protocol type (openai/anthropic/responses/both/gemini/devin/cursor)",
-      type,
-    );
-    type =
-      typed === "anthropic" ||
-      typed === "responses" ||
-      typed === "both" ||
-      typed === "gemini" ||
-      typed === "devin" ||
-      typed === "cursor"
-        ? typed
-        : "openai";
+    const typed = await ask(`Protocol type (${PROVIDER_TYPES.join("/")})`, type);
+    type = coerceProviderType(typed);
     if (!apiKeyEnv) apiKeyEnv = await ask("Environment variable name for the key (optional)");
   } else if (unknown && interactive && name === "custom") {
     name = await ask("Provider name", "my-provider");

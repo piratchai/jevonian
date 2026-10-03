@@ -1,8 +1,8 @@
 import type { Config, Provider } from "./config";
 import { providerHasModel } from "./config";
 import { identityFrom, identityKey, type ModelIdentity } from "./identity";
-import { identityCache } from "./identityIndex";
-import { OFFICIAL_PROVIDERS, type CatalogIdentity } from "./modelsdev";
+import { identityIndex } from "./identityIndex";
+import { bareModelId } from "./model-id";
 import { canServeClient, type ClientWire } from "./wire";
 
 export interface ModelVariant {
@@ -29,7 +29,7 @@ const DASHED_DATE_SUFFIX = /-\d{4}-\d{2}-\d{2}$/;
 const SERVICE_TIER_SUFFIX = /-tiered$/;
 
 export function canonicalModelId(model: string): string {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   return tail
     .toLowerCase()
     .replace(/\./g, "-")
@@ -68,51 +68,9 @@ export function modelGroupOf(rawModel: string): ModelGroupLabel {
   return { key: groupKey, label: displayName ?? groupKey };
 }
 
-/**
- * The catalog indexed for identity lookup, cached per snapshot object. Keys cover the three
- * shapes pricing resolves (qualified, provider-qualified bare, bare) plus a canonical-id
- * fallback, so a tier written `deepseek-v4-1-flash` finds the catalog's `deepseek-v4.1-flash`
- * entry. A label that names the model beats a brand-line-only entry.
- */
-const identityCaches = new WeakMap<object, IdentityCatalog>();
-
-interface IdentityCatalog {
-  byKey: Map<string, CatalogIdentity>;
-  byBare: Map<string, CatalogIdentity>;
-  byCanonical: Map<string, CatalogIdentity>;
-}
-
-function identityCatalog(): IdentityCatalog {
-  const snapshot = identityCache.snapshot();
-  const cached = identityCaches.get(snapshot);
-  if (cached) return cached;
-  const byKey = new Map<string, CatalogIdentity>();
-  const byBare = new Map<string, CatalogIdentity>();
-  const byCanonical = new Map<string, CatalogIdentity>();
-  const claim = (map: Map<string, CatalogIdentity>, key: string, identity: CatalogIdentity) => {
-    const existing = map.get(key);
-    // Prefer an entry that actually names the model, and among those an official vendor's —
-    // resellers often ship the same id as the vendor with a reseller-flavoured label.
-    const better =
-      !existing ||
-      (!existing.name && Boolean(identity.name)) ||
-      (existing.name && identity.name && OFFICIAL_PROVIDERS.has(identityOfVendor(key)));
-    if (better) map.set(key, identity);
-  };
-  for (const row of snapshot.rows) {
-    const identity = toCatalog(row.identity);
-    claim(byKey, row.key, identity);
-    claim(byBare, row.model, identity);
-    const canonical = canonicalModelId(row.model);
-    if (canonical.length > 0) claim(byCanonical, canonical, identity);
-  }
-  const catalog: IdentityCatalog = { byKey, byBare, byCanonical };
-  identityCaches.set(snapshot, catalog);
-  return catalog;
-}
-
-function identityOfVendor(key: string): string {
-  return key.includes("/") ? key.slice(0, key.indexOf("/")) : "";
+/** The catalog indexed for identity lookup; one cache, rebuilt when the catalog changes. */
+function identityCatalog() {
+  return identityIndex(canonicalModelId);
 }
 
 /**
@@ -122,20 +80,12 @@ function identityOfVendor(key: string): string {
  */
 export function identityOf(model: string): ModelIdentity {
   const catalog = identityCatalog();
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   const stated =
     catalog.byKey.get(model) ??
     catalog.byBare.get(tail) ??
     catalog.byCanonical.get(canonicalModelId(model));
   return identityFrom(model, stated);
-}
-
-function toCatalog(identity: ModelIdentity): CatalogIdentity {
-  return {
-    ...(identity.displayName ? { name: identity.displayName } : {}),
-    ...(identity.family ? { family: identity.family } : {}),
-    ...(identity.releaseDate ? { releaseDate: identity.releaseDate } : {}),
-  };
 }
 
 /** The identity key a model resolves to, or `undefined` when the catalog does not name it. */
@@ -152,7 +102,7 @@ export function identityKeyOf(model: string): string | undefined {
 export function isOfficial(config: Config, providerName: string, requested: string): boolean {
   const identity = identityOf(requested);
   if (!identity.label) return false;
-  const winners = identityCache.snapshot().officialByLabel.get(identity.label);
+  const winners = identityCatalog().officialByLabel.get(identity.label);
   if (!winners || winners.size === 0) return false;
   const provider = config.providers.find((candidate) => candidate.name === providerName);
   if (!provider) return false;

@@ -5,13 +5,7 @@ import { streamSSE } from "hono/streaming";
 
 import { computeActivityReport } from "./activity";
 import { loadBody } from "./bodies";
-import {
-  askJev,
-  brainCredentialName,
-  consumeAskJevFailure,
-  findJevChannel,
-  JEV_CHANNELS,
-} from "./brain";
+import { askJevOutcome, brainCredentialName, findJevChannel, JEV_CHANNELS } from "./brain";
 import { discoverProviderModels } from "./catalog";
 import { catalogStatus, refreshCatalogCaches } from "./catalog-sync";
 import {
@@ -25,6 +19,7 @@ import {
 import {
   apiKeySource,
   applyTiersToRoutings,
+  coerceProviderType,
   DEFAULT_BRAIN,
   findProviderByName,
   isRoutingId,
@@ -39,6 +34,7 @@ import {
   MODEL_SYNC_DEFAULT_SOURCES,
   parseModelSync,
   parseProviderLogin,
+  parseProviderQuota,
   parseTunnel,
   parseLan,
   providerModelIds,
@@ -50,8 +46,6 @@ import {
   type ProviderAuth,
   type ProviderBilling,
   type ProviderLogin,
-  type ProviderQuotaSpec,
-  type ProviderType,
   type QuotaGuardConfig,
   type RoutingEntry,
 } from "./config";
@@ -63,7 +57,7 @@ import type { ServerLifecycle } from "./lifecycle";
 import { loadModelSyncState, runModelSync } from "./model-sync";
 import { canonicalModelId, canonicalModels } from "./models";
 import { loadPricingSnapshot } from "./modelsdev";
-import type { OAuthSource } from "./oauth";
+import { oauthWireMismatch, oauthWireType, parseOAuthSource } from "./oauth";
 import { initPricing, priceFor, pricingInfo } from "./pricing";
 import { findPreset, PRESETS } from "./providers";
 import { providerQuotaHealth, providerQuotas } from "./quota";
@@ -176,36 +170,8 @@ function stringArray(value: unknown): string[] {
   return [];
 }
 
-function parseType(value: unknown): ProviderType {
-  if (
-    value === "anthropic" ||
-    value === "responses" ||
-    value === "both" ||
-    value === "gemini" ||
-    value === "devin" ||
-    value === "cursor"
-  ) {
-    return value;
-  }
-  return "openai";
-}
-
 function parseAuth(value: unknown): ProviderAuth {
   return value === "oauth" ? "oauth" : "api-key";
-}
-
-function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  )
-    return value;
-  return undefined;
 }
 
 function parseBilling(value: unknown): ProviderBilling {
@@ -226,21 +192,6 @@ function parseQuotaGuard(value: unknown, fallback: QuotaGuardConfig): QuotaGuard
   };
 }
 
-function parseQuota(value: unknown): ProviderQuotaSpec | undefined {
-  const record = asRecord(value);
-  const quota: ProviderQuotaSpec = {};
-  if (typeof record.fiveHourUsd === "number" && record.fiveHourUsd > 0) {
-    quota.fiveHourUsd = record.fiveHourUsd;
-  }
-  if (typeof record.weeklyUsd === "number" && record.weeklyUsd > 0) {
-    quota.weeklyUsd = record.weeklyUsd;
-  }
-  if (typeof record.monthlyUsd === "number" && record.monthlyUsd > 0) {
-    quota.monthlyUsd = record.monthlyUsd;
-  }
-  return Object.keys(quota).length > 0 ? quota : undefined;
-}
-
 function providerPayload(
   body: Record<string, unknown>,
   name: string,
@@ -250,7 +201,7 @@ function providerPayload(
   const auth = parseAuth(body.auth);
   const oauthSource = auth === "oauth" ? parseOAuthSource(body.oauthSource) : undefined;
   const login = loginFromBody(body.login, previous);
-  const quota = parseQuota(body.quota);
+  const quota = parseProviderQuota(body.quota);
   const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   const apiKeyEnv = typeof body.apiKeyEnv === "string" ? body.apiKeyEnv.trim() : "";
   const models = mergeModelEntries(previous?.models, body.models);
@@ -289,7 +240,7 @@ function providerPayload(
             : undefined;
   return {
     name,
-    type: parseType(body.type),
+    type: coerceProviderType(body.type),
     baseUrl,
     auth,
     ...(oauthSource ? { oauthSource } : {}),
@@ -807,7 +758,7 @@ export function createAdminApp(state: AppState): Hono {
       return c.json({ ok: false, error: "Add an API key for this channel." });
     }
     const started = Date.now();
-    const verdict = await askJev({
+    const outcome = await askJevOutcome({
       brain,
       ...(apiKey ? { apiKey } : {}),
       state: {
@@ -841,19 +792,18 @@ export function createAdminApp(state: AppState): Hono {
       },
     });
     const latencyMs = Date.now() - started;
-    if (!verdict) {
-      const failure = consumeAskJevFailure();
+    if ("failure" in outcome) {
       return c.json({
         ok: false,
-        error: failure?.error
-          ? `No verdict (${failure.error}). Check the endpoint, model, and key.`
+        error: outcome.failure.error
+          ? `No verdict (${outcome.failure.error}). Check the endpoint, model, and key.`
           : "No verdict. Check the endpoint, model, and key.",
         latencyMs,
       });
     }
     return c.json({
       ok: true,
-      verdict,
+      verdict: outcome.verdict,
       channel: preset?.label ?? channelId,
       model: brain.model || preset?.model,
       latencyMs,
@@ -872,6 +822,13 @@ export function createAdminApp(state: AppState): Hono {
     const previous = config.providers.find((provider) => provider.name === name);
 
     let stored = providerPayload(body, name, baseUrl, previous);
+    // Same pairing rule as `jevonian add`: a Devin or Cursor credential only speaks its own
+    // wire, so the dashboard cannot save a provider that would 401 on every request.
+    const forced = oauthWireType(stored.oauthSource, stored.type, body.type !== undefined);
+    if ("error" in forced) return c.json({ error: forced.error }, 400);
+    stored = { ...stored, type: forced.type as Provider["type"] };
+    const mismatch = oauthWireMismatch(stored.type, stored.auth, stored.oauthSource);
+    if (mismatch) return c.json({ error: mismatch }, 400);
     if (apiKey) setCredential(name, apiKey);
 
     // WorkBuddy AI needs a browser sign-in before any request works — same as `jevonian add`.

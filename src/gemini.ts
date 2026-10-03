@@ -1,4 +1,5 @@
 import type { Usage } from "./pricing";
+import type { StreamEvent } from "./relay";
 import { splitSseEvents } from "./responses";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -365,6 +366,7 @@ export function geminiChatCompletion(
 export function geminiToChatStream(
   model: string,
   onFinish?: (usage: Usage) => void,
+  onEvent?: (event: StreamEvent) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -412,10 +414,12 @@ export function geminiToChatStream(
         continue;
       }
       if (typeof part.text === "string" && part.text.length > 0) {
+        onEvent?.({ kind: "content" });
         emit(chunk({ content: part.text }, null), controller);
       }
       const call = part.functionCall === undefined ? undefined : asRecord(part.functionCall);
       if (call) {
+        onEvent?.({ kind: "content" });
         const callId = asString(call.id) || `call_${callIndex}`;
         rememberSignature(asString(call.name), call.args ?? {}, signature ?? pendingSignature);
         pendingSignature = undefined;
@@ -441,11 +445,15 @@ export function geminiToChatStream(
         callIndex += 1;
       }
     }
-    if (response.usageMetadata !== undefined) usage = geminiUsage(response.usageMetadata);
+    if (response.usageMetadata !== undefined) {
+      usage = geminiUsage(response.usageMetadata);
+      onEvent?.({ kind: "usage", usage: { ...usage } });
+    }
     const candidates = Array.isArray(response.candidates) ? response.candidates : [];
     const rawFinish = asString(asRecord(candidates[0]).finishReason);
     if (rawFinish.length > 0 && !finished) {
       finished = true;
+      onEvent?.({ kind: "finish" });
       const finishReason =
         callIndex > 0 && (rawFinish === "STOP" || rawFinish === "OTHER")
           ? "tool_calls"

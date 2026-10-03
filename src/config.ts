@@ -1,10 +1,11 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import type { ProviderAuthName, ProviderBillingName, ProviderTypeName } from "./admin-types";
 import { isReasoningEffort, type ReasoningEffort } from "./capabilities";
 import { getCredential } from "./credentials";
 import type { OAuthSource } from "./oauth";
-import { hasOAuthCredential } from "./oauth";
+import { hasOAuthCredential, parseOAuthSource } from "./oauth";
 import { configPath } from "./paths";
 import { DEFAULT_PROMPT_POLICY, parsePromptPolicy, type PromptPolicyConfig } from "./prompt-policy";
 import { DEFAULT_TOKEN_SAVER, parseTokenSaver, type TokenSaverConfig } from "./saver";
@@ -22,16 +23,9 @@ export const providerSupports = providerSpeaks;
 export const providerAcceptsClient = canServeClient;
 
 export type { ModelEntry, UpstreamWire };
-export type ProviderType =
-  | "openai"
-  | "anthropic"
-  | "responses"
-  | "both"
-  | "gemini"
-  | "devin"
-  | "cursor";
-export type ProviderAuth = "api-key" | "oauth";
-export type ProviderBilling = "api" | "subscription";
+export type ProviderType = ProviderTypeName;
+export type ProviderAuth = ProviderAuthName;
+export type ProviderBilling = ProviderBillingName;
 
 export interface ProviderQuotaSpec {
   fiveHourUsd?: number;
@@ -609,19 +603,32 @@ export function serializeModelEntry(entry: ModelEntry): string | ModelEntry {
   return entry;
 }
 
+/** Every wire a provider can speak; the one list config, the dashboard, and the CLI share. */
+export const PROVIDER_TYPES: readonly ProviderType[] = [
+  "openai",
+  "anthropic",
+  "responses",
+  "both",
+  "gemini",
+  "devin",
+  "cursor",
+];
+
+export function isProviderType(value: unknown): value is ProviderType {
+  return typeof value === "string" && (PROVIDER_TYPES as readonly string[]).includes(value);
+}
+
+/** A provider type from untrusted input (dashboard form, CLI prompt), defaulting to `openai`. */
+export function coerceProviderType(value: unknown): ProviderType {
+  return isProviderType(value) ? value : "openai";
+}
+
 function parseProviderType(value: unknown, index: number): ProviderType {
   const type = value ?? "openai";
-  if (
-    type !== "openai" &&
-    type !== "anthropic" &&
-    type !== "responses" &&
-    type !== "both" &&
-    type !== "gemini" &&
-    type !== "devin" &&
-    type !== "cursor"
-  ) {
+  if (!isProviderType(type)) {
+    const quoted = PROVIDER_TYPES.map((entry) => `"${entry}"`);
     throw new Error(
-      `providers[${index}].type must be "openai", "anthropic", "responses", "both", "gemini", "devin", or "cursor"`,
+      `providers[${index}].type must be ${quoted.slice(0, -1).join(", ")}, or ${quoted.at(-1)}`,
     );
   }
   return type;
@@ -632,25 +639,12 @@ export function effectiveProviderType(type: ProviderType, baseUrl: string): Prov
   return normalizeProviderType(type, baseUrl);
 }
 
-function parseOAuthSource(value: unknown): OAuthSource | undefined {
-  if (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "devin" ||
-    value === "cursor" ||
-    value === "workbuddy-ai" ||
-    value === "static"
-  )
-    return value;
-  return undefined;
-}
-
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === "number" && value > 0 ? value : undefined;
 }
 
-function parseQuota(raw: unknown): ProviderQuotaSpec | undefined {
+/** A provider's dollar budget windows; non-positive or missing amounts are dropped. */
+export function parseProviderQuota(raw: unknown): ProviderQuotaSpec | undefined {
   const value = asRecord(raw);
   const quota: ProviderQuotaSpec = {};
   const fiveHourUsd = positiveNumber(value.fiveHourUsd);
@@ -677,7 +671,7 @@ function parseProvider(raw: unknown, index: number): Provider {
     value.headers === undefined ? undefined : (asRecord(value.headers) as Record<string, string>);
   const auth: ProviderAuth = value.auth === "oauth" ? "oauth" : "api-key";
   const oauthSource = auth === "oauth" ? parseOAuthSource(value.oauthSource) : undefined;
-  const quota = parseQuota(value.quota);
+  const quota = parseProviderQuota(value.quota);
   const excludeModels = stringArray(value.excludeModels);
   const login = parseProviderLogin(value.login, index);
   return {

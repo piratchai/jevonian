@@ -186,5 +186,12 @@ export function rewritePromptBodies<T>(body: T, policy: PromptPolicyConfig): T {
   if (typeof body.instructions === "string") {
     mutable().instructions = apply(body.instructions);
   }
+  // The Antigravity envelope keeps its system prompt inside `request.systemInstruction`.
+  if (isRecord(body.request) && body.request.systemInstruction !== undefined) {
+    const rewritten = rewriteField(body.request.systemInstruction, apply);
+    if (rewritten !== body.request.systemInstruction) {
+      mutable().request = { ...body.request, systemInstruction: rewritten };
+    }
+  }
   return next as T;
 }

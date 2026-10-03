@@ -1,4 +1,5 @@
 import type { Config } from "./config";
+import { bareModelId } from "./model-id";
 import { desktopModels } from "./routing";
 
 /**
@@ -46,7 +47,7 @@ const SLOT_TEMPLATES: ReadonlyArray<{
 
 /** `jevonian/auto` reads as "Jevonian Auto"; other ids keep their own words. */
 function labelFor(model: string): string {
-  const tail = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  const tail = bareModelId(model);
   const words = tail
     .split(/[-_.\s]+/)
     .filter((word) => word.length > 0)

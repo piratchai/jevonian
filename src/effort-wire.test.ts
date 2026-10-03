@@ -8,7 +8,6 @@ import {
   rejectsAssistantPrefill,
   THINKING_HEADROOM,
 } from "./anthropic-thinking";
-import { responsesToChatRequest } from "./responses";
 import {
   bridgedAnthropicBody,
   clientEffortOf,
@@ -16,7 +15,8 @@ import {
   normalizeAnthropicThinking,
   stripForeignEffort,
   withEffort,
-} from "./upstream";
+} from "./prepare";
+import { responsesToChatRequest } from "./responses";
 
 describe("withEffort", () => {
   it("writes reasoning_effort on the OpenAI wire", () => {

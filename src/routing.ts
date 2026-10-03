@@ -1,5 +1,5 @@
 import { saveBody } from "./bodies";
-import { askJev, consumeAskJevFailure, findJevChannel, type BrainVerdict } from "./brain";
+import { askJevOutcome, findJevChannel, type BrainVerdict } from "./brain";
 import {
   clampEffort,
   effectiveCapabilities,
@@ -172,6 +172,22 @@ export class SessionStore {
 
   set(key: string, state: SessionState): void {
     this.sessions.set(key, state);
+  }
+
+  /**
+   * Re-points a session at the target a failover moved the turn to. The turn is not counted
+   * again, and the cache observation is kept: it names the provider that measured it, so
+   * affinity still finds the warm target while the session points somewhere else.
+   */
+  retarget(key: string, target: { provider: string; model: string }, now: number): void {
+    const state = this.get(key, now);
+    if (!state) return;
+    this.sessions.set(key, {
+      ...state,
+      provider: target.provider,
+      model: target.model,
+      updatedAt: now,
+    });
   }
 
   observeCache(key: string, observation: CacheObservation): void {
@@ -645,9 +661,10 @@ export interface RouteDecision {
   /** Why the conversation stayed where it was answered, or moved, when affinity had a say. */
   cacheKeep?: CacheKeepReason;
   /**
-   * The candidate order the turn chose from, best first, with each candidate's quota health
-   * and cache state as routing saw them. Reporting only: the trace and the ledger show it, and
-   * nothing branches on it. Absent when no candidate list was built.
+   * The candidate order the turn can still try, best first, excluding the target this
+   * decision points at. A failover walks this list rather than routing again: each entry is
+   * a provider/model the plan already ranked, so the loop never re-pays the brain to find it.
+   * Reporting still sees it through the trace and ledger.
    */
   order?: WeighedCandidate[];
 }
@@ -657,6 +674,41 @@ export interface RouteSkip {
   provider: string;
   reason: "context" | "effort";
   detail: string;
+}
+
+/** The identity of a target inside a decision's candidate order: provider plus model. */
+export function planKey(target: { provider: string; model: string }): string {
+  return `${target.provider}/${target.model}`;
+}
+
+/**
+ * The decision's next failover target: the first candidate in `order` that `exclude` has not
+ * tried yet, re-pointed so the loop can attempt it without routing the turn again.
+ *
+ * A plan is the candidate order routing already computed. Walking it costs no brain call and
+ * no session write, and it does not depend on a refusal being visible in quota state yet —
+ * which is the gap that let a 404 or a guard-off 429 strand the turn on the refused provider.
+ * The returned decision keeps the turn's phase, session, effort and reporting fields; only
+ * the target and the remaining plan change.
+ */
+export function nextFromPlan(
+  decision: RouteDecision,
+  exclude: ReadonlySet<string>,
+): RouteDecision | undefined {
+  const order = decision.order ?? [];
+  const pick = order.find((candidate) => !exclude.has(planKey(candidate)));
+  if (!pick) return undefined;
+  const target = { provider: pick.provider, model: pick.model };
+  const remaining = order.filter(
+    (candidate) => !exclude.has(planKey(candidate)) && planKey(candidate) !== planKey(target),
+  );
+  return {
+    ...decision,
+    model: pick.model,
+    provider: pick.provider,
+    ...(pick.canonical !== undefined ? { canonical: pick.canonical } : { canonical: undefined }),
+    order: remaining,
+  };
 }
 
 export interface CacheCandidateView {
@@ -1304,11 +1356,15 @@ export function cacheAffinityKeep(input: {
     cacheRead: observation.cacheReadTokens,
     at: observation.at,
   };
-  // Whoever answered is gone from the pool — its provider was removed, or the quota guard
-  // dropped it — so there is nothing to keep to, whatever the cache says.
+  // The observation belongs to whoever actually measured it — the serving provider, not the
+  // provider the session record last pointed at. When the two disagree (a failed attempt
+  // moved the record before any answer came back), the real cache holder is what the turn
+  // should stay with.
+  const warmTarget = observation;
   if (
     !input.candidates.some(
-      (candidate) => candidate.provider === previous.provider && candidate.model === previous.model,
+      (candidate) =>
+        candidate.provider === warmTarget.provider && candidate.model === warmTarget.model,
     )
   ) {
     return { ...keep, reason: "gone" };
@@ -1336,8 +1392,11 @@ export function applyCacheKeep(
   keep: CacheKeep,
 ): TierPick[] {
   if (!keep.keep || !previous || picks.length < 2) return picks;
+  // Keep the target the cache observation actually belongs to — the serving provider recorded
+  // it, so the warm prefix lives there even when the session record has since moved.
+  const warm = previous.cache ?? previous;
   const at = picks.findIndex(
-    (candidate) => candidate.provider === previous.provider && candidate.model === previous.model,
+    (candidate) => candidate.provider === warm.provider && candidate.model === warm.model,
   );
   if (at <= 0) return picks;
   const picked = picks[at] as TierPick;
@@ -1619,10 +1678,20 @@ export async function decideRoute(
         reason: "pinned-model",
         session,
         requestId,
-        order: weighedOrder([{ provider: exact.name, model: requestedModel }], {
-          config,
-          now,
-        }),
+        // The provider picked first, then every other provider listing the model that can
+        // speak the client's wire, in the same reset-aware order.
+        order: weighedOrder(
+          failoverPlan(
+            { provider: exact.name, model: requestedModel },
+            {
+              candidates: ordered
+                .filter((candidate) => canServeClient(candidate, kind))
+                .map((candidate) => ({ provider: candidate.name, model: requestedModel })),
+            },
+            [],
+          ),
+          { config, now },
+        ),
       };
     }
 
@@ -1655,7 +1724,10 @@ export async function decideRoute(
           reason: "canonical-model",
           session,
           requestId,
-          order: weighedOrder(variants, { config, now }),
+          order: weighedOrder(failoverPlan(chosen, { candidates: variants }, []), {
+            config,
+            now,
+          }),
         };
       }
     }
@@ -1811,6 +1883,7 @@ export async function decideRoute(
           ? `tier set "${tierEffort}"`
           : undefined;
     if (explicitNote) reason = `${reason}:effort-clamped`;
+    // Routing commits the turn here — a failover re-points it later without counting again.
     store.set(session, {
       phase,
       model: picked.model,
@@ -1833,7 +1906,19 @@ export async function decideRoute(
       ...(keepReason !== undefined ? { cacheKeep: keepReason } : {}),
       session,
       requestId,
-      order: weighedOrder(tier, { config, now }),
+      // The pool first, then every other routing (light ones first): the same widening a
+      // spent tier gets above, so a refusal mid-turn can reach it without routing again.
+      order: weighedOrder(
+        failoverPlan(picked, { candidates: pool }, [
+          ...routings
+            .filter((entry) => entry.id === "utility" || entry.id === "chat")
+            .map((entry) => ({ candidates: candidatesFor(entry.id) })),
+          ...routings
+            .filter((entry) => entry.id !== "utility" && entry.id !== "chat")
+            .map((entry) => ({ candidates: candidatesFor(entry.id) })),
+        ]),
+        { config, now },
+      ),
     };
   }
 
@@ -2075,12 +2160,15 @@ export async function decideRoute(
           ...(brainPicksEffort ? {} : { picks_effort: false }),
         };
         const state = brainStateFor(entry, ready, transcript);
-        const verdict = await askJev({
+        // The failure rides on this call's own result: a concurrent turn asking the same brain
+        // cannot swap its 402 in for ours.
+        const outcome = await askJevOutcome({
           brain: entry,
           state,
           ...(brainPicksEffort ? {} : { modelOnly: true }),
         });
-        const failure = verdict ? undefined : consumeAskJevFailure();
+        const verdict = "verdict" in outcome ? outcome.verdict : undefined;
+        const failure = "failure" in outcome ? outcome.failure : undefined;
         recordBrainCall({
           config,
           session,
@@ -2247,13 +2335,38 @@ export async function decideRoute(
       ? {}
       : { switchPenaltyUsd: chosenCandidate.switchPenaltyUsd }),
     ...(keepReason !== undefined ? { cacheKeep: keepReason } : {}),
-    order: weighedOrder(offer.candidates, {
+    // The chosen routing's pool first, then every other offered routing's pool: a refusal
+    // that spends the chosen pool still has the rest of what routing deemed usable, in order.
+    order: weighedOrder(failoverPlan(chosen, offer, offers), {
       config,
       now,
-      cache: offer.offeredToBrain,
-      skipped: offer.skipped,
+      cache: offers.flatMap((entry) => entry.offeredToBrain),
+      skipped: offers.flatMap((entry) => entry.skipped),
     }),
   };
+}
+
+/**
+ * A turn's failover plan: `chosen` first, then the rest of its own pool, then every other
+ * pool's candidates, each target once. Failover walks this in order, skipping what the turn
+ * already tried.
+ */
+function failoverPlan(
+  chosen: TierPick,
+  offer: { candidates: TierPick[] },
+  offers: Array<{ candidates: TierPick[] }>,
+): TierPick[] {
+  const seen = new Set<string>([planKey(chosen)]);
+  const plan: TierPick[] = [chosen];
+  for (const candidate of [offer, ...offers.filter((entry) => entry !== offer)].flatMap(
+    (entry) => entry.candidates,
+  )) {
+    const key = planKey(candidate);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    plan.push(candidate);
+  }
+  return plan;
 }
 
 /** The deepest level in a set, regardless of the order the catalogue listed it in. */
