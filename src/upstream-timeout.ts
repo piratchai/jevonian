@@ -95,11 +95,7 @@ const ENV_KEYS: Record<keyof UpstreamTimeouts, string> = {
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 30 * 60_000;
 
-function readMs(
-  env: NodeJS.ProcessEnv,
-  name: string,
-  fallback: number,
-): number {
+function readMs(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   const raw = (env[name] ?? "").trim();
   if (raw.length === 0) return fallback;
   const parsed = Number.parseInt(raw, 10);

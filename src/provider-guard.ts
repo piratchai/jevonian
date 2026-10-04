@@ -21,7 +21,13 @@ const DEFAULT_FAILURE_THRESHOLD = 3;
 const DEFAULT_COOLDOWN_MS = 30_000;
 
 /** A floor/ceiling keeps a bad env value from disabling or exploding the guard. */
-function readInt(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number, max: number): number {
+function readInt(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
   const raw = (env[name] ?? "").trim();
   if (raw.length === 0) return fallback;
   const parsed = Number.parseInt(raw, 10);
@@ -38,7 +44,13 @@ export function providerBreakerThreshold(env: NodeJS.ProcessEnv = process.env): 
 }
 
 export function providerBreakerCooldownMs(env: NodeJS.ProcessEnv = process.env): number {
-  return readInt(env, "JEVONIAN_PROVIDER_BREAKER_COOLDOWN_MS", DEFAULT_COOLDOWN_MS, 1_000, 30 * 60_000);
+  return readInt(
+    env,
+    "JEVONIAN_PROVIDER_BREAKER_COOLDOWN_MS",
+    DEFAULT_COOLDOWN_MS,
+    1_000,
+    30 * 60_000,
+  );
 }
 
 interface BreakerState {
@@ -157,5 +169,8 @@ export function recordOutcome(provider: string, ok: boolean): void {
 /** Snapshot for diagnostics and tests. */
 export function breakerState(provider: string): { failures: number; open: boolean } {
   const state = breakers.get(provider);
-  return { failures: state?.failures ?? 0, open: state !== undefined && state.openUntil > Date.now() };
+  return {
+    failures: state?.failures ?? 0,
+    open: state !== undefined && state.openUntil > Date.now(),
+  };
 }

@@ -56,7 +56,9 @@ const emptyTotal = (): SpendWindowTotal => ({
 
 /** True when a record carries money the rollups should count. */
 function isCosted(record: LedgerRecord): boolean {
-  return record.kind !== "brain" && typeof record.provider === "string" && record.provider.length > 0;
+  return (
+    record.kind !== "brain" && typeof record.provider === "string" && record.provider.length > 0
+  );
 }
 
 /**
@@ -67,7 +69,7 @@ function isCosted(record: LedgerRecord): boolean {
  * asked for, which is what makes a stale slot from a previous lap safe to reuse.
  */
 class BucketRing {
-  private readonly buckets: Array<SpendBucket | undefined> = new Array(BUCKET_COUNT);
+  private readonly buckets: Array<SpendBucket | undefined> = Array.from({ length: BUCKET_COUNT });
 
   /** The bucket for `at`, creating it (and overwriting whatever stale hour it held). */
   at(at: number): SpendBucket {

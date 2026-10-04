@@ -6,7 +6,6 @@ import {
   recordBrainOutcome,
   type BrainVerdict,
 } from "./brain";
-import { breakerIsOpen, inFlightCount, providerConcurrency } from "./provider-guard";
 import {
   clampEffort,
   effectiveCapabilities,
@@ -34,6 +33,7 @@ import { benchmarkFocusFor, benchmarksCoverageOf, leaderboardViewFor } from "./l
 import { appendRecord } from "./ledger";
 import { canonicalVariants } from "./models";
 import { costOf, isDeepSeekPeak, priceFor, type Usage } from "./pricing";
+import { breakerIsOpen, inFlightCount, providerConcurrency } from "./provider-guard";
 import {
   accountWindows,
   captureUsageLimit,

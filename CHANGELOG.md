@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.4] - 2026-10-05
+
+### Fixed
+
+- **Transport failures fail over to another provider.** An `ECONNRESET`, fetch timeout, or other transport error no longer returns 502 after retrying the same dead host for minutes. The provider is cooled down and the turn walks the candidate plan onto a healthy one; timeouts count as the same trigger.
+- **Layered upstream timeouts and a streaming first-byte deadline.** Connect, response-headers, and total/idle clocks bound each attempt (overridable via `JEVONIAN_UPSTREAM_*_TIMEOUT_MS`). A stream that never produces its first byte fails over before the client is committed, instead of hanging until a soft-error close.
+- **Same-host retries no longer consume the whole budget.** A bad host gets at most one quick repeat (`JEVONIAN_SAME_HOST_RETRIES`); remaining time belongs to cross-provider failover.
+- **Ledger spend checks no longer scan hundreds of thousands of rows.** Routing and key spend use an incremental rolling-window index updated on append, so concurrent turns no longer thrash a full-file parse on the event loop.
+- **One wedged provider cannot absorb every in-flight turn.** Per-provider concurrency caps and circuit breakers skip saturated or repeatedly failing hosts; the shared dispatcher also caps per-origin sockets and install connect/headers timeouts.
+- **Brain outages fail fast into heuristic routing.** Brain calls default to a 5s timeout, one retry, and a short breaker so a down brain does not add tens of seconds to every turn's start.
+- **Failover walks the existing candidate plan** instead of re-deciding the route mid-turn, so a refusal moves to the next listed target rather than reshuffling the offer.
+- **A delivered stream that the client abandons is recorded as 200**, matching what the client already received instead of leaving a false failure in the ledger.
+- **Each brain channel's failure stays on its own result**, so a concurrent turn asking the same brain cannot swap in another call's 402.
+
+### Changed
+
+- **Internal provider/model/admin wiring was consolidated** (one OAuth source registry, one RPC subscription adapter, one model identity index, one provider vocabulary for config/dashboard/CLI, and upstream body prep extracted to `prepare.ts`) ahead of the reliability fixes above.
+
 ## [0.5.3] - 2026-10-03
 
 ### Fixed

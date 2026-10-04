@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { LedgerSpendIndex } from "./ledger-index";
 import type { LedgerRecord } from "./ledger";
+import { LedgerSpendIndex } from "./ledger-index";
 
 function record(
   partial: Partial<LedgerRecord> & Pick<LedgerRecord, "id" | "ts" | "provider">,

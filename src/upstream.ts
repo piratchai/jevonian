@@ -53,6 +53,7 @@ import { LOCAL_CLIENT_KEYS } from "./local-client";
 import { invalidateOAuthToken } from "./oauth";
 import { DevinImageError, payloadFor, prepareUpstream } from "./prepare";
 import { costOf, type Usage } from "./pricing";
+import { beginProviderAttempt, endProviderAttempt } from "./provider-guard";
 import {
   captureQuotaHeaders,
   captureUsageLimit,
@@ -78,7 +79,6 @@ import {
   responsesUsage,
   splitSseEvents,
 } from "./responses";
-import { beginProviderAttempt, endProviderAttempt } from "./provider-guard";
 import {
   configuredSameHostRetries,
   describeFailure,
@@ -88,11 +88,6 @@ import {
   type RetryAttempt,
   type RetryFailure,
 } from "./retry";
-import {
-  guardUpstreamStream,
-  timeoutController,
-  upstreamTimeouts,
-} from "./upstream-timeout";
 import {
   compactionEstimate,
   decideRoute,
@@ -124,6 +119,7 @@ import {
   weigh,
   type TryCause,
 } from "./trace";
+import { guardUpstreamStream, timeoutController, upstreamTimeouts } from "./upstream-timeout";
 import {
   planUpstreamWire,
   sanitizeOpenAIChatResponse,
@@ -1245,628 +1241,744 @@ async function forward(
         if (attemptCount > 0) endTry(requestId, { fail: blocked });
         continue;
       }
-      return errorResponse(
-        c,
-        meta,
-        502,
-        `Provider "${provider.name}" is unavailable (${blocked})`,
-      );
+      return errorResponse(c, meta, 502, `Provider "${provider.name}" is unavailable (${blocked})`);
     }
     // Optimistic until a refusal / transport failure marks the attempt failed. Success paths
     // leave this true so a half-open probe that lands closes the breaker.
     let attemptOk = true;
     try {
-    // Every pass through this loop is one upstream attempt. The first is `initial`; a re-route
-    // after a refusal or a context retry is a `failover`, which is what the waterfall draws.
-    const attemptCause: TryCause = attemptCount === 0 ? "initial" : "failover";
-    // Devin and Cursor can re-route from inside their response helpers, past the explicit
-    // `endTry` calls below. Close whatever is still open so no attempt is left dangling;
-    // `endTry` is a no-op when the previous attempt was already closed.
-    if (attemptCount > 0) endTry(requestId, { fail: "refused" });
-    attemptCount += 1;
-    beginTry(requestId, {
-      provider: decision.provider,
-      model: decision.model,
-      cause: attemptCause,
-      ...(decision.effort ? { effort: decision.effort } : {}),
-    });
-    meta.store = store;
-    meta.billing = provider.billing;
-    // A failover moved the turn to a new target without re-deciding, so the session's record
-    // is brought with it. The turn count and the cache observation are untouched: a failover
-    // is not a new turn, and the observation names the provider that measured it.
-    if (attemptCount > 1) store.retarget(decision.session, decision, started);
-
-    const translated = provider.type === "responses" && clientKind === "openai";
-    const geminiWire = provider.type === "gemini";
-    const devinWire = provider.type === "devin";
-    const cursorWire = provider.type === "cursor";
-    const planned = planUpstreamWire({
-      provider,
-      client: clientKind,
-      model: decision.model,
-    });
-    if ("error" in planned) {
-      return errorResponse(c, meta, 400, planned.error);
-    }
-    const bridgeToAnthropic = planned.bridge === "to-anthropic";
-    const bridgeToOpenAI = planned.bridge === "to-openai";
-    if (clientKind === "responses" && isRemoteCompactionV2(body) && provider.type !== "responses") {
-      return errorResponse(
-        c,
-        meta,
-        400,
-        `Remote compaction requires ChatGPT's Responses API; "${provider.name}" cannot serve it.`,
-      );
-    }
-    let upstreamKind: RequestKind = planned.wire;
-    // Devin and Cursor report exclusive usage (uncached input, cache reads, cache writes
-    // apart), the same accounting Anthropic uses, so cache observation must not subtract reads
-    // from input again.
-    meta.usageKind = devinWire || cursorWire ? "anthropic" : upstreamKind;
-    // Devin's and Cursor's RPCs only stream; WorkBuddy AI refuses non-stream chats.
-    // Non-stream clients get the stream folded into one reply.
-    const workbuddyWire = isWorkbuddyAiSource(provider.oauthSource);
-    const upstreamStream =
-      provider.type === "responses" || devinWire || cursorWire || workbuddyWire
-        ? true
-        : clientStream;
-
-    let auth = await resolveProviderAuth(provider, upstreamKind, decision.session);
-    if (auth.error) return errorResponse(c, meta, 400, auth.error);
-    if (devinWire && !auth.token) {
-      return errorResponse(c, meta, 400, `Missing Devin token for provider "${provider.name}"`);
-    }
-    if (cursorWire && !auth.token) {
-      return errorResponse(c, meta, 400, `Missing Cursor token for provider "${provider.name}"`);
-    }
-    withSessionAffinity(auth.headers, provider, decision.session, incomingHeaders);
-    // An upstream SSE error frame can echo the credential it rejected; scrub it before the text
-    // reaches the user or the ledger. `auth` is read lazily because a 401 refresh reassigns it.
-    const redactProvider = (text: string): string =>
-      redactSecrets(text, [auth.token, provider.apiKey]);
-
-    saveBody(requestId, {
-      kind: "request",
-      at: new Date().toISOString(),
-      path: endpoint,
-      decision: {
-        provider: decision.provider,
-        model: decision.model,
-        requestedModel: decision.requestedModel,
-        phase: decision.phase,
-        reason: decision.reason,
-        cache: decision.cache,
-        switchPenaltyUsd: decision.switchPenaltyUsd,
-        brain: decision.brain,
-        ...(decision.brainChannel ? { brainChannel: decision.brainChannel } : {}),
-        ...(decision.canonical ? { canonical: decision.canonical } : {}),
-      },
-      body,
-    });
-
-    let prep;
-    try {
-      prep = await prepareUpstream({
-        config,
-        provider,
-        decision,
-        clientKind,
-        clientStream,
-        body,
-        upstreamStream,
-        planned,
-        translated,
-        auth,
-      });
-    } catch (error) {
-      if (error instanceof DevinImageError) {
-        record(meta, 400, emptyUsage(), null, true, error.message);
-        const payload =
-          clientKind === "anthropic"
-            ? { type: "error", error: { type: "invalid_request_error", message: error.message } }
-            : { error: { type: "invalid_request_error", message: error.message } };
-        return c.json(payload, 400);
-      }
-      throw error;
-    }
-    let upstreamBody = prep.body;
-    const { passbackReasoning, passbackMessages, maxOutput } = prep;
-    if (prep.savedTokens) meta.savedTokens = prep.savedTokens;
-    meta.effort = prep.sentEffort;
-    if (prep.effortNote) meta.effortNote = prep.effortNote;
-
-    const urlFor = (wire: RequestKind): string =>
-      geminiWire
-        ? geminiEndpoint(provider.baseUrl, upstreamStream)
-        : upstreamUrlFor(provider, wire);
-    const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
-    // Built once per wire, not per attempt: a retry repeats the same bytes, which is the whole
-    // point of retrying a POST that failed on the network.
-    const payload = devinWire
-      ? ""
-      : JSON.stringify(payloadFor({ body: upstreamBody }, upstreamKind, provider));
-    // Devin carries its session token inside the protobuf body, so its request is rebuilt when
-    // a 401 forces a fresh token; everything else only swaps headers.
-    const requestInit = (current: AuthResolution): RequestInit => {
-      if (!devinWire) return { method: "POST", headers: current.headers, body: payload };
-      const token = current.token ?? "";
-      return {
-        method: "POST",
-        headers: devinHeaders(token, "stream"),
-        body: buildDevinChatRequest(token, upstreamBody, decision.model, {
-          // Stable per conversation, so Devin's prompt cache keeps hitting across turns.
-          sessionId: decision.session,
-          ...(maxOutput ? { maxOutput } : {}),
-          builtins: config.promptPolicy.builtins,
-        }) as Uint8Array<ArrayBuffer>,
-      };
-    };
-
-    // A Cursor turn is a Connect stream that stays open both ways, so it is driven here rather
-    // than through the shared POST path: the request body is built per attempt and the reply is
-    // folded or relayed by `rpcClientResponse`.
-    if (cursorWire) {
-      const wire = cursorWireAdapter(provider);
-      const conversation = cursorConversation(upstreamBody);
-      const attempt = await runCursor({
-        token: auth.token ?? "",
-        agentUrl: await resolveCursorAgentUrl(auth.token ?? "", provider.baseUrl),
-        systemPrompt: conversation.system,
-        messages: conversation.messages,
-        tools: conversation.tools,
-        model: cursorModelId(decision.model, decision.effort, false),
-        lastUser: cursorLastUser(conversation.messages),
-        requestId: crypto.randomUUID(),
-      });
-      const rpcHeaders = (): Record<string, string> => ({
-        ...decisionHeaders(decision, meta.retries),
-        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-      });
-      if (attempt.error) {
-        if (await rpcRefused(wire, attempt.error)) {
-          attemptOk = false;
-          continue;
-        }
-        return rpcErrorResponse(wire, meta, clientKind, attempt.error, rpcHeaders());
-      }
-      const events = attempt.events;
-      const delivered = await rpcClientResponse({
-        c,
-        meta,
-        provider,
-        decision,
-        clientKind,
-        clientStream,
-        started,
-        wire,
-        fold: () => cursorChatCompletion(decision.model, events),
-        relay: (onFinish, onEvent) => cursorToChatStream(decision.model, events, onFinish, onEvent),
-        onFailover: quotaFailover,
-        headers: rpcHeaders(),
-      });
-      if (delivered.kind === "failover") {
-        attemptOk = false;
-        continue;
-      }
-      return delivered.response;
-    }
-
-    // A socket reset from a local proxy, a DNS timeout, or a gateway's brief 502 otherwise
-    // costs the whole turn — and the same request almost always succeeds on a second attempt.
-    // Same-host retries are short on purpose: a host that keeps failing should hand the turn
-    // to failover, not burn the whole budget on itself.
-    const retryBudget = configuredSameHostRetries();
-    const onRetry = ({ attempt, delayMs, failure }: RetryAttempt): void => {
-      meta.retries = (meta.retries ?? 0) + 1;
-      // The attempt that just failed is closed here, and the retry that follows is opened as
-      // its own try, so the waterfall shows the transient failure rather than hiding it.
-      endTry(requestId, { fail: describeRetryFailure(failure) });
+      // Every pass through this loop is one upstream attempt. The first is `initial`; a re-route
+      // after a refusal or a context retry is a `failover`, which is what the waterfall draws.
+      const attemptCause: TryCause = attemptCount === 0 ? "initial" : "failover";
+      // Devin and Cursor can re-route from inside their response helpers, past the explicit
+      // `endTry` calls below. Close whatever is still open so no attempt is left dangling;
+      // `endTry` is a no-op when the previous attempt was already closed.
+      if (attemptCount > 0) endTry(requestId, { fail: "refused" });
+      attemptCount += 1;
       beginTry(requestId, {
         provider: decision.provider,
         model: decision.model,
-        cause: "retry",
+        cause: attemptCause,
         ...(decision.effort ? { effort: decision.effort } : {}),
       });
-      console.warn(
-        `upstream retry ${attempt}/${retryBudget} for ${decision.provider} in ${delayMs}ms: ${describeRetryFailure(failure)}`,
-      );
-    };
+      meta.store = store;
+      meta.billing = provider.billing;
+      // A failover moved the turn to a new target without re-deciding, so the session's record
+      // is brought with it. The turn count and the cache observation are untouched: a failover
+      // is not a new turn, and the observation names the provider that measured it.
+      if (attemptCount > 1) store.retarget(decision.session, decision, started);
 
-    let upstream: Response;
-    let failureText = "";
-    try {
-      ({ response: upstream, text: failureText } = await postUpstream(
-        upstreamUrl,
-        requestInit(auth),
-        onRetry,
-        { stream: upstreamStream },
-      ));
+      const translated = provider.type === "responses" && clientKind === "openai";
+      const geminiWire = provider.type === "gemini";
+      const devinWire = provider.type === "devin";
+      const cursorWire = provider.type === "cursor";
+      const planned = planUpstreamWire({
+        provider,
+        client: clientKind,
+        model: decision.model,
+      });
+      if ("error" in planned) {
+        return errorResponse(c, meta, 400, planned.error);
+      }
+      const bridgeToAnthropic = planned.bridge === "to-anthropic";
+      const bridgeToOpenAI = planned.bridge === "to-openai";
       if (
-        upstream.status === 401 &&
-        provider.auth === "oauth" &&
-        provider.oauthSource &&
-        provider.oauthSource !== "static"
+        clientKind === "responses" &&
+        isRemoteCompactionV2(body) &&
+        provider.type !== "responses"
       ) {
-        invalidateOAuthToken(provider.oauthSource, provider.login);
-        const refreshed = await resolveProviderAuth(provider, upstreamKind, decision.session);
-        if (!refreshed.error) {
-          auth = refreshed;
-          ({ response: upstream, text: failureText } = await postUpstream(
-            upstreamUrl,
-            requestInit(auth),
-            onRetry,
-            { stream: upstreamStream },
-          ));
-        }
-      }
-    } catch (error) {
-      // A transport failure is a verdict about this host, not the request: the same body
-      // almost always succeeds on a different provider. Walk the plan before surfacing a 502.
-      attemptOk = false;
-      endTry(requestId, { fail: `fetch: ${describeFetchError(error)}`.slice(0, 120) });
-      markProviderSpent(provider, {
-        label: "transport",
-        resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
-      });
-      if (await quotaFailover()) continue;
-      return errorResponse(c, meta, 502, `Upstream request failed: ${describeFetchError(error)}`);
-    }
-
-    captureQuotaHeaders(provider, upstream.headers);
-
-    if (devinWire) {
-      // Devin refuses in two ways: a non-200 status, or a 200 whose Connect stream opens with an
-      // end-of-stream error trailer before any data. Both classify into one error, so quota
-      // failover and the client-facing error share one path.
-      const devin = devinWireAdapter(provider, decision.model);
-      const rpcHeaders = (): Record<string, string> => ({
-        ...decisionHeaders(decision, meta.retries),
-        ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-      });
-      let failure: DevinStreamError | undefined;
-      let stream: ReadableStream<Uint8Array> | undefined;
-      let policyRetried = false;
-      if (!upstream.ok) {
-        failure = classifyDevinError(upstream.status, failureText, auth.token);
-      } else if (!upstream.body) {
-        failure = { status: 502, kind: "other", message: "Devin returned an empty response body" };
-      } else {
-        const peeked = await peekDevinStream(upstream.body, auth.token);
-        if ("error" in peeked) failure = peeked.error;
-        else stream = peeked.stream;
-      }
-      // The wire neutralizes the prompt signatures we know about, but that list trails the
-      // client. One retry without the client's system prompt clears wording we have not seen.
-      if (failure?.kind === "content_policy" && !policyRetried) {
-        policyRetried = true;
-        upstreamBody = {
-          ...upstreamBody,
-          messages: stripAgentSystemMessages(
-            Array.isArray(upstreamBody.messages) ? upstreamBody.messages : [],
-          ),
-        };
-        meta.retries = (meta.retries ?? 0) + 1;
-        console.warn(
-          `devin content policy: retrying ${decision.provider}/${decision.model} without the client system prompt`,
+        return errorResponse(
+          c,
+          meta,
+          400,
+          `Remote compaction requires ChatGPT's Responses API; "${provider.name}" cannot serve it.`,
         );
-        try {
-          ({ response: upstream, text: failureText } = await postUpstream(
-            upstreamUrl,
-            requestInit(auth),
-            onRetry,
-            { stream: true },
-          ));
-          failure = undefined;
-          stream = undefined;
-          if (!upstream.ok) {
-            failure = classifyDevinError(upstream.status, failureText, auth.token);
-          } else if (!upstream.body) {
-            failure = {
-              status: 502,
-              kind: "other",
-              message: "Devin returned an empty response body",
-            };
-          } else {
-            const peeked = await peekDevinStream(upstream.body, auth.token);
-            if ("error" in peeked) failure = peeked.error;
-            else stream = peeked.stream;
-          }
-        } catch (error) {
-          failure = {
-            status: 502,
-            kind: "other",
-            message: `Upstream retry failed: ${describeFetchError(error)}`,
-          };
-        }
       }
-      if (failure || !stream) {
-        const error = failure ?? {
-          status: 502,
-          kind: "other" as const,
-          message: "Devin returned no stream",
+      let upstreamKind: RequestKind = planned.wire;
+      // Devin and Cursor report exclusive usage (uncached input, cache reads, cache writes
+      // apart), the same accounting Anthropic uses, so cache observation must not subtract reads
+      // from input again.
+      meta.usageKind = devinWire || cursorWire ? "anthropic" : upstreamKind;
+      // Devin's and Cursor's RPCs only stream; WorkBuddy AI refuses non-stream chats.
+      // Non-stream clients get the stream folded into one reply.
+      const workbuddyWire = isWorkbuddyAiSource(provider.oauthSource);
+      const upstreamStream =
+        provider.type === "responses" || devinWire || cursorWire || workbuddyWire
+          ? true
+          : clientStream;
+
+      let auth = await resolveProviderAuth(provider, upstreamKind, decision.session);
+      if (auth.error) return errorResponse(c, meta, 400, auth.error);
+      if (devinWire && !auth.token) {
+        return errorResponse(c, meta, 400, `Missing Devin token for provider "${provider.name}"`);
+      }
+      if (cursorWire && !auth.token) {
+        return errorResponse(c, meta, 400, `Missing Cursor token for provider "${provider.name}"`);
+      }
+      withSessionAffinity(auth.headers, provider, decision.session, incomingHeaders);
+      // An upstream SSE error frame can echo the credential it rejected; scrub it before the text
+      // reaches the user or the ledger. `auth` is read lazily because a 401 refresh reassigns it.
+      const redactProvider = (text: string): string =>
+        redactSecrets(text, [auth.token, provider.apiKey]);
+
+      saveBody(requestId, {
+        kind: "request",
+        at: new Date().toISOString(),
+        path: endpoint,
+        decision: {
+          provider: decision.provider,
+          model: decision.model,
+          requestedModel: decision.requestedModel,
+          phase: decision.phase,
+          reason: decision.reason,
+          cache: decision.cache,
+          switchPenaltyUsd: decision.switchPenaltyUsd,
+          brain: decision.brain,
+          ...(decision.brainChannel ? { brainChannel: decision.brainChannel } : {}),
+          ...(decision.canonical ? { canonical: decision.canonical } : {}),
+        },
+        body,
+      });
+
+      let prep;
+      try {
+        prep = await prepareUpstream({
+          config,
+          provider,
+          decision,
+          clientKind,
+          clientStream,
+          body,
+          upstreamStream,
+          planned,
+          translated,
+          auth,
+        });
+      } catch (error) {
+        if (error instanceof DevinImageError) {
+          record(meta, 400, emptyUsage(), null, true, error.message);
+          const payload =
+            clientKind === "anthropic"
+              ? { type: "error", error: { type: "invalid_request_error", message: error.message } }
+              : { error: { type: "invalid_request_error", message: error.message } };
+          return c.json(payload, 400);
+        }
+        throw error;
+      }
+      let upstreamBody = prep.body;
+      const { passbackReasoning, passbackMessages, maxOutput } = prep;
+      if (prep.savedTokens) meta.savedTokens = prep.savedTokens;
+      meta.effort = prep.sentEffort;
+      if (prep.effortNote) meta.effortNote = prep.effortNote;
+
+      const urlFor = (wire: RequestKind): string =>
+        geminiWire
+          ? geminiEndpoint(provider.baseUrl, upstreamStream)
+          : upstreamUrlFor(provider, wire);
+      const upstreamUrl = devinWire ? devinChatUrl(provider.baseUrl) : urlFor(upstreamKind);
+      // Built once per wire, not per attempt: a retry repeats the same bytes, which is the whole
+      // point of retrying a POST that failed on the network.
+      const payload = devinWire
+        ? ""
+        : JSON.stringify(payloadFor({ body: upstreamBody }, upstreamKind, provider));
+      // Devin carries its session token inside the protobuf body, so its request is rebuilt when
+      // a 401 forces a fresh token; everything else only swaps headers.
+      const requestInit = (current: AuthResolution): RequestInit => {
+        if (!devinWire) return { method: "POST", headers: current.headers, body: payload };
+        const token = current.token ?? "";
+        return {
+          method: "POST",
+          headers: devinHeaders(token, "stream"),
+          body: buildDevinChatRequest(token, upstreamBody, decision.model, {
+            // Stable per conversation, so Devin's prompt cache keeps hitting across turns.
+            sessionId: decision.session,
+            ...(maxOutput ? { maxOutput } : {}),
+            builtins: config.promptPolicy.builtins,
+          }) as Uint8Array<ArrayBuffer>,
         };
-        if (await rpcRefused(devin, error)) {
+      };
+
+      // A Cursor turn is a Connect stream that stays open both ways, so it is driven here rather
+      // than through the shared POST path: the request body is built per attempt and the reply is
+      // folded or relayed by `rpcClientResponse`.
+      if (cursorWire) {
+        const wire = cursorWireAdapter(provider);
+        const conversation = cursorConversation(upstreamBody);
+        const attempt = await runCursor({
+          token: auth.token ?? "",
+          agentUrl: await resolveCursorAgentUrl(auth.token ?? "", provider.baseUrl),
+          systemPrompt: conversation.system,
+          messages: conversation.messages,
+          tools: conversation.tools,
+          model: cursorModelId(decision.model, decision.effort, false),
+          lastUser: cursorLastUser(conversation.messages),
+          requestId: crypto.randomUUID(),
+        });
+        const rpcHeaders = (): Record<string, string> => ({
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        });
+        if (attempt.error) {
+          if (await rpcRefused(wire, attempt.error)) {
+            attemptOk = false;
+            continue;
+          }
+          return rpcErrorResponse(wire, meta, clientKind, attempt.error, rpcHeaders());
+        }
+        const events = attempt.events;
+        const delivered = await rpcClientResponse({
+          c,
+          meta,
+          provider,
+          decision,
+          clientKind,
+          clientStream,
+          started,
+          wire,
+          fold: () => cursorChatCompletion(decision.model, events),
+          relay: (onFinish, onEvent) =>
+            cursorToChatStream(decision.model, events, onFinish, onEvent),
+          onFailover: quotaFailover,
+          headers: rpcHeaders(),
+        });
+        if (delivered.kind === "failover") {
           attemptOk = false;
           continue;
         }
-        return rpcErrorResponse(devin, meta, clientKind, error, rpcHeaders());
+        return delivered.response;
       }
-      const token = auth.token;
-      const body = stream;
-      const delivered = await rpcClientResponse({
-        c,
-        meta,
-        provider,
-        decision,
-        clientKind,
-        clientStream,
-        started,
-        wire: devin,
-        fold: () => devinChatCompletion(body, decision.model, token),
-        relay: (onFinish, onEvent) =>
-          body.pipeThrough(devinToChatStream(decision.model, onFinish, token, onEvent)),
-        onFailover: quotaFailover,
-        headers: rpcHeaders(),
-      });
-      // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
-      // so the client only sees an error once no alternative is left.
-      if (delivered.kind === "failover") {
-        attemptOk = false;
-        continue;
-      }
-      return delivered.response;
-    }
 
-    if (!upstream.ok) {
-      // Read during the attempt, not here: a body left unread would hold the pooled socket
-      // that the next retry needs, and the last attempt's text is what gets reported.
-      const text = failureText;
-      if (
-        overflowRetries === 0 &&
-        !isRemoteCompactionV2(body) &&
-        isContextOverflowResponse(upstream.status, text)
-      ) {
-        overflowRetries += 1;
-        const shrunk = await compactForOverflow(config, body);
-        if (shrunk.ok) {
-          const retry = await decideRoute({
-            config,
-            body: shrunk.body,
-            headers: incomingHeaders,
-            store,
-            kind: clientKind,
-            requestId,
-            keyId,
-            keyName,
-          });
-          if (!("error" in retry)) {
-            body = shrunk.body;
-            decision = { ...retry, reason: `${retry.reason}:context-retry` };
-            endTry(requestId, { status: upstream.status, fail: "context-overflow" });
-            noteDecision(requestId, {
-              phase: decision.phase,
-              reason: decision.reason,
-              ...(decision.cacheKeep ? { cacheKeep: decision.cacheKeep } : {}),
-            });
-            if (retry.order && retry.order.length > 0) weigh(requestId, retry.order);
-            continue;
+      // A socket reset from a local proxy, a DNS timeout, or a gateway's brief 502 otherwise
+      // costs the whole turn — and the same request almost always succeeds on a second attempt.
+      // Same-host retries are short on purpose: a host that keeps failing should hand the turn
+      // to failover, not burn the whole budget on itself.
+      const retryBudget = configuredSameHostRetries();
+      const onRetry = ({ attempt, delayMs, failure }: RetryAttempt): void => {
+        meta.retries = (meta.retries ?? 0) + 1;
+        // The attempt that just failed is closed here, and the retry that follows is opened as
+        // its own try, so the waterfall shows the transient failure rather than hiding it.
+        endTry(requestId, { fail: describeRetryFailure(failure) });
+        beginTry(requestId, {
+          provider: decision.provider,
+          model: decision.model,
+          cause: "retry",
+          ...(decision.effort ? { effort: decision.effort } : {}),
+        });
+        console.warn(
+          `upstream retry ${attempt}/${retryBudget} for ${decision.provider} in ${delayMs}ms: ${describeRetryFailure(failure)}`,
+        );
+      };
+
+      let upstream: Response;
+      let failureText = "";
+      try {
+        ({ response: upstream, text: failureText } = await postUpstream(
+          upstreamUrl,
+          requestInit(auth),
+          onRetry,
+          { stream: upstreamStream },
+        ));
+        if (
+          upstream.status === 401 &&
+          provider.auth === "oauth" &&
+          provider.oauthSource &&
+          provider.oauthSource !== "static"
+        ) {
+          invalidateOAuthToken(provider.oauthSource, provider.login);
+          const refreshed = await resolveProviderAuth(provider, upstreamKind, decision.session);
+          if (!refreshed.error) {
+            auth = refreshed;
+            ({ response: upstream, text: failureText } = await postUpstream(
+              upstreamUrl,
+              requestInit(auth),
+              onRetry,
+              { stream: upstreamStream },
+            ));
           }
         }
-      }
-      // Structured spend tokens (usage_limit_reached, GoUsageLimitError, …) mark the
-      // provider exhausted. Claude subscription 429s usually only emit
-      // `type: rate_limit_error` — not in that allow-list — but the unified rate-limit
-      // headers on the same response already say the window is spent. After capturing
-      // those headers, treat an exhausted health bit as the same failover trigger so
-      // the next model in the phase chain (gpt-6-astra, …) gets the turn.
-      const spent = captureUsageLimit(provider, upstream.status, text);
-      // The response's own rate-limit headers may already have recorded the real window
-      // (`5h` rejected, with its reset) a few lines above. That reading beats a synthetic
-      // cooldown, so it is checked before one is invented.
-      const exhausted = providerQuotaHealth(provider).status === "exhausted";
-      // Beyond the allow-list: any provider-side refusal is worth trying elsewhere. The
-      // client only sees an error once `quotaFailover` reports that no target outside
-      // `triedTargets` is left, which is the honest "you really are out" signal.
-      const refused = spent || exhausted || isProviderRefusal(upstream.status);
-      if (refused && !spent && !exhausted && isRateLimitRefusal(upstream.status)) {
-        // Nothing recorded this refusal, so bench the provider briefly: without it the next
-        // turn's routing brain would pick the same host straight back up.
-        markProviderSpent(provider, {
-          label: "rate-limit",
-          resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
-        });
-      }
-      if (refused && (await quotaFailover())) {
-        attemptOk = false;
-        endTry(requestId, {
-          status: upstream.status,
-          fail: spent || exhausted ? "quota" : `http-${upstream.status}`,
-        });
-        continue;
-      }
-      endTry(requestId, { status: upstream.status, fail: `http-${upstream.status}` });
-      record(meta, upstream.status, emptyUsage(), null, true, text.slice(0, 300));
-      // A streaming client must not receive a bare JSON error body: the harness reads that as a
-      // malformed response and can drop the turn. Close it as an assistant message instead. The
-      // body is redacted first: a provider that rejects a credential often echoes it back, and
-      // this text is shown to the user.
-      if (clientStream) {
-        const reason = redactSecrets(text, [auth.token, provider.apiKey]);
-        return new Response(
-          softCompletionStream(clientKind, decision.model, softErrorMessage(reason.slice(0, 300))),
-          {
-            status: 200,
-            headers: {
-              "content-type": "text/event-stream",
-              "cache-control": "no-store",
-              "x-jevonian-soft-error": "1",
-              ...decisionHeaders(decision, meta.retries),
-              ...(quotaFailovers > 0
-                ? { "x-jevonian-quota-failovers": String(quotaFailovers) }
-                : {}),
-            },
-          },
-        );
-      }
-      return new Response(text, {
-        status: upstream.status,
-        headers: {
-          "content-type": upstream.headers.get("content-type") ?? "application/json",
-          ...decisionHeaders(decision, meta.retries),
-          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
-        },
-      });
-    }
-
-    // A stream that never produces its first byte must fail over *before* the client is
-    // committed to this host. Waiting for the soft-error close used to take 23 minutes.
-    if (upstreamStream && upstream.body) {
-      try {
-        const timeouts = upstreamTimeouts();
-        const guarded = await guardUpstreamStream(upstream.body, {
-          firstByteMs: timeouts.firstByteMs,
-          idleMs: timeouts.idleMs,
-        });
-        upstream = new Response(guarded, {
-          status: upstream.status,
-          statusText: upstream.statusText,
-          headers: upstream.headers,
-        });
       } catch (error) {
+        // A transport failure is a verdict about this host, not the request: the same body
+        // almost always succeeds on a different provider. Walk the plan before surfacing a 502.
         attemptOk = false;
-        endTry(requestId, {
-          fail: `first-byte: ${describeFetchError(error)}`.slice(0, 120),
-        });
+        endTry(requestId, { fail: `fetch: ${describeFetchError(error)}`.slice(0, 120) });
         markProviderSpent(provider, {
           label: "transport",
           resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
         });
         if (await quotaFailover()) continue;
-        return errorResponse(
+        return errorResponse(c, meta, 502, `Upstream request failed: ${describeFetchError(error)}`);
+      }
+
+      captureQuotaHeaders(provider, upstream.headers);
+
+      if (devinWire) {
+        // Devin refuses in two ways: a non-200 status, or a 200 whose Connect stream opens with an
+        // end-of-stream error trailer before any data. Both classify into one error, so quota
+        // failover and the client-facing error share one path.
+        const devin = devinWireAdapter(provider, decision.model);
+        const rpcHeaders = (): Record<string, string> => ({
+          ...decisionHeaders(decision, meta.retries),
+          ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+        });
+        let failure: DevinStreamError | undefined;
+        let stream: ReadableStream<Uint8Array> | undefined;
+        let policyRetried = false;
+        if (!upstream.ok) {
+          failure = classifyDevinError(upstream.status, failureText, auth.token);
+        } else if (!upstream.body) {
+          failure = {
+            status: 502,
+            kind: "other",
+            message: "Devin returned an empty response body",
+          };
+        } else {
+          const peeked = await peekDevinStream(upstream.body, auth.token);
+          if ("error" in peeked) failure = peeked.error;
+          else stream = peeked.stream;
+        }
+        // The wire neutralizes the prompt signatures we know about, but that list trails the
+        // client. One retry without the client's system prompt clears wording we have not seen.
+        if (failure?.kind === "content_policy" && !policyRetried) {
+          policyRetried = true;
+          upstreamBody = {
+            ...upstreamBody,
+            messages: stripAgentSystemMessages(
+              Array.isArray(upstreamBody.messages) ? upstreamBody.messages : [],
+            ),
+          };
+          meta.retries = (meta.retries ?? 0) + 1;
+          console.warn(
+            `devin content policy: retrying ${decision.provider}/${decision.model} without the client system prompt`,
+          );
+          try {
+            ({ response: upstream, text: failureText } = await postUpstream(
+              upstreamUrl,
+              requestInit(auth),
+              onRetry,
+              { stream: true },
+            ));
+            failure = undefined;
+            stream = undefined;
+            if (!upstream.ok) {
+              failure = classifyDevinError(upstream.status, failureText, auth.token);
+            } else if (!upstream.body) {
+              failure = {
+                status: 502,
+                kind: "other",
+                message: "Devin returned an empty response body",
+              };
+            } else {
+              const peeked = await peekDevinStream(upstream.body, auth.token);
+              if ("error" in peeked) failure = peeked.error;
+              else stream = peeked.stream;
+            }
+          } catch (error) {
+            failure = {
+              status: 502,
+              kind: "other",
+              message: `Upstream retry failed: ${describeFetchError(error)}`,
+            };
+          }
+        }
+        if (failure || !stream) {
+          const error = failure ?? {
+            status: 502,
+            kind: "other" as const,
+            message: "Devin returned no stream",
+          };
+          if (await rpcRefused(devin, error)) {
+            attemptOk = false;
+            continue;
+          }
+          return rpcErrorResponse(devin, meta, clientKind, error, rpcHeaders());
+        }
+        const token = auth.token;
+        const body = stream;
+        const delivered = await rpcClientResponse({
           c,
           meta,
-          502,
-          `Upstream request failed: ${describeFetchError(error)}`,
-        );
+          provider,
+          decision,
+          clientKind,
+          clientStream,
+          started,
+          wire: devin,
+          fold: () => devinChatCompletion(body, decision.model, token),
+          relay: (onFinish, onEvent) =>
+            body.pipeThrough(devinToChatStream(decision.model, onFinish, token, onEvent)),
+          onFailover: quotaFailover,
+          headers: rpcHeaders(),
+        });
+        // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
+        // so the client only sees an error once no alternative is left.
+        if (delivered.kind === "failover") {
+          attemptOk = false;
+          continue;
+        }
+        return delivered.response;
       }
-    }
 
-    // Follow the wire the upstream actually answered on. `bridgeToAnthropic` covers
-    // both dual-wire hosts (Claude on OpenCode) and Anthropic-only OAuth subscriptions.
-    // Responses clients take a second hop: Anthropic → Chat Completions → Responses.
-    if (
-      upstreamKind === "anthropic" &&
-      bridgeToAnthropic &&
-      (clientKind === "openai" || clientKind === "responses")
-    ) {
-      if (clientKind === "responses") {
+      if (!upstream.ok) {
+        // Read during the attempt, not here: a body left unread would hold the pooled socket
+        // that the next retry needs, and the last attempt's text is what gets reported.
+        const text = failureText;
+        if (
+          overflowRetries === 0 &&
+          !isRemoteCompactionV2(body) &&
+          isContextOverflowResponse(upstream.status, text)
+        ) {
+          overflowRetries += 1;
+          const shrunk = await compactForOverflow(config, body);
+          if (shrunk.ok) {
+            const retry = await decideRoute({
+              config,
+              body: shrunk.body,
+              headers: incomingHeaders,
+              store,
+              kind: clientKind,
+              requestId,
+              keyId,
+              keyName,
+            });
+            if (!("error" in retry)) {
+              body = shrunk.body;
+              decision = { ...retry, reason: `${retry.reason}:context-retry` };
+              endTry(requestId, { status: upstream.status, fail: "context-overflow" });
+              noteDecision(requestId, {
+                phase: decision.phase,
+                reason: decision.reason,
+                ...(decision.cacheKeep ? { cacheKeep: decision.cacheKeep } : {}),
+              });
+              if (retry.order && retry.order.length > 0) weigh(requestId, retry.order);
+              continue;
+            }
+          }
+        }
+        // Structured spend tokens (usage_limit_reached, GoUsageLimitError, …) mark the
+        // provider exhausted. Claude subscription 429s usually only emit
+        // `type: rate_limit_error` — not in that allow-list — but the unified rate-limit
+        // headers on the same response already say the window is spent. After capturing
+        // those headers, treat an exhausted health bit as the same failover trigger so
+        // the next model in the phase chain (gpt-6-astra, …) gets the turn.
+        const spent = captureUsageLimit(provider, upstream.status, text);
+        // The response's own rate-limit headers may already have recorded the real window
+        // (`5h` rejected, with its reset) a few lines above. That reading beats a synthetic
+        // cooldown, so it is checked before one is invented.
+        const exhausted = providerQuotaHealth(provider).status === "exhausted";
+        // Beyond the allow-list: any provider-side refusal is worth trying elsewhere. The
+        // client only sees an error once `quotaFailover` reports that no target outside
+        // `triedTargets` is left, which is the honest "you really are out" signal.
+        const refused = spent || exhausted || isProviderRefusal(upstream.status);
+        if (refused && !spent && !exhausted && isRateLimitRefusal(upstream.status)) {
+          // Nothing recorded this refusal, so bench the provider briefly: without it the next
+          // turn's routing brain would pick the same host straight back up.
+          markProviderSpent(provider, {
+            label: "rate-limit",
+            resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
+          });
+        }
+        if (refused && (await quotaFailover())) {
+          attemptOk = false;
+          endTry(requestId, {
+            status: upstream.status,
+            fail: spent || exhausted ? "quota" : `http-${upstream.status}`,
+          });
+          continue;
+        }
+        endTry(requestId, { status: upstream.status, fail: `http-${upstream.status}` });
+        record(meta, upstream.status, emptyUsage(), null, true, text.slice(0, 300));
+        // A streaming client must not receive a bare JSON error body: the harness reads that as a
+        // malformed response and can drop the turn. Close it as an assistant message instead. The
+        // body is redacted first: a provider that rejects a credential often echoes it back, and
+        // this text is shown to the user.
+        if (clientStream) {
+          const reason = redactSecrets(text, [auth.token, provider.apiKey]);
+          return new Response(
+            softCompletionStream(
+              clientKind,
+              decision.model,
+              softErrorMessage(reason.slice(0, 300)),
+            ),
+            {
+              status: 200,
+              headers: {
+                "content-type": "text/event-stream",
+                "cache-control": "no-store",
+                "x-jevonian-soft-error": "1",
+                ...decisionHeaders(decision, meta.retries),
+                ...(quotaFailovers > 0
+                  ? { "x-jevonian-quota-failovers": String(quotaFailovers) }
+                  : {}),
+              },
+            },
+          );
+        }
+        return new Response(text, {
+          status: upstream.status,
+          headers: {
+            "content-type": upstream.headers.get("content-type") ?? "application/json",
+            ...decisionHeaders(decision, meta.retries),
+            ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
+          },
+        });
+      }
+
+      // A stream that never produces its first byte must fail over *before* the client is
+      // committed to this host. Waiting for the soft-error close used to take 23 minutes.
+      if (upstreamStream && upstream.body) {
+        try {
+          const timeouts = upstreamTimeouts();
+          const guarded = await guardUpstreamStream(upstream.body, {
+            firstByteMs: timeouts.firstByteMs,
+            idleMs: timeouts.idleMs,
+          });
+          upstream = new Response(guarded, {
+            status: upstream.status,
+            statusText: upstream.statusText,
+            headers: upstream.headers,
+          });
+        } catch (error) {
+          attemptOk = false;
+          endTry(requestId, {
+            fail: `first-byte: ${describeFetchError(error)}`.slice(0, 120),
+          });
+          markProviderSpent(provider, {
+            label: "transport",
+            resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
+          });
+          if (await quotaFailover()) continue;
+          return errorResponse(
+            c,
+            meta,
+            502,
+            `Upstream request failed: ${describeFetchError(error)}`,
+          );
+        }
+      }
+
+      // Follow the wire the upstream actually answered on. `bridgeToAnthropic` covers
+      // both dual-wire hosts (Claude on OpenCode) and Anthropic-only OAuth subscriptions.
+      // Responses clients take a second hop: Anthropic → Chat Completions → Responses.
+      if (
+        upstreamKind === "anthropic" &&
+        bridgeToAnthropic &&
+        (clientKind === "openai" || clientKind === "responses")
+      ) {
+        if (clientKind === "responses") {
+          if (!upstreamStream) {
+            const json = (await upstream.json()) as Record<string, unknown>;
+            const usage = anthropicUsage(json.usage);
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+            return c.json(
+              chatJsonToResponse(anthropicToChat(json, decision.model), {
+                model: decision.model,
+                session: decision.session,
+                started,
+                usage,
+              }),
+              200,
+              decisionHeaders(decision, meta.retries),
+            );
+          }
+          // Usage is Anthropic's, captured by the first stage: the Chat hop has no cache-write
+          // field, so letting the Responses stage's usage win zeroed cacheRead/cacheWrite and
+          // under-billed cached turns. Recorded once, after the last stage flushes.
+          const usage = emptyUsage();
+          // The Chat hop swallows the upstream `{ error }` and finishes the turn softly, so the
+          // failure is only visible here — the Responses stage sees a normal completion. Record
+          // it as the real 502 rather than a clean 200.
+          let failure: string | undefined;
+          const toChat = anthropicToChatStream(decision.model, (finalUsage, chatFailure) => {
+            Object.assign(usage, finalUsage);
+            failure = chatFailure;
+          });
+          const toResponses = chatToResponsesStream(decision.model, (result) => {
+            const failed = failure ?? result.failure;
+            if (failed) {
+              record(meta, 502, usage, null, true, failed);
+              return;
+            }
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          });
+          const streamBody = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
+          return streamResponse(
+            streamBody,
+            meta,
+            decisionHeaders(decision, meta.retries),
+            "text/event-stream",
+            undefined,
+            redactProvider,
+          );
+        }
         if (!upstreamStream) {
           const json = (await upstream.json()) as Record<string, unknown>;
           const usage = anthropicUsage(json.usage);
           const cost = costOf(decision.model, usage, new Date(), decision.provider);
           record(meta, 200, usage, cost.usd, cost.known);
           return c.json(
-            chatJsonToResponse(anthropicToChat(json, decision.model), {
-              model: decision.model,
-              session: decision.session,
-              started,
-              usage,
-            }),
+            anthropicToChat(json, decision.model),
             200,
             decisionHeaders(decision, meta.retries),
           );
         }
-        // Usage is Anthropic's, captured by the first stage: the Chat hop has no cache-write
-        // field, so letting the Responses stage's usage win zeroed cacheRead/cacheWrite and
-        // under-billed cached turns. Recorded once, after the last stage flushes.
         const usage = emptyUsage();
-        // The Chat hop swallows the upstream `{ error }` and finishes the turn softly, so the
-        // failure is only visible here — the Responses stage sees a normal completion. Record
-        // it as the real 502 rather than a clean 200.
-        let failure: string | undefined;
-        const toChat = anthropicToChatStream(decision.model, (finalUsage, chatFailure) => {
-          Object.assign(usage, finalUsage);
-          failure = chatFailure;
-        });
-        const toResponses = chatToResponsesStream(decision.model, (result) => {
-          const failed = failure ?? result.failure;
-          if (failed) {
-            record(meta, 502, usage, null, true, failed);
-            return;
-          }
-          const cost = costOf(decision.model, usage, new Date(), decision.provider);
-          record(meta, 200, usage, cost.usd, cost.known);
-        });
-        const streamBody = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
+        const tracker = trackEvents();
+        const transform = anthropicToChatStream(
+          decision.model,
+          (finalUsage, failure) => {
+            Object.assign(usage, finalUsage);
+            // The refusal was already closed softly for the client; the ledger must still carry
+            // the real status instead of a clean 200 for a failed turn.
+            if (failure) {
+              record(meta, 502, usage, null, true, failure);
+              return;
+            }
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          },
+          (event) => tracker.feed(event),
+        );
         return streamResponse(
-          streamBody,
+          upstream.body?.pipeThrough(transform) ?? null,
           meta,
           decisionHeaders(decision, meta.retries),
           "text/event-stream",
-          undefined,
+          () => {
+            const outcome = cancelOutcome(tracker);
+            const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+            record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
+          },
           redactProvider,
         );
       }
-      if (!upstreamStream) {
-        const json = (await upstream.json()) as Record<string, unknown>;
-        const usage = anthropicUsage(json.usage);
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-        return c.json(
-          anthropicToChat(json, decision.model),
-          200,
-          decisionHeaders(decision, meta.retries),
-        );
-      }
-      const usage = emptyUsage();
-      const tracker = trackEvents();
-      const transform = anthropicToChatStream(
-        decision.model,
-        (finalUsage, failure) => {
-          Object.assign(usage, finalUsage);
-          // The refusal was already closed softly for the client; the ledger must still carry
-          // the real status instead of a clean 200 for a failed turn.
-          if (failure) {
-            record(meta, 502, usage, null, true, failure);
-            return;
-          }
-          const cost = costOf(decision.model, usage, new Date(), decision.provider);
-          record(meta, 200, usage, cost.usd, cost.known);
-        },
-        (event) => tracker.feed(event),
-      );
-      return streamResponse(
-        upstream.body?.pipeThrough(transform) ?? null,
-        meta,
-        decisionHeaders(decision, meta.retries),
-        "text/event-stream",
-        () => {
-          const outcome = cancelOutcome(tracker);
-          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
-          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
-        },
-        redactProvider,
-      );
-    }
 
-    // Gemini must win over the OpenAI bridge on the way back too. planUpstreamWire
-    // labels Antigravity as wire=openai + bridge=to-openai for Responses clients, but
-    // the upstream still answers in Gemini shape. Parsing that as Chat Completions
-    // yields empty `output: []` / a lone response.completed — Codex then shows "done"
-    // with no assistant text.
-    if (geminiWire) {
-      if (clientKind === "responses") {
-        // Antigravity answers in Gemini shape; fold to chat then to Responses SSE/JSON.
+      // Gemini must win over the OpenAI bridge on the way back too. planUpstreamWire
+      // labels Antigravity as wire=openai + bridge=to-openai for Responses clients, but
+      // the upstream still answers in Gemini shape. Parsing that as Chat Completions
+      // yields empty `output: []` / a lone response.completed — Codex then shows "done"
+      // with no assistant text.
+      if (geminiWire) {
+        if (clientKind === "responses") {
+          // Antigravity answers in Gemini shape; fold to chat then to Responses SSE/JSON.
+          if (!upstreamStream) {
+            const json = (await upstream.json()) as Record<string, unknown>;
+            const response = unwrapGemini(json);
+            const chat = geminiChatCompletion(response, decision.model);
+            const usage = geminiUsage(response.usageMetadata);
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+            return c.json(
+              chatJsonToResponse(chat, {
+                model: decision.model,
+                session: decision.session,
+                started,
+                usage,
+              }),
+              200,
+              decisionHeaders(decision, meta.retries),
+            );
+          }
+          // Stream Gemini → chat SSE → Responses SSE.
+          const usage = emptyUsage();
+          const toChat = geminiToChatStream(decision.model, (finalUsage) => {
+            Object.assign(usage, finalUsage);
+          });
+          const toResponses = chatToResponsesStream(decision.model, (result) => {
+            Object.assign(usage, result.usage);
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          });
+          const body = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
+          return streamResponse(
+            body,
+            meta,
+            decisionHeaders(decision, meta.retries),
+            "text/event-stream",
+            undefined,
+            redactProvider,
+          );
+        }
         if (!upstreamStream) {
           const json = (await upstream.json()) as Record<string, unknown>;
           const response = unwrapGemini(json);
-          const chat = geminiChatCompletion(response, decision.model);
           const usage = geminiUsage(response.usageMetadata);
           const cost = costOf(decision.model, usage, new Date(), decision.provider);
           record(meta, 200, usage, cost.usd, cost.known);
           return c.json(
-            chatJsonToResponse(chat, {
+            geminiChatCompletion(response, decision.model),
+            200,
+            decisionHeaders(decision, meta.retries),
+          );
+        }
+        const usage = emptyUsage();
+        const tracker = trackEvents();
+        const transform = geminiToChatStream(
+          decision.model,
+          (finalUsage) => {
+            Object.assign(usage, finalUsage);
+            const cost = costOf(decision.model, usage, new Date(), decision.provider);
+            record(meta, 200, usage, cost.usd, cost.known);
+          },
+          (event) => tracker.feed(event),
+        );
+        return streamResponse(
+          upstream.body?.pipeThrough(transform) ?? null,
+          meta,
+          decisionHeaders(decision, meta.retries),
+          "text/event-stream",
+          () => {
+            const outcome = cancelOutcome(tracker);
+            const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+            record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
+          },
+          redactProvider,
+        );
+      }
+
+      if (upstreamKind === "openai" && bridgeToOpenAI) {
+        if (clientKind === "responses") {
+          if (clientStream) {
+            const usage = emptyUsage();
+            const responsesBridge = new ChatToResponsesBridge(decision.model);
+            const transform = chatToResponsesStream(
+              decision.model,
+              (result) => {
+                Object.assign(usage, result.usage);
+                // The bridge closes the turn softly for the client; the ledger must still record
+                // the real upstream failure rather than a clean 200.
+                if (result.failure) {
+                  record(meta, 502, usage, null, true, result.failure);
+                  return;
+                }
+                const cost = costOf(decision.model, usage, new Date(), decision.provider);
+                record(meta, 200, usage, cost.usd, cost.known);
+              },
+              responsesBridge,
+            );
+            return streamResponse(
+              upstream.body?.pipeThrough(transform) ?? null,
+              meta,
+              decisionHeaders(decision, meta.retries),
+              "text/event-stream",
+              () => {
+                const outcome = cancelOutcome({
+                  delivered: responsesBridge.delivered,
+                  usage: responsesBridge.seenUsage,
+                });
+                const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
+                record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
+              },
+              redactProvider,
+            );
+          }
+          const json = (await upstream.json()) as Record<string, unknown>;
+          const usage = openaiUsage(json.usage);
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+          return c.json(
+            chatJsonToResponse(json, {
               model: decision.model,
               session: decision.session,
               started,
@@ -1874,99 +1986,6 @@ async function forward(
             }),
             200,
             decisionHeaders(decision, meta.retries),
-          );
-        }
-        // Stream Gemini → chat SSE → Responses SSE.
-        const usage = emptyUsage();
-        const toChat = geminiToChatStream(decision.model, (finalUsage) => {
-          Object.assign(usage, finalUsage);
-        });
-        const toResponses = chatToResponsesStream(decision.model, (result) => {
-          Object.assign(usage, result.usage);
-          const cost = costOf(decision.model, usage, new Date(), decision.provider);
-          record(meta, 200, usage, cost.usd, cost.known);
-        });
-        const body = upstream.body?.pipeThrough(toChat).pipeThrough(toResponses) ?? null;
-        return streamResponse(
-          body,
-          meta,
-          decisionHeaders(decision, meta.retries),
-          "text/event-stream",
-          undefined,
-          redactProvider,
-        );
-      }
-      if (!upstreamStream) {
-        const json = (await upstream.json()) as Record<string, unknown>;
-        const response = unwrapGemini(json);
-        const usage = geminiUsage(response.usageMetadata);
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-        return c.json(
-          geminiChatCompletion(response, decision.model),
-          200,
-          decisionHeaders(decision, meta.retries),
-        );
-      }
-      const usage = emptyUsage();
-      const tracker = trackEvents();
-      const transform = geminiToChatStream(
-        decision.model,
-        (finalUsage) => {
-          Object.assign(usage, finalUsage);
-          const cost = costOf(decision.model, usage, new Date(), decision.provider);
-          record(meta, 200, usage, cost.usd, cost.known);
-        },
-        (event) => tracker.feed(event),
-      );
-      return streamResponse(
-        upstream.body?.pipeThrough(transform) ?? null,
-        meta,
-        decisionHeaders(decision, meta.retries),
-        "text/event-stream",
-        () => {
-          const outcome = cancelOutcome(tracker);
-          const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
-          record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
-        },
-        redactProvider,
-      );
-    }
-
-    if (upstreamKind === "openai" && bridgeToOpenAI) {
-      if (clientKind === "responses") {
-        if (clientStream) {
-          const usage = emptyUsage();
-          const responsesBridge = new ChatToResponsesBridge(decision.model);
-          const transform = chatToResponsesStream(
-            decision.model,
-            (result) => {
-              Object.assign(usage, result.usage);
-              // The bridge closes the turn softly for the client; the ledger must still record
-              // the real upstream failure rather than a clean 200.
-              if (result.failure) {
-                record(meta, 502, usage, null, true, result.failure);
-                return;
-              }
-              const cost = costOf(decision.model, usage, new Date(), decision.provider);
-              record(meta, 200, usage, cost.usd, cost.known);
-            },
-            responsesBridge,
-          );
-          return streamResponse(
-            upstream.body?.pipeThrough(transform) ?? null,
-            meta,
-            decisionHeaders(decision, meta.retries),
-            "text/event-stream",
-            () => {
-              const outcome = cancelOutcome({
-                delivered: responsesBridge.delivered,
-                usage: responsesBridge.seenUsage,
-              });
-              const cost = costOf(decision.model, outcome.usage, new Date(), decision.provider);
-              record(meta, outcome.status, outcome.usage, cost.usd, cost.known, outcome.error);
-            },
-            redactProvider,
           );
         }
         const json = (await upstream.json()) as Record<string, unknown>;
@@ -1974,256 +1993,242 @@ async function forward(
         const cost = costOf(decision.model, usage, new Date(), decision.provider);
         record(meta, 200, usage, cost.usd, cost.known);
         return c.json(
-          chatJsonToResponse(json, {
-            model: decision.model,
-            session: decision.session,
-            started,
-            usage,
-          }),
+          chatToAnthropicMessage(json, decision.model),
           200,
           decisionHeaders(decision, meta.retries),
         );
       }
-      const json = (await upstream.json()) as Record<string, unknown>;
-      const usage = openaiUsage(json.usage);
-      const cost = costOf(decision.model, usage, new Date(), decision.provider);
-      record(meta, 200, usage, cost.usd, cost.known);
-      return c.json(
-        chatToAnthropicMessage(json, decision.model),
-        200,
-        decisionHeaders(decision, meta.retries),
-      );
-    }
 
-    if (!upstreamStream && upstreamKind !== "responses") {
-      let json = (await upstream.json()) as Record<string, unknown>;
-      if (passbackReasoning && clientKind === "openai") {
-        rememberFromChatCompletion(json, passbackMessages, decision.session);
+      if (!upstreamStream && upstreamKind !== "responses") {
+        let json = (await upstream.json()) as Record<string, unknown>;
+        if (passbackReasoning && clientKind === "openai") {
+          rememberFromChatCompletion(json, passbackMessages, decision.session);
+        }
+        if (clientKind === "openai") {
+          json = sanitizeOpenAIChatResponse(json);
+        }
+        const usage =
+          clientKind === "openai" ? openaiUsage(json.usage) : anthropicUsage(json.usage);
+        const cost = costOf(decision.model, usage, new Date(), decision.provider);
+        record(meta, 200, usage, cost.usd, cost.known);
+        return c.json(json, 200, decisionHeaders(decision, meta.retries));
       }
-      if (clientKind === "openai") {
-        json = sanitizeOpenAIChatResponse(json);
-      }
-      const usage = clientKind === "openai" ? openaiUsage(json.usage) : anthropicUsage(json.usage);
-      const cost = costOf(decision.model, usage, new Date(), decision.provider);
-      record(meta, 200, usage, cost.usd, cost.known);
-      return c.json(json, 200, decisionHeaders(decision, meta.retries));
-    }
 
-    // WorkBuddy forces upstream streaming; fold SSE → JSON for non-stream OpenAI clients.
-    if (workbuddyWire && upstreamStream && !clientStream && upstreamKind === "openai") {
-      const json = await foldOpenAIChatStream(upstream.body, decision.model);
-      const sanitized = sanitizeOpenAIChatResponse(json);
-      if (passbackReasoning) {
-        rememberFromChatCompletion(sanitized, passbackMessages, decision.session);
+      // WorkBuddy forces upstream streaming; fold SSE → JSON for non-stream OpenAI clients.
+      if (workbuddyWire && upstreamStream && !clientStream && upstreamKind === "openai") {
+        const json = await foldOpenAIChatStream(upstream.body, decision.model);
+        const sanitized = sanitizeOpenAIChatResponse(json);
+        if (passbackReasoning) {
+          rememberFromChatCompletion(sanitized, passbackMessages, decision.session);
+        }
+        const usage = openaiUsage(sanitized.usage);
+        const cost = costOf(decision.model, usage, new Date(), decision.provider);
+        record(meta, 200, usage, cost.usd, cost.known);
+        return c.json(sanitized, 200, decisionHeaders(decision, meta.retries));
       }
-      const usage = openaiUsage(sanitized.usage);
-      const cost = costOf(decision.model, usage, new Date(), decision.provider);
-      record(meta, 200, usage, cost.usd, cost.known);
-      return c.json(sanitized, 200, decisionHeaders(decision, meta.retries));
-    }
 
-    if (upstreamKind === "responses") {
-      if (translated) {
-        if (clientStream) {
-          const transform = responsesToChatStream(decision.model, (result) => {
-            if (result.failure) {
-              record(meta, 502, result.usage, null, true, result.failure);
-              return;
+      if (upstreamKind === "responses") {
+        if (translated) {
+          if (clientStream) {
+            const transform = responsesToChatStream(decision.model, (result) => {
+              if (result.failure) {
+                record(meta, 502, result.usage, null, true, result.failure);
+                return;
+              }
+              const cost = costOf(decision.model, result.usage, new Date(), decision.provider);
+              record(meta, 200, result.usage, cost.usd, cost.known);
+            });
+            return streamResponse(
+              upstream.body?.pipeThrough(transform) ?? null,
+              meta,
+              decisionHeaders(decision, meta.retries),
+            );
+          }
+          const text = await upstream.text();
+          const { events } = splitSseEvents(text);
+          const completed = [...events]
+            .reverse()
+            .find((event) => event.type === "response.completed");
+          const failure = responsesErrorMessage(events);
+          if (!completed || failure) {
+            const message = failure ?? "upstream stream ended before completion";
+            // The folded stream carries a `response.failed` rather than an HTTP error, so the
+            // refusal hides inside a 200. Read it like the body it is: a quota verdict still
+            // fails the provider over, while a truncation is surfaced as before.
+            if (messageSpendSignal(message)) {
+              attemptOk = false;
+              markProviderSpent(provider, { label: "limit" });
+              if (await quotaFailover()) continue;
             }
-            const cost = costOf(decision.model, result.usage, new Date(), decision.provider);
-            record(meta, 200, result.usage, cost.usd, cost.known);
-          });
-          return streamResponse(
-            upstream.body?.pipeThrough(transform) ?? null,
-            meta,
+            record(meta, 502, emptyUsage(), null, true, message);
+            return c.json({ error: { message, type: "jevonian_error" } }, 502);
+          }
+          const response = asRecord(completed.response);
+          const result = chatResultFromResponse(response);
+          const cost = costOf(decision.model, result.usage, new Date(), decision.provider);
+          record(meta, 200, result.usage, cost.usd, cost.known);
+          return c.json(
+            chatCompletionFrom(
+              result,
+              decision.model,
+              `chatcmpl-${decision.session.slice(0, 16)}`,
+              Math.floor(started / 1000),
+            ),
+            200,
             decisionHeaders(decision, meta.retries),
           );
         }
-        const text = await upstream.text();
-        const { events } = splitSseEvents(text);
-        const completed = [...events]
-          .reverse()
-          .find((event) => event.type === "response.completed");
-        const failure = responsesErrorMessage(events);
-        if (!completed || failure) {
-          const message = failure ?? "upstream stream ended before completion";
-          // The folded stream carries a `response.failed` rather than an HTTP error, so the
-          // refusal hides inside a 200. Read it like the body it is: a quota verdict still
-          // fails the provider over, while a truncation is surfaced as before.
-          if (messageSpendSignal(message)) {
-            attemptOk = false;
-            markProviderSpent(provider, { label: "limit" });
-            if (await quotaFailover()) continue;
+
+        if (!clientStream) {
+          const text = await upstream.text();
+          const { events } = splitSseEvents(text);
+          const completed = [...events]
+            .reverse()
+            .find((event) => event.type === "response.completed");
+          const failure = responsesErrorMessage(events);
+          if (!completed || failure) {
+            const message = failure ?? "upstream stream ended before completion";
+            if (messageSpendSignal(message)) {
+              attemptOk = false;
+              markProviderSpent(provider, { label: "limit" });
+              if (await quotaFailover()) continue;
+            }
+            record(meta, 502, emptyUsage(), null, true, message);
+            return c.json({ error: { message, type: "jevonian_error" } }, 502);
           }
-          record(meta, 502, emptyUsage(), null, true, message);
-          return c.json({ error: { message, type: "jevonian_error" } }, 502);
+          const response = repairResponsesOutput(asRecord(completed.response), events);
+          const usage = responsesUsage(response.usage);
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+          return c.json(response, 200, decisionHeaders(decision, meta.retries));
         }
-        const response = asRecord(completed.response);
-        const result = chatResultFromResponse(response);
-        const cost = costOf(decision.model, result.usage, new Date(), decision.provider);
-        record(meta, 200, result.usage, cost.usd, cost.known);
-        return c.json(
-          chatCompletionFrom(
-            result,
-            decision.model,
-            `chatcmpl-${decision.session.slice(0, 16)}`,
-            Math.floor(started / 1000),
-          ),
-          200,
+
+        const usage = emptyUsage();
+        const transform = responsesPassthroughRepairStream((response) => {
+          Object.assign(usage, responsesUsage(response.usage));
+          const cost = costOf(decision.model, usage, new Date(), decision.provider);
+          record(meta, 200, usage, cost.usd, cost.known);
+        });
+        return streamResponse(
+          upstream.body?.pipeThrough(transform) ?? null,
+          meta,
           decisionHeaders(decision, meta.retries),
+          upstream.headers.get("content-type") ?? "text/event-stream",
+          undefined,
+          redactProvider,
         );
       }
 
-      if (!clientStream) {
-        const text = await upstream.text();
-        const { events } = splitSseEvents(text);
-        const completed = [...events]
-          .reverse()
-          .find((event) => event.type === "response.completed");
-        const failure = responsesErrorMessage(events);
-        if (!completed || failure) {
-          const message = failure ?? "upstream stream ended before completion";
-          if (messageSpendSignal(message)) {
-            attemptOk = false;
-            markProviderSpent(provider, { label: "limit" });
-            if (await quotaFailover()) continue;
-          }
-          record(meta, 502, emptyUsage(), null, true, message);
-          return c.json({ error: { message, type: "jevonian_error" } }, 502);
-        }
-        const response = repairResponsesOutput(asRecord(completed.response), events);
-        const usage = responsesUsage(response.usage);
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-        return c.json(response, 200, decisionHeaders(decision, meta.retries));
-      }
-
       const usage = emptyUsage();
-      const transform = responsesPassthroughRepairStream((response) => {
-        Object.assign(usage, responsesUsage(response.usage));
-        const cost = costOf(decision.model, usage, new Date(), decision.provider);
-        record(meta, 200, usage, cost.usd, cost.known);
-      });
-      return streamResponse(
-        upstream.body?.pipeThrough(transform) ?? null,
-        meta,
-        decisionHeaders(decision, meta.retries),
-        upstream.headers.get("content-type") ?? "text/event-stream",
-        undefined,
-        redactProvider,
-      );
-    }
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let hasDelivered = false;
+      let finished = false;
+      let charsOut = 0;
 
-    const usage = emptyUsage();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let hasDelivered = false;
-    let finished = false;
-    let charsOut = 0;
-
-    const consume = (text: string): void => {
-      buffer += text;
-      let index = buffer.indexOf("\n\n");
-      while (index !== -1) {
-        const event = buffer.slice(0, index);
-        buffer = buffer.slice(index + 2);
-        for (const line of event.split("\n")) {
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") {
-            finished = true;
-            continue;
-          }
-          if (data.length === 0) continue;
-          try {
-            const parsed = JSON.parse(data) as Record<string, unknown>;
-            if (clientKind === "openai") {
-              if (parsed.usage !== undefined) {
-                Object.assign(usage, openaiUsage(parsed.usage));
-              }
-              const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
-              if (choices && choices.length > 0) {
-                const choice = choices[0];
-                const delta = choice.delta as Record<string, unknown> | undefined;
-                if (delta) {
-                  // A `role`-only or empty first delta is not delivered content — count only
-                  // fields a client actually renders, so a cancel right after the opener still
-                  // reads as an abandoned request rather than a finished turn.
-                  const isContent =
-                    typeof delta.content === "string" ||
-                    typeof delta.reasoning_content === "string" ||
-                    delta.tool_calls !== undefined;
-                  if (isContent) hasDelivered = true;
-                  if (typeof delta.content === "string") charsOut += delta.content.length;
-                  if (typeof delta.reasoning_content === "string")
-                    charsOut += delta.reasoning_content.length;
-                  if (delta.tool_calls) charsOut += JSON.stringify(delta.tool_calls).length;
+      const consume = (text: string): void => {
+        buffer += text;
+        let index = buffer.indexOf("\n\n");
+        while (index !== -1) {
+          const event = buffer.slice(0, index);
+          buffer = buffer.slice(index + 2);
+          for (const line of event.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (data === "[DONE]") {
+              finished = true;
+              continue;
+            }
+            if (data.length === 0) continue;
+            try {
+              const parsed = JSON.parse(data) as Record<string, unknown>;
+              if (clientKind === "openai") {
+                if (parsed.usage !== undefined) {
+                  Object.assign(usage, openaiUsage(parsed.usage));
                 }
-                if (choice.finish_reason) {
+                const choices = parsed.choices as Array<Record<string, unknown>> | undefined;
+                if (choices && choices.length > 0) {
+                  const choice = choices[0];
+                  const delta = choice.delta as Record<string, unknown> | undefined;
+                  if (delta) {
+                    // A `role`-only or empty first delta is not delivered content — count only
+                    // fields a client actually renders, so a cancel right after the opener still
+                    // reads as an abandoned request rather than a finished turn.
+                    const isContent =
+                      typeof delta.content === "string" ||
+                      typeof delta.reasoning_content === "string" ||
+                      delta.tool_calls !== undefined;
+                    if (isContent) hasDelivered = true;
+                    if (typeof delta.content === "string") charsOut += delta.content.length;
+                    if (typeof delta.reasoning_content === "string")
+                      charsOut += delta.reasoning_content.length;
+                    if (delta.tool_calls) charsOut += JSON.stringify(delta.tool_calls).length;
+                  }
+                  if (choice.finish_reason) {
+                    hasDelivered = true;
+                    finished = true;
+                  }
+                }
+              }
+              if (clientKind === "anthropic") {
+                applyAnthropicEvent(parsed, usage);
+                if (parsed.type === "content_block_delta" || parsed.type === "message_delta") {
+                  hasDelivered = true;
+                }
+                if (parsed.type === "message_stop") {
                   hasDelivered = true;
                   finished = true;
                 }
               }
+            } catch {
+              continue;
             }
-            if (clientKind === "anthropic") {
-              applyAnthropicEvent(parsed, usage);
-              if (parsed.type === "content_block_delta" || parsed.type === "message_delta") {
-                hasDelivered = true;
-              }
-              if (parsed.type === "message_stop") {
-                hasDelivered = true;
-                finished = true;
-              }
-            }
-          } catch {
-            continue;
           }
+          index = buffer.indexOf("\n\n");
         }
-        index = buffer.indexOf("\n\n");
+      };
+
+      const finalize = (status = 200, error?: string): void => {
+        consume(decoder.decode());
+        if (usage.output === 0 && charsOut > 0) {
+          usage.output = Math.max(1, Math.round(charsOut / 3.5));
+        }
+        const cost = costOf(decision.model, usage, new Date(), decision.provider);
+        record(meta, status, usage, cost.usd, cost.known, error);
+      };
+
+      const usageTransform = new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          controller.enqueue(chunk);
+          consume(decoder.decode(chunk, { stream: true }));
+        },
+        flush() {
+          finalize(200);
+        },
+      });
+
+      let stream = upstream.body;
+      if (passbackReasoning && clientKind === "openai" && stream) {
+        stream = stream.pipeThrough(reasoningCaptureTransform(passbackMessages, decision.session));
       }
-    };
-
-    const finalize = (status = 200, error?: string): void => {
-      consume(decoder.decode());
-      if (usage.output === 0 && charsOut > 0) {
-        usage.output = Math.max(1, Math.round(charsOut / 3.5));
+      if (clientKind === "openai" && stream) {
+        stream = stream.pipeThrough(sanitizeOpenAIChatStream());
       }
-      const cost = costOf(decision.model, usage, new Date(), decision.provider);
-      record(meta, status, usage, cost.usd, cost.known, error);
-    };
+      stream = stream?.pipeThrough(usageTransform) ?? null;
 
-    const usageTransform = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        consume(decoder.decode(chunk, { stream: true }));
-      },
-      flush() {
-        finalize(200);
-      },
-    });
+      const onCancel = (): void => {
+        const outcome = cancelOutcome({ delivered: finished || hasDelivered, usage });
+        finalize(outcome.status, outcome.error);
+      };
 
-    let stream = upstream.body;
-    if (passbackReasoning && clientKind === "openai" && stream) {
-      stream = stream.pipeThrough(reasoningCaptureTransform(passbackMessages, decision.session));
-    }
-    if (clientKind === "openai" && stream) {
-      stream = stream.pipeThrough(sanitizeOpenAIChatStream());
-    }
-    stream = stream?.pipeThrough(usageTransform) ?? null;
-
-    const onCancel = (): void => {
-      const outcome = cancelOutcome({ delivered: finished || hasDelivered, usage });
-      finalize(outcome.status, outcome.error);
-    };
-
-    return streamResponse(
-      stream,
-      meta,
-      decisionHeaders(decision, meta.retries),
-      upstream.headers.get("content-type") ?? "text/event-stream",
-      onCancel,
-      redactProvider,
-    );
+      return streamResponse(
+        stream,
+        meta,
+        decisionHeaders(decision, meta.retries),
+        upstream.headers.get("content-type") ?? "text/event-stream",
+        onCancel,
+        redactProvider,
+      );
     } finally {
       endProviderAttempt(provider.name, attemptOk);
     }
