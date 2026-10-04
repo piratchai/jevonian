@@ -6,6 +6,7 @@ import type { Config, Provider, ProviderQuotaSpec } from "./config";
 import { apiKeySource } from "./config";
 import { fetchDevinUserStatus } from "./devin";
 import { readRecords, type LedgerRecord } from "./ledger";
+import { ledgerSpendIndex } from "./ledger-index";
 import { resolveOAuthToken } from "./oauth";
 import { dataDir } from "./paths";
 import { fetchWorkbuddyQuota, resolveWorkbuddyCreds, WORKBUDDY_AI_ENDPOINT } from "./workbuddy";
@@ -666,67 +667,50 @@ export function markProviderSpent(
 /**
  * Per-ledger-snapshot spend cache.
  *
- * `spendOf` walks the whole ledger (215k rows on the live file) once per provider, and routing
- * asks for it per candidate — a dozen times a turn across ten providers. The ledger is memoized
- * for {@link LEDGER_TTL_MS}, but that cache is now mutated in place by our own appends, so the
- * array reference alone no longer identifies a snapshot. The pair (reference, length) does: an
- * append grows the length, and a rewrite that replaces the file produces a new array.
+ * `spendOf` used to walk the whole ledger (240k rows on the live file) once per provider, and
+ * routing asks for it per candidate — a dozen times a turn across ten providers. That scan is
+ * gone: the incremental rollup in `./ledger-index` is fed by `appendRecord`, so a window is
+ * summed from hourly buckets instead of rows.
  *
- * The windows are *rolling* (`age = now - ts`), so the snapshot alone is not a complete key:
- * two reads of the same records a minute apart must return different spends once a window
- * boundary passes. Without a time component a provider pinned at "exhausted" would stay
- * exhausted until an unrelated append grew `length`. `computedAt` re-derives each window from
- * `now`, and the entry is rebuilt once {@link SPEND_CACHE_TTL_MS} has elapsed.
+ * This cache stays on top for one reason: the windows are *rolling*, and a `providerQuotaHealth`
+ * call inside one turn must see the same numbers even when a record landed mid-turn. It is keyed
+ * on the rollup's record count rather than the ledger array, so one session's append can no
+ * longer invalidate every other session's answer.
  */
 const SPEND_CACHE_TTL_MS = 60_000;
 
+const HOUR_MS = 3_600_000;
+
 let spendCache:
   | {
-      records: LedgerRecord[];
-      length: number;
+      count: number;
       computedAt: number;
       byProvider: Map<string, ProviderSpend>;
     }
   | undefined;
 
 function spendOf(records: LedgerRecord[], provider: string): ProviderSpend {
+  void records;
   const now = clock();
   if (
-    spendCache?.records !== records ||
-    spendCache.length !== records.length ||
+    !spendCache ||
+    spendCache.count !== ledgerSpendIndex.size ||
     now - spendCache.computedAt >= SPEND_CACHE_TTL_MS
   ) {
-    spendCache = { records, length: records.length, computedAt: now, byProvider: new Map() };
+    spendCache = { count: ledgerSpendIndex.size, computedAt: now, byProvider: new Map() };
   }
   const cached = spendCache.byProvider.get(provider);
   if (cached) return cached;
-  const spend: ProviderSpend = {
-    fiveHourUsd: 0,
-    dayUsd: 0,
-    weekUsd: 0,
-    monthUsd: 0,
-    monthRequests: 0,
-  };
-  for (const record of records) {
-    if (record.provider !== provider) continue;
-    const at = Date.parse(record.ts);
-    if (Number.isNaN(at)) continue;
-    const age = now - at;
-    const cost = record.costUsd ?? 0;
-    if (age <= 5 * 3_600_000) spend.fiveHourUsd += cost;
-    if (age <= 86_400_000) spend.dayUsd += cost;
-    if (age <= 7 * 86_400_000) spend.weekUsd += cost;
-    if (age <= 30 * 86_400_000) {
-      spend.monthUsd += cost;
-      spend.monthRequests += 1;
-    }
-  }
+  const fiveHour = ledgerSpendIndex.providerWindow(provider, 5 * HOUR_MS, now);
+  const day = ledgerSpendIndex.providerWindow(provider, 86_400_000, now);
+  const week = ledgerSpendIndex.providerWindow(provider, 7 * 86_400_000, now);
+  const month = ledgerSpendIndex.providerWindow(provider, 30 * 86_400_000, now);
   const rounded: ProviderSpend = {
-    fiveHourUsd: round(spend.fiveHourUsd),
-    dayUsd: round(spend.dayUsd),
-    weekUsd: round(spend.weekUsd),
-    monthUsd: round(spend.monthUsd),
-    monthRequests: spend.monthRequests,
+    fiveHourUsd: round(fiveHour.costUsd),
+    dayUsd: round(day.costUsd),
+    weekUsd: round(week.costUsd),
+    monthUsd: round(month.costUsd),
+    monthRequests: month.requests,
   };
   spendCache.byProvider.set(provider, rounded);
   return rounded;

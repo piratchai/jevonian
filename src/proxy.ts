@@ -2,6 +2,9 @@ import { execFileSync } from "node:child_process";
 
 import { EnvHttpProxyAgent, setGlobalDispatcher } from "undici";
 
+import { providerConcurrency } from "./provider-guard";
+import { upstreamTimeouts } from "./upstream-timeout";
+
 /**
  * The proxy Jevonian's egress should use.
  *
@@ -239,8 +242,28 @@ export function proxyAgentOptions(options?: {
   noProxy?: string;
   keepAliveTimeout: number;
   allowH2: boolean;
+  /** Cap per-origin sockets so one hung host cannot absorb the whole pool. */
+  connections: number;
+  /** TCP/TLS (or proxy CONNECT) handshake ceiling, in milliseconds. */
+  connectTimeout: number;
+  /** Time to the response status line, in milliseconds. */
+  headersTimeout: number;
+  /**
+   * Idle body timeout. 0 disables it: a long SSE stream must not be killed by a body clock;
+   * stream silence is enforced by {@link guardUpstreamStream} instead.
+   */
+  bodyTimeout: number;
 } {
-  return { ...options, keepAliveTimeout: KEEP_ALIVE_TIMEOUT_MS, allowH2: ALLOW_H2 };
+  const timeouts = upstreamTimeouts();
+  return {
+    ...options,
+    keepAliveTimeout: KEEP_ALIVE_TIMEOUT_MS,
+    allowH2: ALLOW_H2,
+    connections: providerConcurrency(),
+    connectTimeout: timeouts.connectMs,
+    headersTimeout: timeouts.headersMs,
+    bodyTimeout: 0,
+  };
 }
 
 function installProxyAgent(options?: {

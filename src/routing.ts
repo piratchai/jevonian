@@ -1,5 +1,12 @@
 import { saveBody } from "./bodies";
-import { askJevOutcome, findJevChannel, type BrainVerdict } from "./brain";
+import {
+  askJevOutcome,
+  brainBreakerOpen,
+  findJevChannel,
+  recordBrainOutcome,
+  type BrainVerdict,
+} from "./brain";
+import { breakerIsOpen, inFlightCount, providerConcurrency } from "./provider-guard";
 import {
   clampEffort,
   effectiveCapabilities,
@@ -34,7 +41,7 @@ import {
   providerQuotaHealth,
   type QuotaStatus,
 } from "./quota";
-import { configuredRetries, withRetry } from "./retry";
+import { withRetry } from "./retry";
 import { sessionFingerprint } from "./session";
 import type { WeighedCandidate } from "./trace";
 import { canServeClient } from "./wire";
@@ -1031,8 +1038,13 @@ function standingOf(
   const standing: QuotaStanding = {
     used,
     renews: windows.map((window) => window.resetsAt),
+    // A provider whose breaker is open, or whose in-flight slots are full, is treated like a
+    // spent one for ordering: the turn should prefer a host that can actually accept it.
     spent:
-      health.status === "exhausted" || providerModelExhausted(provider, model, { lowPercent, now }),
+      health.status === "exhausted" ||
+      providerModelExhausted(provider, model, { lowPercent, now }) ||
+      breakerIsOpen(provider.name, now) ||
+      inFlightCount(provider.name) >= providerConcurrency(),
     low: health.status === "low",
   };
   cache?.set(key, standing);
@@ -2134,7 +2146,9 @@ export async function decideRoute(
   //
   // Non-retryable channel failures (402 billing, 403 WAF) are skipped for the rest of this
   // turn so we do not hammer an empty OpenRouter key or a blocked TypeSafe payload.
-  const brainBudget = configuredRetries();
+  // One round of channels, not the full upstream budget: a brain that is actually down must
+  // fail fast into the heuristic rather than add 15s × N to every turn's start.
+  const brainBudget = 1;
   const skipChannels = new Set<string>();
   for (const entry of brains) {
     // Same OpenRouter key often powers both the model provider and the brain channel. If the
@@ -2147,75 +2161,81 @@ export async function decideRoute(
       skipChannels.add(entry.channel);
     }
   }
-  let best = await withRetry(
-    async () => {
-      for (const entry of brains) {
-        if (skipChannels.has(entry.channel)) continue;
-        const brainStarted = Date.now();
-        const ready: Record<string, unknown> = {
-          ...brainState,
-          routings: routingPayload,
-          // Keep a flat candidates list for older brain stubs / probes that still read it.
-          candidates: flatOffered,
-          ...(brainPicksEffort ? {} : { picks_effort: false }),
-        };
-        const state = brainStateFor(entry, ready, transcript);
-        // The failure rides on this call's own result: a concurrent turn asking the same brain
-        // cannot swap its 402 in for ours.
-        const outcome = await askJevOutcome({
-          brain: entry,
-          state,
-          ...(brainPicksEffort ? {} : { modelOnly: true }),
-        });
-        const verdict = "verdict" in outcome ? outcome.verdict : undefined;
-        const failure = "failure" in outcome ? outcome.failure : undefined;
-        recordBrainCall({
-          config,
-          session,
-          ...(input.requestId ? { requestId: input.requestId } : {}),
-          ...(input.keyId ? { keyId: input.keyId } : {}),
-          ...(input.keyName ? { keyName: input.keyName } : {}),
-          started: brainStarted,
-          state,
-          verdict,
-          brain: entry,
-          ...(failure?.error ? { error: failure.error } : {}),
-        });
-        if (!verdict) {
-          // 402 = no credits; 403 = WAF/auth. Retrying the same payload against the same
-          // host cannot recover within this turn.
-          if (failure?.status === 402 || failure?.status === 403) {
-            skipChannels.add(entry.channel);
-          }
-          if (failure?.status === 402) {
-            const linked = config.providers.find((provider) => provider.name === entry.channel);
-            if (linked) {
-              captureUsageLimit(linked, 402, failure.error);
-              console.warn(
-                `brain ${entry.channel}: billing exhausted — routing will skip provider "${linked.name}"`,
-              );
+  let best: { verdict: BrainVerdict; channel: string } | undefined;
+  if (brainBreakerOpen()) {
+    console.warn("brain breaker open: skipping brain and using heuristic routing");
+  } else {
+    best = await withRetry(
+      async () => {
+        for (const entry of brains) {
+          if (skipChannels.has(entry.channel)) continue;
+          const brainStarted = Date.now();
+          const ready: Record<string, unknown> = {
+            ...brainState,
+            routings: routingPayload,
+            // Keep a flat candidates list for older brain stubs / probes that still read it.
+            candidates: flatOffered,
+            ...(brainPicksEffort ? {} : { picks_effort: false }),
+          };
+          const state = brainStateFor(entry, ready, transcript);
+          // The failure rides on this call's own result: a concurrent turn asking the same brain
+          // cannot swap its 402 in for ours.
+          const outcome = await askJevOutcome({
+            brain: entry,
+            state,
+            ...(brainPicksEffort ? {} : { modelOnly: true }),
+          });
+          const verdict = "verdict" in outcome ? outcome.verdict : undefined;
+          const failure = "failure" in outcome ? outcome.failure : undefined;
+          recordBrainCall({
+            config,
+            session,
+            ...(input.requestId ? { requestId: input.requestId } : {}),
+            ...(input.keyId ? { keyId: input.keyId } : {}),
+            ...(input.keyName ? { keyName: input.keyName } : {}),
+            started: brainStarted,
+            state,
+            verdict,
+            brain: entry,
+            ...(failure?.error ? { error: failure.error } : {}),
+          });
+          if (!verdict) {
+            // 402 = no credits; 403 = WAF/auth. Retrying the same payload against the same
+            // host cannot recover within this turn.
+            if (failure?.status === 402 || failure?.status === 403) {
+              skipChannels.add(entry.channel);
             }
+            if (failure?.status === 402) {
+              const linked = config.providers.find((provider) => provider.name === entry.channel);
+              if (linked) {
+                captureUsageLimit(linked, 402, failure.error);
+                console.warn(
+                  `brain ${entry.channel}: billing exhausted — routing will skip provider "${linked.name}"`,
+                );
+              }
+            }
+            continue;
           }
-          continue;
+          const source: BrainSource =
+            verdict.confidence < entry.minConfidence ? "jev-low-confidence" : "jev";
+          applyVerdict(verdict, entry.channel, source);
+          if (source === "jev-low-confidence") reason = `${reason}:brain-low-confidence`;
+          return { verdict, channel: entry.channel };
         }
-        const source: BrainSource =
-          verdict.confidence < entry.minConfidence ? "jev-low-confidence" : "jev";
-        applyVerdict(verdict, entry.channel, source);
-        if (source === "jev-low-confidence") reason = `${reason}:brain-low-confidence`;
-        return { verdict, channel: entry.channel };
-      }
-      return undefined;
-    },
-    {
-      attempts: brainBudget + 1,
-      retryWhen: (outcome) => (outcome === undefined ? { status: 502 } : undefined),
-      onRetry: ({ attempt, delayMs }) => {
-        console.warn(
-          `brain unavailable retry ${attempt}/${brainBudget} in ${delayMs}ms: all ${brains.length} channel(s) failed`,
-        );
+        return undefined;
       },
-    },
-  );
+      {
+        attempts: brainBudget + 1,
+        retryWhen: (outcome) => (outcome === undefined ? { status: 502 } : undefined),
+        onRetry: ({ attempt, delayMs }) => {
+          console.warn(
+            `brain unavailable retry ${attempt}/${brainBudget} in ${delayMs}ms: all ${brains.length} channel(s) failed`,
+          );
+        },
+      },
+    );
+    recordBrainOutcome(best !== undefined);
+  }
   if (!best) {
     // Prefer staying up over failing the agent. Cursor maps a brain 502 into a misleading
     // "User Provided API Key Rate Limit Exceeded" toast that freezes the turn; a heuristic

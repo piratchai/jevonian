@@ -193,8 +193,9 @@ describe("upstream retry on transient failure", () => {
     expect(records[0]?.error).toContain("fetch failed");
   });
 
-  it("uses three attempts by default when no budget is configured", async () => {
+  it("uses two same-host attempts by default when no budget is configured", async () => {
     delete process.env.JEVONIAN_UPSTREAM_RETRIES;
+    delete process.env.JEVONIAN_SAME_HOST_RETRIES;
     let hits = 0;
     vi.stubGlobal("fetch", async () => {
       hits += 1;
@@ -205,7 +206,8 @@ describe("upstream retry on transient failure", () => {
     const response = await chatRequest(app);
 
     expect(response.status).toBe(502);
-    expect(hits).toBe(3);
+    // One initial attempt plus one same-host retry; further budget belongs to failover.
+    expect(hits).toBe(2);
   });
 
   it("does not repeat a request the upstream rejected on its merits", async () => {

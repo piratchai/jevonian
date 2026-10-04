@@ -78,8 +78,9 @@ import {
   responsesUsage,
   splitSseEvents,
 } from "./responses";
+import { beginProviderAttempt, endProviderAttempt } from "./provider-guard";
 import {
-  configuredRetries,
+  configuredSameHostRetries,
   describeFailure,
   describeFetchError,
   retryTransient,
@@ -87,6 +88,11 @@ import {
   type RetryAttempt,
   type RetryFailure,
 } from "./retry";
+import {
+  guardUpstreamStream,
+  timeoutController,
+  upstreamTimeouts,
+} from "./upstream-timeout";
 import {
   compactionEstimate,
   decideRoute,
@@ -557,17 +563,30 @@ function describeRetryFailure(failure: RetryFailure): string {
  * A non-ok body is read as part of the attempt rather than by the caller: an unread body holds
  * the pooled socket the next attempt wants, and reading it here means a retried 502 leaves
  * nothing behind. An ok body is left untouched, because it may be an SSE stream.
+ *
+ * Same-host retries are deliberately short: a transport failure is usually a verdict about this
+ * host, and the turn's remaining budget belongs to failover onto a different provider. A stream
+ * waits only for response headers here; the first-byte clock runs after the body arrives.
  */
 async function postUpstream(
   url: string,
   init: RequestInit,
   onRetry: (info: RetryAttempt) => void,
+  options: { stream: boolean } = { stream: false },
 ): Promise<{ response: Response; text: string }> {
-  const retryBudget = configuredRetries();
+  const retryBudget = configuredSameHostRetries();
+  const timeouts = upstreamTimeouts();
+  const budgetMs = options.stream ? timeouts.headersMs : timeouts.totalMs;
+  const phase = options.stream ? "headers" : "total";
   return withRetry(
     async () => {
-      const response = await fetch(url, init);
-      return { response, text: response.ok ? "" : await response.text() };
+      const clock = timeoutController(budgetMs, phase, init.signal);
+      try {
+        const response = await fetch(url, { ...init, signal: clock.signal });
+        return { response, text: response.ok ? "" : await response.text() };
+      } finally {
+        clock.clear();
+      }
     },
     {
       attempts: retryBudget + 1,
@@ -1218,6 +1237,25 @@ async function forward(
     if (!provider) {
       return errorResponse(c, meta, 404, `Provider "${decision.provider}" is not configured`);
     }
+    // Skip a host the breaker has already condemned, or one that is at capacity, before we
+    // burn a try slot on it. The turn's remaining budget belongs to a healthy candidate.
+    const blocked = beginProviderAttempt(provider.name);
+    if (blocked) {
+      if (await quotaFailover()) {
+        if (attemptCount > 0) endTry(requestId, { fail: blocked });
+        continue;
+      }
+      return errorResponse(
+        c,
+        meta,
+        502,
+        `Provider "${provider.name}" is unavailable (${blocked})`,
+      );
+    }
+    // Optimistic until a refusal / transport failure marks the attempt failed. Success paths
+    // leave this true so a half-open probe that lands closes the breaker.
+    let attemptOk = true;
+    try {
     // Every pass through this loop is one upstream attempt. The first is `initial`; a re-route
     // after a refusal or a context retry is a `failover`, which is what the waterfall draws.
     const attemptCause: TryCause = attemptCount === 0 ? "initial" : "failover";
@@ -1386,7 +1424,10 @@ async function forward(
         ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
       });
       if (attempt.error) {
-        if (await rpcRefused(wire, attempt.error)) continue;
+        if (await rpcRefused(wire, attempt.error)) {
+          attemptOk = false;
+          continue;
+        }
         return rpcErrorResponse(wire, meta, clientKind, attempt.error, rpcHeaders());
       }
       const events = attempt.events;
@@ -1404,15 +1445,18 @@ async function forward(
         onFailover: quotaFailover,
         headers: rpcHeaders(),
       });
-      if (delivered.kind === "failover") continue;
+      if (delivered.kind === "failover") {
+        attemptOk = false;
+        continue;
+      }
       return delivered.response;
     }
 
     // A socket reset from a local proxy, a DNS timeout, or a gateway's brief 502 otherwise
     // costs the whole turn — and the same request almost always succeeds on a second attempt.
-    // Every retry is counted onto the turn's ledger record, so a flaky network stays visible
-    // instead of being laundered into an apparent success.
-    const retryBudget = configuredRetries();
+    // Same-host retries are short on purpose: a host that keeps failing should hand the turn
+    // to failover, not burn the whole budget on itself.
+    const retryBudget = configuredSameHostRetries();
     const onRetry = ({ attempt, delayMs, failure }: RetryAttempt): void => {
       meta.retries = (meta.retries ?? 0) + 1;
       // The attempt that just failed is closed here, and the retry that follows is opened as
@@ -1436,6 +1480,7 @@ async function forward(
         upstreamUrl,
         requestInit(auth),
         onRetry,
+        { stream: upstreamStream },
       ));
       if (
         upstream.status === 401 &&
@@ -1451,11 +1496,20 @@ async function forward(
             upstreamUrl,
             requestInit(auth),
             onRetry,
+            { stream: upstreamStream },
           ));
         }
       }
     } catch (error) {
+      // A transport failure is a verdict about this host, not the request: the same body
+      // almost always succeeds on a different provider. Walk the plan before surfacing a 502.
+      attemptOk = false;
       endTry(requestId, { fail: `fetch: ${describeFetchError(error)}`.slice(0, 120) });
+      markProviderSpent(provider, {
+        label: "transport",
+        resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
+      });
+      if (await quotaFailover()) continue;
       return errorResponse(c, meta, 502, `Upstream request failed: ${describeFetchError(error)}`);
     }
 
@@ -1501,6 +1555,7 @@ async function forward(
             upstreamUrl,
             requestInit(auth),
             onRetry,
+            { stream: true },
           ));
           failure = undefined;
           stream = undefined;
@@ -1531,7 +1586,10 @@ async function forward(
           kind: "other" as const,
           message: "Devin returned no stream",
         };
-        if (await rpcRefused(devin, error)) continue;
+        if (await rpcRefused(devin, error)) {
+          attemptOk = false;
+          continue;
+        }
         return rpcErrorResponse(devin, meta, clientKind, error, rpcHeaders());
       }
       const token = auth.token;
@@ -1553,7 +1611,10 @@ async function forward(
       });
       // A non-stream Devin call that was refused mid-answer is re-routed rather than returned,
       // so the client only sees an error once no alternative is left.
-      if (delivered.kind === "failover") continue;
+      if (delivered.kind === "failover") {
+        attemptOk = false;
+        continue;
+      }
       return delivered.response;
     }
 
@@ -1617,6 +1678,7 @@ async function forward(
         });
       }
       if (refused && (await quotaFailover())) {
+        attemptOk = false;
         endTry(requestId, {
           status: upstream.status,
           fail: spent || exhausted ? "quota" : `http-${upstream.status}`,
@@ -1655,6 +1717,39 @@ async function forward(
           ...(quotaFailovers > 0 ? { "x-jevonian-quota-failovers": String(quotaFailovers) } : {}),
         },
       });
+    }
+
+    // A stream that never produces its first byte must fail over *before* the client is
+    // committed to this host. Waiting for the soft-error close used to take 23 minutes.
+    if (upstreamStream && upstream.body) {
+      try {
+        const timeouts = upstreamTimeouts();
+        const guarded = await guardUpstreamStream(upstream.body, {
+          firstByteMs: timeouts.firstByteMs,
+          idleMs: timeouts.idleMs,
+        });
+        upstream = new Response(guarded, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: upstream.headers,
+        });
+      } catch (error) {
+        attemptOk = false;
+        endTry(requestId, {
+          fail: `first-byte: ${describeFetchError(error)}`.slice(0, 120),
+        });
+        markProviderSpent(provider, {
+          label: "transport",
+          resetsAt: new Date(Date.now() + PROVIDER_COOLDOWN_MS).toISOString(),
+        });
+        if (await quotaFailover()) continue;
+        return errorResponse(
+          c,
+          meta,
+          502,
+          `Upstream request failed: ${describeFetchError(error)}`,
+        );
+      }
     }
 
     // Follow the wire the upstream actually answered on. `bridgeToAnthropic` covers
@@ -1956,6 +2051,7 @@ async function forward(
           // refusal hides inside a 200. Read it like the body it is: a quota verdict still
           // fails the provider over, while a truncation is surfaced as before.
           if (messageSpendSignal(message)) {
+            attemptOk = false;
             markProviderSpent(provider, { label: "limit" });
             if (await quotaFailover()) continue;
           }
@@ -1988,6 +2084,7 @@ async function forward(
         if (!completed || failure) {
           const message = failure ?? "upstream stream ended before completion";
           if (messageSpendSignal(message)) {
+            attemptOk = false;
             markProviderSpent(provider, { label: "limit" });
             if (await quotaFailover()) continue;
           }
@@ -2127,6 +2224,9 @@ async function forward(
       onCancel,
       redactProvider,
     );
+    } finally {
+      endProviderAttempt(provider.name, attemptOk);
+    }
   }
 }
 

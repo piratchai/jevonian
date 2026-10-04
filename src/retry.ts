@@ -48,6 +48,16 @@ const DEFAULT_RETRIES = 2;
 /** A ceiling for `JEVONIAN_UPSTREAM_RETRIES`, so a typo cannot turn into a retry storm. */
 const MAX_RETRIES = 5;
 
+/**
+ * How many times one host is repeated before the turn is handed to failover.
+ *
+ * A transport failure is usually a verdict about the *host*, not the network as a whole: the
+ * ledger's worst turns spent 330–364s on three attempts against the same dead provider while
+ * nine healthy ones sat idle. One quick repeat absorbs a genuine blip; everything after that
+ * belongs to the failover path, which can reach a different host.
+ */
+const DEFAULT_SAME_HOST_RETRIES = 1;
+
 const BASE_DELAY_MS = 250;
 const MAX_DELAY_MS = 2_000;
 
@@ -62,14 +72,19 @@ const MAX_DELAY_MS = 2_000;
  * Broader on purpose than `isTransientProxyError` in `./proxy`, which decides whether a stray
  * rejection is safe to swallow. Retrying is harmless even when the cause is a DNS blip, so this
  * one accepts more shapes.
+ *
+ * A timeout counts as retryable: it says the host did not answer in time, which is exactly the
+ * shape one more attempt (or a failover) can fix. A caller's own abort does not — that is the
+ * caller giving up, not the host failing — so `AbortError` stays excluded.
  */
 export function isRetryableFetchError(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current instanceof Error && depth < 5; depth += 1) {
     // Bound to a const so the narrowing survives into the message callbacks below.
     const failure: Error = current;
-    if (failure.name === "AbortError") return false;
     const code = (failure as { code?: unknown }).code;
+    if (code === "JEVONIAN_TIMEOUT" || failure.name === "TimeoutError") return true;
+    if (failure.name === "AbortError") return false;
     if (typeof code === "string" && RETRYABLE_CODES.has(code)) return true;
     if (RETRYABLE_MESSAGES.some((pattern) => pattern.test(failure.message))) return true;
     current = (failure as { cause?: unknown }).cause;
@@ -151,6 +166,22 @@ export function configuredRetries(env: NodeJS.ProcessEnv = process.env): number 
   // An unparseable or negative value falls back to the default rather than disabling retries:
   // a typo should not silently turn off the stability this exists to provide.
   if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_RETRIES;
+  return Math.min(parsed, MAX_RETRIES);
+}
+
+/**
+ * Retries to allow against the *same host* before the turn fails over, from
+ * `JEVONIAN_SAME_HOST_RETRIES`.
+ *
+ * Deliberately separate from {@link configuredRetries}: the total attempt budget is spent
+ * across providers, and a bad host must not be allowed to consume all of it. The default of
+ * one repeat costs a single short backoff, which is enough to absorb a socket blip.
+ */
+export function configuredSameHostRetries(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = (env.JEVONIAN_SAME_HOST_RETRIES ?? "").trim();
+  if (raw.length === 0) return DEFAULT_SAME_HOST_RETRIES;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_SAME_HOST_RETRIES;
   return Math.min(parsed, MAX_RETRIES);
 }
 

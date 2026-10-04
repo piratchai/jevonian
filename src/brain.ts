@@ -2,7 +2,7 @@ import { withOpenRouterAttribution } from "./auth";
 import type { BrainConfig } from "./config";
 import { getCredential } from "./credentials";
 import type { Usage } from "./pricing";
-import { configuredRetries, describeFailure, isRetryableStatus, withRetry } from "./retry";
+import { describeFailure, isRetryableStatus, withRetry } from "./retry";
 
 /**
  * A decision model a channel can run. Channels that host more than one (Cloudflare Workers AI)
@@ -526,9 +526,15 @@ export function normalizeEvaluationResult(result: EvaluationLike): Record<string
  * path for the router itself, and Cursor maps a 502 "brain unavailable" into a misleading
  * "API key rate limit" toast that freezes the agent. Waiting out a brief brain throttle is
  * cheaper than failing the whole turn.
+ *
+ * One retry, not the full upstream budget: a flaky brain used to spend 15s × 3 on the critical
+ * path of every turn (the routing loop's own retry then repeated the whole round). A single
+ * short retry keeps a genuine blip recoverable while a brain that is actually down fails fast.
  */
+const BRAIN_FAST_FAIL_RETRIES = 1;
+
 async function fetchBrain(url: string, init: RequestInit): Promise<Response> {
-  const budget = configuredRetries();
+  const budget = BRAIN_FAST_FAIL_RETRIES;
   return withRetry(() => fetch(url, init), {
     attempts: budget + 1,
     retryWhen: (response) => {
@@ -544,6 +550,45 @@ async function fetchBrain(url: string, init: RequestInit): Promise<Response> {
       console.warn(`brain retry ${attempt}/${budget} in ${delayMs}ms: ${describeFailure(failure)}`);
     },
   });
+}
+
+/**
+ * Brain circuit breaker: after this many consecutive failures across every channel, routing
+ * stops calling the brain for a few minutes and uses the heuristic fallback instead.
+ *
+ * A brain that is genuinely down used to add its timeout to every single turn. The heuristic
+ * fallback below already exists and is cheap; the breaker just decides when to prefer it over
+ * paying the brain's latency again.
+ */
+const BRAIN_BREAKER_THRESHOLD = 3;
+const BRAIN_BREAKER_COOLDOWN_MS = 5 * 60_000;
+
+let brainFailures = 0;
+let brainOpenUntil = 0;
+
+/** True while the breaker is open, so the caller should skip the brain and use the heuristic. */
+export function brainBreakerOpen(now: number = Date.now()): boolean {
+  return brainOpenUntil > now;
+}
+
+/** Feeds a whole routing round's outcome back into the breaker. */
+export function recordBrainOutcome(ok: boolean, now: number = Date.now()): void {
+  if (ok) {
+    brainFailures = 0;
+    brainOpenUntil = 0;
+    return;
+  }
+  brainFailures += 1;
+  if (brainFailures >= BRAIN_BREAKER_THRESHOLD) {
+    brainOpenUntil = now + BRAIN_BREAKER_COOLDOWN_MS;
+    brainFailures = 0;
+  }
+}
+
+/** Clears the breaker. Tests call this between cases. */
+export function resetBrainBreaker(): void {
+  brainFailures = 0;
+  brainOpenUntil = 0;
 }
 
 type FailAsk = (failure: AskJevFailure) => undefined;

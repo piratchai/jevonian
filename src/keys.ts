@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 
 import { readRecords } from "./ledger";
+import { ledgerSpendIndex } from "./ledger-index";
 import { dataDir } from "./paths";
 
 export interface ApiKeyRecord {
@@ -93,24 +94,10 @@ export function listKeys(): ApiKeySummary[] {
 }
 
 export function listKeysWithUsage(): ApiKeySummary[] {
-  const keys = listKeys();
-  const records = readRecords();
-  const usageByKey = new Map<string, { apiUsd: number; subscriptionUsd: number }>();
-
-  for (const record of records) {
-    if (!record.keyId || record.kind === "brain") continue;
-    const current = usageByKey.get(record.keyId) ?? { apiUsd: 0, subscriptionUsd: 0 };
-    const cost = record.costUsd ?? 0;
-    if (record.billing === "subscription") {
-      current.subscriptionUsd += cost;
-    } else {
-      current.apiUsd += cost;
-    }
-    usageByKey.set(record.keyId, current);
-  }
-
-  return keys.map((key) => {
-    const usage = usageByKey.get(key.id) ?? { apiUsd: 0, subscriptionUsd: 0 };
+  // Ensure the rollup has caught up with any foreign appends before we read it.
+  readRecords();
+  return listKeys().map((key) => {
+    const usage = ledgerSpendIndex.keyAllTime(key.id);
     return {
       ...key,
       spendUsd: Number(usage.apiUsd.toFixed(6)),
@@ -120,14 +107,8 @@ export function listKeysWithUsage(): ApiKeySummary[] {
 }
 
 export function keySpendUsd(keyId: string): number {
-  const records = readRecords();
-  let spend = 0;
-  for (const record of records) {
-    if (record.keyId === keyId && record.billing !== "subscription" && record.kind !== "brain") {
-      spend += record.costUsd ?? 0;
-    }
-  }
-  return Number(spend.toFixed(6));
+  readRecords();
+  return Number(ledgerSpendIndex.keyAllTime(keyId).apiUsd.toFixed(6));
 }
 
 export function hasKeys(): boolean {

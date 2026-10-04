@@ -143,13 +143,20 @@ describe("proxyAgentOptions", () => {
       httpsProxy: "http://127.0.0.1:1082",
       noProxy: "localhost,127.0.0.1",
     });
-    expect(options).toEqual({
-      httpProxy: "http://127.0.0.1:1082",
-      httpsProxy: "http://127.0.0.1:1082",
-      noProxy: "localhost,127.0.0.1",
-      keepAliveTimeout: 120_000,
-      allowH2: false,
-    });
+    expect(options.httpProxy).toBe("http://127.0.0.1:1082");
+    expect(options.httpsProxy).toBe("http://127.0.0.1:1082");
+    expect(options.noProxy).toBe("localhost,127.0.0.1");
+    expect(options.keepAliveTimeout).toBe(120_000);
+    expect(options.allowH2).toBe(false);
+  });
+
+  it("caps per-origin sockets and installs connect/headers timeouts", () => {
+    const options = proxyAgentOptions();
+    expect(options.connections).toBeGreaterThan(0);
+    expect(options.connectTimeout).toBeGreaterThan(0);
+    expect(options.headersTimeout).toBeGreaterThan(0);
+    // Long SSE streams must not be killed by a body clock.
+    expect(options.bodyTimeout).toBe(0);
   });
 });
 

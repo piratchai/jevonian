@@ -517,7 +517,9 @@ export const DEFAULT_QUOTA_GUARD: QuotaGuardConfig = {
 
 export const DEFAULT_BRAIN: BrainConfig = {
   channel: "typesafe",
-  timeoutMs: 8_000,
+  // Short on purpose: a brain that is down must fail into the heuristic, not add its timeout
+  // to every turn's start. Override per channel when a slow remote brain needs more room.
+  timeoutMs: 5_000,
   minConfidence: 0.6,
 };
 

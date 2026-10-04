@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
+import { ledgerSpendIndex } from "./ledger-index";
 import { ledgerPath } from "./paths";
 
 export interface LedgerRecord {
@@ -120,6 +121,7 @@ export function subscribeLedger(listener: LedgerListener): () => void {
 
 export function resetLedgerCache(): void {
   cachedRecords = null;
+  ledgerSpendIndex.reset();
 }
 
 export function appendRecord(record: LedgerRecord): void {
@@ -127,6 +129,9 @@ export function appendRecord(record: LedgerRecord): void {
   mkdirSync(dirname(path), { recursive: true });
   const line = `${JSON.stringify(record)}\n`;
   appendFileSync(path, line);
+  // Feed the rollup from the write itself. Without this a spend query would have to notice the
+  // new record by re-reading the file, which is the full scan this exists to avoid.
+  ledgerSpendIndex.add(record);
   // Keep the cache current, mtime included, so the next `readRecords` is a hit. Pushing the
   // record without refreshing the stat was the bug: the size check below then mismatched on
   // every read and fell through to a full re-parse of the file.
@@ -161,6 +166,18 @@ function parseRecords(text: string, into: LedgerRecord[]): void {
       // ignore malformed line
     }
   }
+}
+
+/**
+ * Files a chunk of freshly parsed records into the spend rollup.
+ *
+ * Only records read from disk pass through here. Our own appends were filed by `appendRecord`,
+ * so filing them again would double-count; the tail path therefore hands over just the bytes a
+ * foreign writer added, and the cold path resets the rollup first because it is re-reading the
+ * whole file.
+ */
+function indexRecords(records: readonly LedgerRecord[], now: number): void {
+  for (const record of records) ledgerSpendIndex.addHistorical(record, now);
 }
 
 /**
@@ -209,6 +226,7 @@ export function readRecords(): LedgerRecord[] {
       if (st.size > cachedRecords.size) {
         const tail = readTail(path, cachedRecords.size, st.size);
         if (tail.text.length > 0) {
+          const before = cachedRecords.records.length;
           parseRecords(tail.text, cachedRecords.records);
           // `consumed` stops at the last newline: a torn trailing write is left for the next
           // read, so the cache size never lands mid-line.
@@ -218,6 +236,8 @@ export function readRecords(): LedgerRecord[] {
             size: tail.consumed,
             records: cachedRecords.records,
           };
+          // File only what this read added, so the rollup stays in step with the array.
+          indexRecords(cachedRecords.records.slice(before), Date.now());
           return cachedRecords.records;
         }
         // A trailing line with no newline yet (a write in progress). Keep the parsed prefix
@@ -226,10 +246,13 @@ export function readRecords(): LedgerRecord[] {
         return cachedRecords.records;
       }
     }
-    // Cold read, or the file shrank / was rewritten: parse the whole thing.
+    // Cold read, or the file shrank / was rewritten: parse the whole thing. The rollup is
+    // rebuilt from scratch, because the cached array it was derived from is being replaced.
     const records: LedgerRecord[] = [];
     parseRecords(readFileSync(path, "utf8"), records);
     cachedRecords = { path, mtimeMs: st.mtimeMs, size: st.size, records };
+    ledgerSpendIndex.reset();
+    indexRecords(records, Date.now());
     return records;
   } catch {
     return [];
