@@ -1,6 +1,6 @@
 {
   "name": "jevonian",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "private": false,
   "description": "Local-first model router for coding agents: one endpoint, automatic model selection, cache-aware session stickiness.",
   "homepage": "https://github.com/xinyao27/jevonian#readme",
@@ -18,14 +18,13 @@
   },
   "funding": "https://github.com/sponsors/xinyao27",
   "bin": {
-    "jevonian": "dist/cli.mjs"
+    "jevonian": "bin/jevonian.js"
   },
   "files": [
-    "dist",
+    "bin/jevonian.js",
     "docs",
     "LICENSE",
-    "README.md",
-    "!dist/**/*.map"
+    "README.md"
   ],
   "type": "module",
   "publishConfig": {
@@ -33,26 +32,18 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "vp pack && vp -C web build",
+    "build": "npm run web:build && go build -o jevonian ./cmd/jevonian",
+    "start": "./jevonian serve",
     "web:dev": "vp -C web dev",
     "web:build": "vp -C web build",
     "typecheck:web": "tsc -p web/tsconfig.json",
-    "start": "node dist/cli.mjs serve",
+    "test": "go test ./... && node --test test/*.test.js",
+    "smoke": "bash scripts/smoke.sh",
     "check": "vp check --fix",
     "lint": "vp lint --fix",
     "fmt": "vp fmt",
-    "test": "vp test",
-    "smoke": "bash scripts/smoke.sh",
     "up": "taze major -Ir",
-    "prepare": "vp config",
-    "prepublishOnly": "pnpm exec vp check && pnpm test && pnpm build"
-  },
-  "dependencies": {
-    "@ai-sdk/gateway": "^4.0.86",
-    "@hono/node-server": "^2.1.1",
-    "ai": "^7.0.106",
-    "hono": "^4.13.8",
-    "undici": "^8.10.2"
+    "prepare": "vp config"
   },
   "devDependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
@@ -77,7 +68,6 @@
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
     "taze": "latest",
-    "tsx": "^4.23.13",
     "typescript": "~5.9.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"

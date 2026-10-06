@@ -1,0 +1,520 @@
+package upstream
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/xinyao27/jevonian/internal/config"
+	"github.com/xinyao27/jevonian/internal/oauth"
+	"github.com/xinyao27/jevonian/internal/wire"
+	anthropicwire "github.com/xinyao27/jevonian/internal/wire/anthropic"
+	openaiwire "github.com/xinyao27/jevonian/internal/wire/openai"
+	responseswire "github.com/xinyao27/jevonian/internal/wire/responses"
+)
+
+// ClientKind is the client's wire (which shape the HTTP response must take).
+// Equal to config.UpstreamWire; named for call sites that speak "who asked".
+type ClientKind = config.UpstreamWire
+
+const (
+	KindOpenAI    = config.WireOpenAI
+	KindAnthropic = config.WireAnthropic
+	KindResponses = config.WireResponses
+)
+
+// WirePlan is the chosen upstream wire + whether the body must be bridged.
+// src/wire.ts planUpstreamWire.
+type WirePlan struct {
+	Wire   config.UpstreamWire
+	Bridge string // "", "to-openai", "to-anthropic"
+}
+
+// PlanUpstreamWire decides the wire to hit and whether the body is translated.
+// Preference: honor the model's declared wires; prefer the client's own wire
+// when the model lists it; otherwise bridge onto one the model speaks.
+// src/wire.ts planUpstreamWire.
+func PlanUpstreamWire(provider config.Provider, client ClientKind, model string) (WirePlan, error) {
+	switch provider.Type {
+	case config.ProviderTypeGemini:
+		// Gemini speaks its own envelope built from a Chat Completions body.
+		bridge := ""
+		if client == KindResponses {
+			bridge = "to-openai"
+		}
+		return WirePlan{Wire: KindOpenAI, Bridge: bridge}, nil
+	case config.ProviderTypeDevin, config.ProviderTypeCursor:
+		// Connect-RPC envelopes encode a Chat Completions body.
+		if client == KindOpenAI {
+			return WirePlan{Wire: KindOpenAI}, nil
+		}
+		return WirePlan{Wire: KindOpenAI, Bridge: "to-openai"}, nil
+	case config.ProviderTypeResponses:
+		if client != KindOpenAI && client != KindResponses {
+			return WirePlan{}, fmt.Errorf("provider %q speaks responses, not %s", provider.Name, client)
+		}
+		return WirePlan{Wire: KindResponses}, nil
+	}
+	if !providerServesClient(provider, client) {
+		return WirePlan{}, fmt.Errorf("provider %q speaks the %s protocol, not %s", provider.Name, provider.Type, client)
+	}
+	wires := WiresOf(provider, model)
+	has := func(w config.UpstreamWire) bool {
+		for _, x := range wires {
+			if x == w {
+				return true
+			}
+		}
+		return false
+	}
+	switch client {
+	case KindResponses:
+		if has(KindResponses) {
+			return WirePlan{Wire: KindResponses}, nil
+		}
+		if has(KindOpenAI) {
+			return WirePlan{Wire: KindOpenAI, Bridge: "to-openai"}, nil
+		}
+		if has(KindAnthropic) {
+			return WirePlan{Wire: KindAnthropic, Bridge: "to-anthropic"}, nil
+		}
+		return WirePlan{}, fmt.Errorf("model %q on %q cannot serve Responses clients", model, provider.Name)
+	case KindAnthropic:
+		if has(KindAnthropic) {
+			return WirePlan{Wire: KindAnthropic}, nil
+		}
+		if has(KindOpenAI) {
+			return WirePlan{Wire: KindOpenAI, Bridge: "to-openai"}, nil
+		}
+		return WirePlan{}, fmt.Errorf("model %q on %q cannot serve Anthropic clients", model, provider.Name)
+	default:
+		if has(KindOpenAI) {
+			return WirePlan{Wire: KindOpenAI}, nil
+		}
+		if has(KindAnthropic) {
+			return WirePlan{Wire: KindAnthropic, Bridge: "to-anthropic"}, nil
+		}
+		return WirePlan{}, fmt.Errorf("model %q on %q cannot serve OpenAI clients", model, provider.Name)
+	}
+}
+
+func providerServesClient(p config.Provider, client ClientKind) bool {
+	if ProviderSpeaks(p, client) {
+		return true
+	}
+	if p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor {
+		return true
+	}
+	if client == KindAnthropic && p.Type == config.ProviderTypeOpenAI {
+		return true
+	}
+	if client == KindOpenAI && p.Type == config.ProviderTypeAnthropic {
+		return true
+	}
+	if client == KindResponses &&
+		(p.Type == config.ProviderTypeOpenAI || p.Type == config.ProviderTypeBoth ||
+			p.Type == config.ProviderTypeGemini || p.Type == config.ProviderTypeAnthropic) {
+		return true
+	}
+	return false
+}
+
+// ProviderSpeaks is true when the host accepts wire natively.
+// src/wire.ts providerSpeaks.
+func ProviderSpeaks(p config.Provider, w config.UpstreamWire) bool {
+	if p.Type == config.ProviderTypeBoth {
+		return w == KindOpenAI || w == KindAnthropic
+	}
+	switch p.Type {
+	case config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor:
+		return w == KindOpenAI
+	}
+	if w == KindOpenAI {
+		return p.Type == config.ProviderTypeOpenAI || p.Type == config.ProviderTypeResponses
+	}
+	return config.ProviderType(w) == p.Type
+}
+
+// WiresOf lists the model's declared wires, or inferred ones when the entry
+// omits `wire`. src/wire.ts wiresOf.
+func WiresOf(p config.Provider, modelID string) []config.UpstreamWire {
+	for _, e := range p.Models {
+		if e.ID == modelID && len(e.Wire) > 0 {
+			return e.Wire
+		}
+	}
+	return inferModelWires(p, modelID)
+}
+
+func inferModelWires(p config.Provider, modelID string) []config.UpstreamWire {
+	switch p.Type {
+	case config.ProviderTypeAnthropic:
+		return []config.UpstreamWire{KindAnthropic}
+	case config.ProviderTypeResponses:
+		return []config.UpstreamWire{KindResponses}
+	case config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor,
+		config.ProviderTypeOpenAI:
+		return []config.UpstreamWire{KindOpenAI}
+	case config.ProviderTypeBoth:
+		if anthropicwire.NeedsWire(modelID) {
+			return []config.UpstreamWire{KindAnthropic}
+		}
+		wires := []config.UpstreamWire{KindOpenAI}
+		if IsNativeResponsesHost(p.BaseURL) {
+			wires = append(wires, KindResponses)
+		}
+		if !MessagesRejectsNonClaude(p) {
+			wires = append(wires, KindAnthropic)
+		}
+		return wires
+	}
+	return []config.UpstreamWire{KindOpenAI}
+}
+
+// Native host tables. src/wire.ts NATIVE_*_HOSTS.
+var (
+	nativeDualWireHosts     = []string{"openrouter.ai", "api.deepseek.com"}
+	nativeResponsesHosts    = []string{"opencode.ai"}
+	messagesClaudeOnlyHosts = []string{"opencode.ai", "commandcode.ai"}
+	splitAnthropicPathHosts = []string{"api.deepseek.com"}
+)
+
+func hostOf(baseURL string) string {
+	u := strings.TrimPrefix(baseURL, "http://")
+	u = strings.TrimPrefix(u, "https://")
+	if i := strings.IndexAny(u, "/:"); i >= 0 {
+		u = u[:i]
+	}
+	return strings.ToLower(u)
+}
+
+func hostMatches(baseURL string, suffixes []string) bool {
+	host := hostOf(baseURL)
+	for _, s := range suffixes {
+		if host == s || strings.HasSuffix(host, "."+s) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsNativeDualWireHost is true for hosts that speak Chat + Messages on one key.
+func IsNativeDualWireHost(baseURL string) bool { return hostMatches(baseURL, nativeDualWireHosts) }
+
+// IsNativeResponsesHost is true for hosts that accept /responses natively.
+func IsNativeResponsesHost(baseURL string) bool {
+	return hostMatches(baseURL, nativeResponsesHosts)
+}
+
+// MessagesRejectsNonClaude is true for hosts that reject non-Claude ids on /messages.
+func MessagesRejectsNonClaude(p config.Provider) bool {
+	return hostMatches(p.BaseURL, messagesClaudeOnlyHosts)
+}
+
+// UpstreamURLFor resolves the endpoint one provider wire POSTs to.
+// src/wire.ts upstreamUrlFor.
+func UpstreamURLFor(p config.Provider, w config.UpstreamWire) string {
+	base := strings.TrimRight(p.BaseURL, "/")
+	if w == KindAnthropic && hostMatches(p.BaseURL, splitAnthropicPathHosts) {
+		root := base
+		root = strings.TrimSuffix(root, "/v1/messages")
+		root = strings.TrimSuffix(root, "/anthropic")
+		root = strings.TrimSuffix(root, "/v1")
+		return root + "/anthropic/v1/messages"
+	}
+	path := "/chat/completions"
+	switch p.Type {
+	case config.ProviderTypeAnthropic:
+		path = "/messages"
+	case config.ProviderTypeResponses:
+		path = "/responses"
+	case config.ProviderTypeBoth:
+		if w == KindAnthropic {
+			path = "/messages"
+		} else if w == KindResponses {
+			path = "/responses"
+		}
+	default:
+		if w == KindAnthropic {
+			path = "/messages"
+		} else if w == KindResponses {
+			path = "/responses"
+		}
+	}
+	return base + path
+}
+
+// PrepInput is what one attempt needs to build its body.
+type PrepInput struct {
+	PromptPolicy config.PromptPolicyConfig
+	Provider     config.Provider
+	Model        string
+	Effort       string // routing-chosen thinking level
+	ClientKind   ClientKind
+	ClientBody   wire.Body
+	UpstreamWire config.UpstreamWire
+	Bridge       string
+	Stream       bool
+	// ClientStream is whether the client asked for SSE; Stream is what the
+	// upstream is asked for (always-stream hosts differ).
+	ClientStream bool
+	MaxOutput    int
+}
+
+// Adapter is one provider's egress: build the wire body, send it, read its
+// usage. The attempt loop stays protocol-blind; provider packages register
+// their own adapters via RegisterAdapter.
+type Adapter interface {
+	// Wire is the upstream protocol the provider answers on.
+	Wire() config.UpstreamWire
+	// AlwaysStreams reports whether the provider only streams (responses,
+	// devin, cursor, workbuddy). A non-stream client gets the stream folded.
+	AlwaysStreams() bool
+	// Prepare assembles the upstream body for one attempt.
+	Prepare(in PrepInput) (wire.Body, error)
+	// UsageFrom reads a non-streaming reply's token accounting.
+	UsageFrom(body []byte) wire.Usage
+	// EndpointURL overrides the default UpstreamURLFor when non-empty.
+	EndpointURL(provider config.Provider) string
+	// Headers contributes provider-specific request headers.
+	Headers(provider config.Provider, base http.Header) http.Header
+}
+
+// AdapterFunc selects an adapter for one runner. No mutable process registry is
+// shared across independent servers or tests.
+type AdapterFunc func(provider config.Provider, clientKind ClientKind, plan WirePlan) (Adapter, bool)
+
+// AdapterFor picks the built-in egress for a provider.
+func AdapterFor(provider config.Provider, clientKind ClientKind, plan WirePlan) (Adapter, error) {
+	if provider.Type == config.ProviderTypeDevin || provider.Type == config.ProviderTypeCursor {
+		return &rpcAdapter{typ: provider.Type}, nil
+	}
+	if provider.Type == config.ProviderTypeGemini {
+		return &geminiAdapter{}, nil
+	}
+	if provider.OAuthSource == config.OAuthFreebuff {
+		return &freebuffAdapter{}, nil
+	}
+	if provider.OAuthSource == config.OAuthWorkbuddyAI {
+		return &workbuddyAdapter{}, nil
+	}
+	switch plan.Wire {
+	case KindAnthropic:
+		return &anthropicAdapter{}, nil
+	case KindResponses:
+		return &responsesAdapter{}, nil
+	default:
+		return &openaiAdapter{}, nil
+	}
+}
+
+// openaiAdapter is the plain Chat Completions egress.
+type openaiAdapter struct{}
+
+func (a *openaiAdapter) Wire() config.UpstreamWire { return KindOpenAI }
+func (a *openaiAdapter) AlwaysStreams() bool       { return false }
+
+func (a *openaiAdapter) Prepare(in PrepInput) (wire.Body, error) {
+	body := in.ClientBody
+	switch in.ClientKind {
+	case KindAnthropic:
+		body = anthropicwire.ToChatRequest(body, in.Model)
+	case KindResponses:
+		body = responseswire.ToChatRequest(in.ClientBody, in.Model)
+	}
+	body["model"] = in.Model
+	if in.Stream {
+		body["stream"] = true
+	}
+	if in.Effort != "" {
+		body = withEffort(body, in.Effort)
+	}
+	// src/prepare.ts: ask streaming Chat Completions hosts to report usage.
+	if in.ClientKind == KindOpenAI && in.Provider.Type == config.ProviderTypeOpenAI &&
+		in.ClientStream && in.Provider.InjectStreamUsage {
+		if _, set := body["stream_options"]; !set {
+			body["stream_options"] = map[string]any{"include_usage": true}
+		}
+	}
+	return wire.RewritePromptBodies(body, in.PromptPolicy), nil
+}
+
+func (a *openaiAdapter) UsageFrom(body []byte) wire.Usage {
+	u := openaiwire.CompletionUsage(body)
+	return wire.Usage{Input: u.PromptTokens, Output: u.CompletionTokens}
+}
+func (a *openaiAdapter) EndpointURL(p config.Provider) string { return "" }
+func (a *openaiAdapter) Headers(p config.Provider, base http.Header) http.Header {
+	return base
+}
+
+// anthropicAdapter is the Anthropic Messages egress.
+type anthropicAdapter struct{}
+
+func (a *anthropicAdapter) Wire() config.UpstreamWire { return KindAnthropic }
+func (a *anthropicAdapter) AlwaysStreams() bool       { return false }
+
+func (a *anthropicAdapter) Prepare(in PrepInput) (wire.Body, error) {
+	var body wire.Body
+	clientEffort := anthropicwire.ClientEffortOf(in.ClientBody, anthropicwire.WireKind(in.ClientKind))
+	if in.ClientKind == KindAnthropic && in.Bridge == "" {
+		// Native Messages client on a Messages host: keep the client's own body
+		// (metadata, top_k, ...) and only set the router's model and effort.
+		native := make(wire.Body, len(in.ClientBody)+1)
+		for k, v := range in.ClientBody {
+			native[k] = v
+		}
+		native["model"] = in.Model
+		if in.Stream {
+			native["stream"] = true
+		}
+		withEffort := anthropicwire.WithEffort(native, in.Effort, anthropicwire.WireAnthropic, clientEffort)
+		body = anthropicwire.FitThinkingMaxTokens(withEffort, anthropicwire.MaxTokensOptions{
+			ClientSetMax: true,
+			MaxOutput:    in.MaxOutput,
+		})
+	} else {
+		var chat wire.Body
+		switch in.ClientKind {
+		case KindAnthropic:
+			chat = anthropicwire.ToChatRequest(in.ClientBody, in.Model)
+		case KindResponses:
+			chat = responseswire.ToChatRequest(in.ClientBody, in.Model)
+		default:
+			chat = in.ClientBody
+		}
+		body = anthropicwire.BridgedAnthropicBody(chat, anthropicwire.BridgedBodyOptions{
+			Model:        in.Model,
+			Stream:       in.Stream,
+			Effort:       in.Effort,
+			ClientEffort: clientEffort,
+			MaxOutput:    in.MaxOutput,
+		})
+	}
+	// src/prepare.ts payloadFor: the Claude Code identity belongs to the OAuth
+	// Messages wire only; Claude 4.6+ then rejects a trailing assistant turn.
+	if in.Provider.Auth == config.AuthOAuth {
+		body = applyClaudeCodeSystem(body)
+	}
+	return wire.RewritePromptBodies(anthropicwire.NormalizePrefill(body), in.PromptPolicy), nil
+}
+
+// applyClaudeCodeSystem mirrors applyClaudeCodeSystem in src/prepare.ts: put the
+// Claude Code identity first in `system`, and drop adaptive-only fields a legacy
+// model rejects.
+func applyClaudeCodeSystem(in wire.Body) wire.Body {
+	next := make(wire.Body, len(in)+1)
+	for k, v := range in {
+		next[k] = v
+	}
+	prompt := func(cache bool) wire.Body {
+		b := wire.Body{"type": "text", "text": oauth.ClaudeCodeSystemPrompt}
+		if cache {
+			b["cache_control"] = wire.Body{"type": "ephemeral"}
+		}
+		return b
+	}
+	switch system := next["system"].(type) {
+	case string:
+		if system != "" {
+			next["system"] = []any{prompt(false), wire.Body{"type": "text", "text": system, "cache_control": wire.Body{"type": "ephemeral"}}}
+		} else {
+			next["system"] = []any{prompt(true)}
+		}
+	case []any:
+		next["system"] = append([]any{prompt(false)}, system...)
+	default:
+		next["system"] = []any{prompt(true)}
+	}
+	if !anthropicwire.ThinkingSupportFor(next["model"]).Adaptive {
+		delete(next, "context_management")
+		delete(next, "output_config")
+		if wire.AsRecord(next["thinking"])["type"] == "adaptive" {
+			delete(next, "thinking")
+		}
+		if msgs, ok := next["messages"].([]any); ok {
+			out := make([]any, len(msgs))
+			for i, m := range msgs {
+				if rec, ok := m.(map[string]any); ok && rec["role"] == "system" {
+					c := make(wire.Body, len(rec))
+					for k, v := range rec {
+						c[k] = v
+					}
+					c["role"] = "user"
+					out[i] = c
+					continue
+				}
+				out[i] = m
+			}
+			next["messages"] = out
+		}
+	}
+	return next
+}
+
+func (a *anthropicAdapter) UsageFrom(body []byte) wire.Usage {
+	var raw map[string]any
+	_ = json.Unmarshal(body, &raw)
+	return anthropicwire.Usage(raw["usage"])
+}
+func (a *anthropicAdapter) EndpointURL(p config.Provider) string { return "" }
+func (a *anthropicAdapter) Headers(p config.Provider, base http.Header) http.Header {
+	base.Set("anthropic-version", "2023-06-01")
+	return base
+}
+
+// responsesAdapter is the native Responses egress (always SSE-shaped upstream).
+type responsesAdapter struct{}
+
+func (a *responsesAdapter) Wire() config.UpstreamWire { return KindResponses }
+func (a *responsesAdapter) AlwaysStreams() bool       { return true }
+
+func (a *responsesAdapter) Prepare(in PrepInput) (wire.Body, error) {
+	if in.ClientKind == KindResponses {
+		body := in.ClientBody
+		body["model"] = in.Model
+		body["stream"] = true
+		if in.Provider.Auth == config.AuthOAuth {
+			body["store"] = false
+		}
+		return wire.RewritePromptBodies(responseswire.EnsureCallIDs(body), in.PromptPolicy), nil
+	}
+	return wire.RewritePromptBodies(responseswire.EnsureCallIDs(responseswire.ChatToResponses(in.ClientBody, in.Model)), in.PromptPolicy), nil
+}
+
+func (a *responsesAdapter) UsageFrom(body []byte) wire.Usage {
+	var raw map[string]any
+	_ = json.Unmarshal(body, &raw)
+	return responseswire.Usage(raw["usage"])
+}
+func (a *responsesAdapter) EndpointURL(p config.Provider) string { return "" }
+func (a *responsesAdapter) Headers(p config.Provider, base http.Header) http.Header {
+	return base
+}
+
+// withEffort writes the reasoning effort onto a chat-shaped body, honoring a
+// client's explicit instruction.
+func withEffort(body wire.Body, effort string) wire.Body {
+	if effort == "" {
+		return body
+	}
+	if _, ok := body["reasoning_effort"]; ok {
+		return body
+	}
+	out := make(wire.Body, len(body)+1)
+	for k, v := range body {
+		out[k] = v
+	}
+	out["reasoning_effort"] = effort
+	return out
+}
+
+// MarshalBody serializes a prepared body once per attempt.
+func MarshalBody(b wire.Body) []byte {
+	buf, err := json.Marshal(b)
+	if err != nil {
+		return nil
+	}
+	return buf
+}

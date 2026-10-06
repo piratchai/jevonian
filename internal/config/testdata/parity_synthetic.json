@@ -1,0 +1,30 @@
+{
+  "listen": {"host": "0.0.0.0", "port": 9999},
+  "defaultProvider": "p1",
+  "modelAliases": {"gpt-5": ["gpt-5-codex", "gpt-5.1"], "empty": []},
+  "tunnel": {"enabled": true, "provider": "ngrok", "url": "casqued.ngrok-free.dev/", "publicPort": 9001, "command": "  "},
+  "lan": {"enabled": true, "host": " 192.168.1.5 ", "port": 9100},
+  "modelSync": {"enabled": false, "intervalMinutes": 3},
+  "promptPolicy": {"builtins": false, "rewrites": [{"match": "foo", "flags": "gix", "replace": "bar"}, {"match": "", "replace": "x"}]},
+  "tokenSaver": {"enabled": false, "command": " rtk2 ", "timeoutMs": 1234},
+  "providers": [
+    {"name": "p1", "type": "openai", "baseUrl": "https://api.deepseek.com/v1", "apiKey": "sk-x", "apiKeyEnv": "FOO", "auth": "api-key", "billing": "subscription",
+     "quota": {"fiveHourUsd": 5, "weeklyUsd": 0, "monthlyUsd": 100}, "headers": {"x-a": "b"}, "syncModels": true, "noKey": true, "excludeModels": ["z"],
+     "injectStreamUsage": false, "models": ["a", {"id": "b", "wire": "anthropic"}, {"model": "c", "wire": ["openai", "responses", "bogus"]}, "", 5]},
+    {"name": "p2", "type": "responses", "baseUrl": "https://x/v1", "auth": "oauth", "oauthSource": "codex", "login": {"label": "work", "home": "/Users/x/.codex-work", "credentialsPath": "/a/b", "keychainService": "svc", "keychainAccount": "acct"}, "models": []},
+    {"name": "p3", "type": "gemini", "baseUrl": "https://g/v1", "auth": "oauth", "oauthSource": "bogus", "syncModels": false, "models": ["g"]}
+  ],
+  "routing": {
+    "mode": "off", "sessionTtlMinutes": 5, "baselineModel": "a", "defaultEffort": "high", "brainPicksEffort": false,
+    "quotaGuard": {"enabled": false, "lowPercent": 33.5, "resetAware": false},
+    "capacities": {"a": {"contextWindow": 1000, "maxOutput": 50, "efforts": ["low", "bogus", "max"]}, "b": {"contextWindow": 0}},
+    "routings": [
+      {"id": "plan", "label": " Plan X ", "description": "d", "models": ["a", "b"], "providers": {"a": ["p1", "p1", ""], "b": [], "zzz": ["p1"]}, "effort": "xhigh"},
+      {"id": "my-custom", "label": "Mine", "models": ["a"], "providerOrder": {"a": ["p2"]}}
+    ],
+    "brains": [
+      {"channel": "cloudflare", "accountId": " acc ", "model": "@cf/x", "baseUrl": "https://b", "apiKeyEnv": "CF", "timeoutMs": 9000, "minConfidence": 0.3, "fullPrompt": true},
+      {"channel": "kev"}, {"timeoutMs": -1, "minConfidence": 7}
+    ]
+  }
+}

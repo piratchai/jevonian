@@ -1,8 +1,14 @@
 node_modules/
 dist/
+!web/dist/
+web/dist/*
+!web/dist/.keep
 *.log
 .env
 .DS_Store
 *.tgz
 .vite-hooks/
 .claude/
+
+# Go build output (the npm shim lives in bin/)
+/jevonian

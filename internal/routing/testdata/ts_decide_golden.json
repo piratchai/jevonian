@@ -1,0 +1,3291 @@
+[
+ {
+  "name": "auto-plan",
+  "scen": {
+   "name": "auto-plan",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "build a feature"
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-execute",
+  "scen": {
+   "name": "auto-execute",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "execute"
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "brain:execute",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "auto-none",
+  "scen": {
+   "name": "auto-none",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "none_of_the_above"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:none_of_the_above",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-unknown-choice",
+  "scen": {
+   "name": "auto-unknown-choice",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "bogus"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:bogus",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-lowconf",
+  "scen": {
+   "name": "auto-lowconf",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "execute",
+   "confidence": 0.2
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "brain:execute:brain-low-confidence",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev-low-confidence",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "auto-effort-max",
+  "scen": {
+   "name": "auto-effort-max",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low",
+        "medium"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan",
+   "effort": "max"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan:effort-clamped",
+   "effort": "medium",
+   "effortNote": "clamped \"max\" to \"medium\"",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-effort-header",
+  "scen": {
+   "name": "auto-effort-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low"
+       ]
+      },
+      "deepseek-v4.1-flash": {
+       "efforts": [
+        "low",
+        "high"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-effort": "high"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan:effort-skip:effort-clamped",
+   "effort": "low",
+   "effortNote": "requested \"high\", model supports \"low\"",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [
+    "mock/deepseek-v4-pro/effort"
+   ],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-nobrainpickseffort-default",
+  "scen": {
+   "name": "auto-nobrainpickseffort-default",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "brainPicksEffort": false,
+     "defaultEffort": "high",
+     "capacities": {
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low",
+        "medium"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan",
+   "effort": "max"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan:effort-skip",
+   "effort": "medium",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [
+    "mock/deepseek-v4-pro/effort"
+   ],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "auto-tier-effort",
+  "scen": {
+   "name": "auto-tier-effort",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "plan",
+       "label": "Plan",
+       "models": [
+        "deepseek-v4-pro"
+       ],
+       "effort": "xhigh"
+      }
+     ],
+     "capacities": {
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low",
+        "medium"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan",
+   "effort": "low"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan:effort-clamped",
+   "effort": "medium",
+   "effortNote": "clamped \"xhigh\" to \"medium\"",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "no-brain",
+  "scen": {
+   "name": "no-brain",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": []
+    }
+   },
+   "body": {
+    "model": "jevonian/auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "No Jev brain is configured. Add one under Providers → Routing brain, or request an explicit routing (jevonian/plan, …) or a concrete model.",
+   "status": 400
+  }
+ },
+ {
+  "name": "brain-down-heuristic-plan",
+  "scen": {
+   "name": "brain-down-heuristic-plan",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hello"
+     }
+    ]
+   },
+   "brainFail": true
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain-fallback:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "heuristic",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "brain-down-heuristic-exec",
+  "scen": {
+   "name": "brain-down-heuristic-exec",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "go"
+     },
+     {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+       {
+        "id": "1",
+        "type": "function",
+        "function": {
+         "name": "edit",
+         "arguments": "{}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "ok"
+     }
+    ]
+   },
+   "brainFail": true
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "brain-fallback:execute",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "heuristic",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "explicit-plan",
+  "scen": {
+   "name": "explicit-plan",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "explicit-execute-header",
+  "scen": {
+   "name": "explicit-execute-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-phase": "execute"
+   }
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "explicit:execute",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "explicit-tier-header-legacy",
+  "scen": {
+   "name": "explicit-tier-header-legacy",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-tier": "utility"
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "utility",
+   "reason": "explicit:utility",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "explicit-bad-phase-header",
+  "scen": {
+   "name": "explicit-bad-phase-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-phase": "nope"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "explicit-effort-header",
+  "scen": {
+   "name": "explicit-effort-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low",
+        "high"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-effort": "medium"
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "explicit:plan:effort-clamped",
+   "effort": "high",
+   "effortNote": "clamped \"medium\" to \"high\"",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "explicit-default-effort",
+  "scen": {
+   "name": "explicit-default-effort",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "defaultEffort": "medium"
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "medium",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "explicit-custom",
+  "scen": {
+   "name": "explicit-custom",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "frontend",
+       "label": "Frontend",
+       "description": "ui",
+       "models": [
+        "deepseek-v4.1-flash"
+       ]
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/frontend",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "frontend",
+   "reason": "explicit:frontend",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "explicit-custom-bare",
+  "scen": {
+   "name": "explicit-custom-bare",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "frontend",
+       "label": "Frontend",
+       "description": "ui",
+       "models": [
+        "deepseek-v4.1-flash"
+       ]
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "frontend",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "frontend",
+   "reason": "explicit:frontend",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "explicit-providers-allow",
+  "scen": {
+   "name": "explicit-providers-allow",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "name": "b",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/b/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "plan",
+       "label": "Plan",
+       "models": [
+        "m1"
+       ],
+       "providers": {
+        "m1": [
+         "b"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "m1",
+   "provider": "b",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "b/m1",
+    "a/m1"
+   ]
+  }
+ },
+ {
+  "name": "explicit-providers-empty",
+  "scen": {
+   "name": "explicit-providers-empty",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "m1",
+       "m2"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "plan",
+       "label": "Plan",
+       "models": [
+        "m1",
+        "m2"
+       ],
+       "providers": {
+        "m1": []
+       }
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "m2",
+   "provider": "a",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "a/m2",
+    "a/m1"
+   ]
+  }
+ },
+ {
+  "name": "explicit-providerOrder-legacy",
+  "scen": {
+   "name": "explicit-providerOrder-legacy",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "name": "b",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/b/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "plan",
+       "label": "Plan",
+       "models": [
+        "m1"
+       ],
+       "providerOrder": {
+        "m1": [
+         "b",
+         "a"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "m1",
+   "provider": "b",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "b/m1",
+    "a/m1"
+   ]
+  }
+ },
+ {
+  "name": "chain-first-wins",
+  "scen": {
+   "name": "chain-first-wins",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "m1",
+       "m2"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "routings": [
+      {
+       "id": "plan",
+       "label": "Plan",
+       "models": [
+        "m2",
+        "m1"
+       ]
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "m2",
+   "provider": "a",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "a/m2",
+    "a/m1"
+   ]
+  }
+ },
+ {
+  "name": "pinned-real",
+  "scen": {
+   "name": "pinned-real",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "deepseek-v4.1-flash",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "pinned-prefixed",
+  "scen": {
+   "name": "pinned-prefixed",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/deepseek-v4-pro",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "pinned-unknown",
+  "scen": {
+   "name": "pinned-unknown",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "ghost-1",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "ghost-1",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": []
+  }
+ },
+ {
+  "name": "pinned-canonical",
+  "scen": {
+   "name": "pinned-canonical",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "deepseek-v4-1-flash",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "canonical-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "deepseek-v4-1-flash",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "pinned-multi-provider",
+  "scen": {
+   "name": "pinned-multi-provider",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "name": "b",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/b/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "m1",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "m1",
+   "provider": "a",
+   "phase": "plan",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "a/m1",
+    "b/m1"
+   ]
+  }
+ },
+ {
+  "name": "pinned-alias",
+  "scen": {
+   "name": "pinned-alias",
+   "config": {
+    "defaultProvider": "a",
+    "providers": [
+     {
+      "name": "a",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/a/v1",
+      "apiKey": "k",
+      "models": [
+       "x-1"
+      ]
+     },
+     {
+      "name": "b",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/b/v1",
+      "apiKey": "k",
+      "models": [
+       "y-2"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    },
+    "modelAliases": {
+     "gizmo": [
+      "b/y-2"
+     ]
+    }
+   },
+   "body": {
+    "model": "gizmo",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "y-2",
+   "provider": "b",
+   "phase": "execute",
+   "reason": "canonical-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "gizmo",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "b/y-2"
+   ]
+  }
+ },
+ {
+  "name": "collision-auto-virtual",
+  "scen": {
+   "name": "collision-auto-virtual",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "auto",
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "collision-bare-auto",
+  "scen": {
+   "name": "collision-bare-auto",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "auto",
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "collision-qualified-auto",
+  "scen": {
+   "name": "collision-qualified-auto",
+   "config": {
+    "defaultProvider": "agg",
+    "providers": [
+     {
+      "name": "agg",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/agg/v1",
+      "apiKey": "k",
+      "models": [
+       "auto"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": []
+    }
+   },
+   "body": {
+    "model": "agg/auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "auto",
+   "provider": "agg",
+   "phase": "plan",
+   "reason": "canonical-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "agg/auto",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "agg/auto"
+   ]
+  }
+ },
+ {
+  "name": "collision-bare-plan-model",
+  "scen": {
+   "name": "collision-bare-plan-model",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "plan",
+       "deepseek-v4-pro"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "mode-off-virtual",
+  "scen": {
+   "name": "mode-off-virtual",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "mode": "off"
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "Model \"auto\" is a virtual model, but routing is off. Configure routing.mode = \"auto\" or request a real model.",
+   "status": 0
+  }
+ },
+ {
+  "name": "mode-off-virtual-prefixed",
+  "scen": {
+   "name": "mode-off-virtual-prefixed",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "mode": "off"
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "Model \"jevonian/plan\" is a virtual model, but routing is off. Configure routing.mode = \"auto\" or request a real model.",
+   "status": 0
+  }
+ },
+ {
+  "name": "mode-off-real",
+  "scen": {
+   "name": "mode-off-real",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "mode": "off"
+    }
+   },
+   "body": {
+    "model": "deepseek-v4-pro",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "ctx-skip",
+  "scen": {
+   "name": "ctx-skip",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4.1-flash": {
+       "contextWindow": 1000
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise summarise "
+     }
+    ]
+   },
+   "choice": "execute"
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "brain:execute:context-skip",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [
+    "mock/deepseek-v4.1-flash/context"
+   ],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "ctx-overflow-all",
+  "scen": {
+   "name": "ctx-overflow-all",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4.1-flash": {
+       "contextWindow": 100
+      },
+      "deepseek-v4-pro": {
+       "contextWindow": 100
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go "
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan:context-skip",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": true,
+   "skipped": [
+    "mock/deepseek-v4-pro/context",
+    "mock/deepseek-v4.1-flash/context"
+   ],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "ctx-unknown-window",
+  "scen": {
+   "name": "ctx-unknown-window",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go go "
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "effort-floor-skip",
+  "scen": {
+   "name": "effort-floor-skip",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "capacities": {
+      "deepseek-v4.1-flash": {
+       "efforts": [
+        "low"
+       ]
+      },
+      "deepseek-v4-pro": {
+       "efforts": [
+        "low",
+        "high"
+       ]
+      }
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-reasoning-effort": "high"
+   },
+   "choice": "execute"
+  },
+  "want": {
+   "model": "deepseek-v4.1-flash",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "brain:execute:effort-skip:effort-clamped",
+   "effort": "low",
+   "effortNote": "requested \"high\", model supports \"low\"",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [
+    "mock/deepseek-v4.1-flash/effort"
+   ],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4.1-flash",
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ },
+ {
+  "name": "effort-floor-header-invalid",
+  "scen": {
+   "name": "effort-floor-header-invalid",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-effort": "turbo"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "session-header-affinity",
+  "scen": {
+   "name": "session-header-affinity",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-session-id": "s1"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "affinity-off-header",
+  "scen": {
+   "name": "affinity-off-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-affinity": "off"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "off",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "affinity-session-header",
+  "scen": {
+   "name": "affinity-session-header",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "headers": {
+    "x-jevonian-affinity": "session"
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "quota-guard-off",
+  "scen": {
+   "name": "quota-guard-off",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ],
+     "quotaGuard": {
+      "enabled": false
+     }
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "mock/deepseek-v4-pro",
+    "mock/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "responses-explicit",
+  "scen": {
+   "name": "responses-explicit",
+   "config": {
+    "defaultProvider": "codex",
+    "providers": [
+     {
+      "name": "codex",
+      "type": "responses",
+      "baseUrl": "https://chatgpt.com/backend-api/codex",
+      "auth": "oauth",
+      "oauthSource": "codex",
+      "billing": "subscription",
+      "models": [
+       "gpt-5.6-codex"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "input": "hi"
+   },
+   "kind": "responses"
+  },
+  "want": {
+   "model": "gpt-5.6-codex",
+   "provider": "codex",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "codex/gpt-5.6-codex"
+   ]
+  }
+ },
+ {
+  "name": "anthropic-bridge-auto",
+  "scen": {
+   "name": "anthropic-bridge-auto",
+   "config": {
+    "defaultProvider": "oa",
+    "providers": [
+     {
+      "name": "oa",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/oa/v1",
+      "apiKey": "k",
+      "models": [
+       "deepseek-v4-pro",
+       "deepseek-v4.1-flash"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "kind": "anthropic",
+   "choice": "plan"
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "oa",
+   "phase": "plan",
+   "reason": "brain:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "jev",
+   "order": [
+    "oa/deepseek-v4-pro",
+    "oa/deepseek-v4.1-flash"
+   ]
+  }
+ },
+ {
+  "name": "anthropic-pinned-wire",
+  "scen": {
+   "name": "anthropic-pinned-wire",
+   "config": {
+    "defaultProvider": "oa",
+    "providers": [
+     {
+      "name": "oa",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/oa/v1",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "name": "an",
+      "type": "anthropic",
+      "baseUrl": "http://127.0.0.1:9/an",
+      "apiKey": "k",
+      "models": [
+       "m1"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "m1",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   },
+   "kind": "anthropic"
+  },
+  "want": {
+   "model": "m1",
+   "provider": "oa",
+   "phase": "plan",
+   "reason": "pinned-model",
+   "effort": "",
+   "effortNote": "",
+   "virtual": false,
+   "routed": false,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "",
+   "brain": "",
+   "order": [
+    "oa/m1",
+    "an/m1"
+   ]
+  }
+ },
+ {
+  "name": "deriveRoutings-empty-chain",
+  "scen": {
+   "name": "deriveRoutings-empty-chain",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "only-model"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/utility",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "only-model",
+   "provider": "mock",
+   "phase": "utility",
+   "reason": "explicit:utility",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/only-model"
+   ]
+  }
+ },
+ {
+  "name": "unpriced-plan",
+  "scen": {
+   "name": "unpriced-plan",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "zz-unpriced-a",
+       "zz-unpriced-b"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/plan",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "zz-unpriced-a",
+   "provider": "mock",
+   "phase": "plan",
+   "reason": "explicit:plan",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/zz-unpriced-a"
+   ]
+  }
+ },
+ {
+  "name": "unpriced-execute",
+  "scen": {
+   "name": "unpriced-execute",
+   "config": {
+    "defaultProvider": "mock",
+    "providers": [
+     {
+      "name": "mock",
+      "type": "openai",
+      "baseUrl": "http://127.0.0.1:9/mock/v1",
+      "apiKey": "k",
+      "models": [
+       "zz-unpriced-a",
+       "deepseek-v4-pro"
+      ]
+     }
+    ],
+    "routing": {
+     "brains": [
+      {
+       "channel": "typesafe",
+       "apiKeyEnv": "TYPESAFE_API_KEY",
+       "timeoutMs": 1000,
+       "minConfidence": 0.6
+      }
+     ]
+    }
+   },
+   "body": {
+    "model": "jevonian/execute",
+    "messages": [
+     {
+      "role": "user",
+      "content": "x"
+     }
+    ]
+   }
+  },
+  "want": {
+   "model": "deepseek-v4-pro",
+   "provider": "mock",
+   "phase": "execute",
+   "reason": "explicit:execute",
+   "effort": "",
+   "effortNote": "",
+   "virtual": true,
+   "routed": true,
+   "canonical": "",
+   "contextOverflow": false,
+   "skipped": [],
+   "cacheKeep": "first",
+   "brain": "",
+   "order": [
+    "mock/deepseek-v4-pro"
+   ]
+  }
+ }
+]

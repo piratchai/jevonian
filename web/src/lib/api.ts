@@ -3,7 +3,7 @@ import type {
   ProviderAuthName,
   ProviderBillingName,
   ProviderTypeName,
-} from "../../../src/admin-types";
+} from "./admin-types";
 
 // The server's own vocabulary, type-only: a wire or sign-in source added on the server shows up
 // here without a second hand-copied union to forget.

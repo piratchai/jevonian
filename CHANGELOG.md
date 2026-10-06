@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-10-06
+
+### Changed
+
+- **Jevonian is now a native Go binary.** The router, CLI, and dashboard server were rewritten from TypeScript to Go. Every command, flag, config key, HTTP endpoint, and ledger field works as before. Startup is faster: `jevonian doctor` now takes about 0.16s instead of 0.57s.
+- **The npm package is now a small launcher.** `npm i -g jevonian` installs `bin/jevonian.js`. On first run it downloads the binary for your platform from the GitHub release and checks its SHA-256 against `checksums.txt`. No router code runs in Node.
+- **The dashboard is part of the binary.** The binary serves the web UI at `/`. No separate web files are needed.
+- **The ledger is now SQLite.** On first start, the binary imports your existing `ledger.jsonl` into `ledger.sqlite`.
+- **Provider quirks live in each provider's adapter.** The attempt loop no longer checks provider types. It asks the adapter instead, so a new provider does not change the loop.
+
+### Fixed
+
+- **A quota error inside a folded Responses stream fails over again.** When a Responses host sends `response.failed` in place of an HTTP error, a quota or rate limit now moves the turn to the next provider. Other failures return 502, not 200.
+- **`jevonian update` keeps the background service working.** An npm update reinstalls the package, and that deletes the cached binary. The update now downloads the binary again before the service restarts.
+- **The Freebuff waiting room no longer marks the account as spent.** A queue is a host condition. The provider now waits out the delay the host gives, and its quota stays clean.
+- **Error messages no longer break inside a character.** Long Devin, Freebuff, WorkBuddy, and service messages are cut at character boundaries, so Chinese and other non-ASCII text stays readable.
+- **A mistyped command suggests the closest match.** For example, `jevonian docter` asks "Did you mean `jevonian doctor`?".
+
+### Upgrading
+
+- An existing background service still runs the old Node build. Run `jevonian stop --uninstall`, then `jevonian start`, so that the LaunchAgent runs the new binary. Jevonian does not replace a running service on its own.
+
 ## [0.5.4] - 2026-10-05
 
 ### Fixed

@@ -1,53 +1,50 @@
 # Development
 
-Built with [Vite+](https://viteplus.dev). Oxlint, Oxfmt, Vitest, and tsdown come from the `vite-plus` bundle — do not install them directly.
+The router is a native Go binary. The dashboard is the existing React + Vite SPA under `web/`; Vite+ (Oxlint, Oxfmt, tsdown) drives its build. The Node.js tree is gone — only the npm fetch-and-exec shim in `bin/` remains.
 
 ```bash
-pnpm dev           # Vite dev server (15174) + proxy (18888), HMR, opens the dashboard
-vp check           # format + lint + type check (primary gate, use --fix)
-vp test            # unit tests
+pnpm dev           # Go serve (18888) + Vite dev server (15174), HMR, opens the dashboard
+vp check           # format + lint (primary gate, use --fix)
+go test ./...      # unit tests
+node --test test/*.test.js  # npm shim tests
 pnpm smoke         # end-to-end assertions against a mock upstream, no API keys needed
-pnpm build         # bundle the CLI and build the web UI
+pnpm build         # build the web UI, then the Go binary
 pnpm web:dev       # Vite dev server for the dashboard (proxies /api and /v1 to the local server)
 pnpm typecheck:web # type check the dashboard
 ```
 
-`pnpm dev` starts the dashboard on `15174` and the proxy on `18888` — ports deliberately far from the
-production defaults (`8787` proxy, `5173` web) so a dev run never collides with a running Jevonian
+`pnpm dev` starts the dashboard on `15174` and the Go server on `18888` — ports deliberately far from the
+production defaults (`8787` server, `5173` web) so a dev run never collides with a running Jevonian
 service. It also uses its own config, data, and browser-state under `~/.cache/jevonian` (seeded from
 the real config on first run, with tunnel disabled), so saving providers, routings, or keys while
 developing cannot touch the running production instance. Opening `http://127.0.0.1:18888` redirects to
 the dev server, so there is nothing to build while developing. File-watch restarts reuse the same
 browser tab instead of opening a new one each time.
 
-`pnpm build && node dist/cli.mjs` serves the proxy and the built dashboard on a single port, `127.0.0.1:8787`. A foreground run refuses to bind a `listen.port` another instance is already using, and bare `jevonian` will not repoint a LaunchAgent that belongs to a different install — see [cli.md](cli.md#one-instance-per-port).
+`pnpm build && ./jevonian` serves the proxy and the built dashboard on a single port, `127.0.0.1:8787`. A foreground run refuses to bind a `listen.port` another instance is already using, and bare `jevonian` will not repoint a LaunchAgent that belongs to a different install — see [cli.md](cli.md#one-instance-per-port).
 
 ## Source layout
 
-- `src/routing.ts` — phase classification, tier derivation, session store, virtual models
-- `src/upstream.ts` — request forwarding, streaming passthrough, usage capture, decision headers
-- `src/reasoning-passback.ts` — DeepSeek/Kimi `reasoning_content` capture and reinjection for tool turns
-- `src/oauth.ts` — Claude Code / Codex credential import, refresh, and cache
-- `src/responses.ts` — Responses protocol translation, streaming bridge, usage mapping
-- `src/gemini.ts` — Gemini/Cloud Code Assist translation (Antigravity), streaming bridge, usage mapping
-- `src/models.ts` — canonical model ids, cross-provider variants, user aliases
-- `src/quota.ts` — live usage endpoints, response-header capture, ledger fallback
-- `src/admin.ts` — admin API behind the web UI (`/api/*`)
-- `src/keys.ts` — Jevonian API keys (`sk-jev-…`), hashed at `~/.local/share/jevonian/keys.json`
-- `src/stats.ts` — ledger aggregation for reports and the dashboard
-- `src/catalog.ts` — provider model discovery and cache
-- `src/modelsdev.ts` — models.dev price table fetch, mapping, and snapshot cache (12h TTL)
-- `src/leaderboard.ts` — models.dev `models.json` benchmark snapshot, lookup by unified id / label
-- `src/catalog-sync.ts` — shared 12h refresh for pricing + benchmarks (serve background poll + manual)
-- `src/providers.ts` — built-in provider presets and protocol-type mapping
-- `src/credentials.ts` — owner-only key store at `~/.config/jevonian/credentials.json`
-- `src/prompt.ts` — interactive prompts (masked key entry, choices)
-- `src/config.ts` — config load/validation, provider resolution
-- `src/ledger.ts` — append-only JSONL ledger at `~/.local/share/jevonian/ledger.jsonl`
-- `src/bodies.ts` — captured request/brain payloads for the log detail view (`~/.local/share/jevonian/bodies/`, 0600, newest 1000 kept)
-- `src/pricing/` — price lookup, cost math, DeepSeek peak rules, offline fallback table
-- `src/session.ts` — conversation fingerprint (cache affinity key)
-- `web/` — React + Tailwind + shadcn/ui on Base UI components (Vite+, built to `dist/web`)
+Layers run bottom (state/config) to top (HTTP/CLI). `upstream` is one-egress mechanics; `routing`/`brain` decide *who*; `wire` is *what we say*; `provider/*` holds per-vendor quirks.
+
+- `cmd/jevonian/main.go` — sole entrypoint → `internal/cli`
+- `internal/cli/` — command dispatch, serve lifecycle, doctor/report, update, keys
+- `internal/config/` — JSONC load/save, validation, provider resolution
+- `internal/paths/` — XDG / data-dir layout
+- `internal/routing/` — phase classification, tier derivation, session store, virtual models
+- `internal/brain/` — SystemOne channels, ordered failover, breaker
+- `internal/upstream/` — request forwarding, streaming, usage capture, decision headers
+- `internal/wire/` — OpenAI / Anthropic / Responses translation and bridges
+- `internal/provider/` — Cursor, Devin, WorkBuddy, Freebuff, Gemini, multi-account adapters
+- `internal/oauth/` — Claude Code / Codex / Antigravity / Devin / Cursor credential import and refresh
+- `internal/quota/` — live usage endpoints, response-header capture, ledger fallback
+- `internal/ledger/` — SQLite ledger with JSONL import and window rollups
+- `internal/server/` — mux, handlers, middleware, and the `/api/*` admin surface
+- `internal/compaction/` — proactive and reactive context compaction
+- `internal/tunnel/` `internal/lan/` `internal/service/` — ops surfaces
+- `internal/update/` — release check and install
+- `web/` — React + Tailwind + shadcn/ui on Base UI components (Vite+, built to `web/dist`, embedded via `embed.FS`)
+- `bin/jevonian.js` — the only JS runtime: fetches and execs the platform binary
 
 ## Release process
 
@@ -57,7 +54,8 @@ Before tagging, the skill runs:
 
 ```bash
 pnpm exec vp check
-pnpm test
+go test ./...
+node --test test/*.test.js
 pnpm build
 pnpm smoke
 ```

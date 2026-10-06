@@ -252,7 +252,7 @@ export function ProvidersPage() {
             ? "devin"
             : auth === "oauth" && oauthSource === "cursor"
               ? "cursor"
-              : auth === "oauth" && oauthSource === "workbuddy-ai"
+              : auth === "oauth" && (oauthSource === "workbuddy-ai" || oauthSource === "freebuff")
                 ? "openai"
                 : undefined;
   const lockedBy =
@@ -266,7 +266,9 @@ export function ProvidersPage() {
             ? "Cursor"
             : oauthSource === "workbuddy-ai"
               ? "WorkBuddy AI"
-              : "Claude Code";
+              : oauthSource === "freebuff"
+                ? "Freebuff"
+                : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
     (auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource)) ||
@@ -824,6 +826,7 @@ export function ProvidersPage() {
                         <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                         <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
                         <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
+                        <SelectItem value="freebuff">Freebuff (free tier)</SelectItem>
                         <SelectItem value="static">stored token</SelectItem>
                       </SelectContent>
                     </Select>
@@ -872,7 +875,9 @@ export function ProvidersPage() {
                               ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
                               : oauthSource === "workbuddy-ai"
                                 ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
-                                : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                                : oauthSource === "freebuff"
+                                  ? "Save opens Freebuff sign-in in your browser. Or set FREEBUFF_AUTH_TOKEN. Free tier only: daily quota, one session per account."
+                                  : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
                     </p>
                     {oauthSource === "workbuddy-ai" ? (
                       <Button
@@ -1224,6 +1229,7 @@ export function ProvidersPage() {
                           <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
                           <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
                           <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
+                          <SelectItem value="freebuff">Freebuff (free tier)</SelectItem>
                           <SelectItem value="static">stored token</SelectItem>
                         </SelectContent>
                       </Select>

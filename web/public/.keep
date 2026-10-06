@@ -1,0 +1,1 @@
+Build the dashboard with npm run web:build before compiling release binaries.

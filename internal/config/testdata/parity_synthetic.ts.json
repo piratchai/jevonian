@@ -1,0 +1,212 @@
+{
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 9999
+  },
+  "defaultProvider": "p1",
+  "providers": [
+    {
+      "name": "p1",
+      "type": "both",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "apiKey": "sk-x",
+      "apiKeyEnv": "FOO",
+      "auth": "api-key",
+      "billing": "subscription",
+      "quota": {
+        "fiveHourUsd": 5,
+        "monthlyUsd": 100
+      },
+      "models": [
+        "a",
+        {
+          "id": "b",
+          "wire": "anthropic"
+        },
+        {
+          "id": "c",
+          "wire": [
+            "openai",
+            "responses"
+          ]
+        }
+      ],
+      "injectStreamUsage": false,
+      "headers": {
+        "x-a": "b"
+      },
+      "syncModels": true,
+      "noKey": true,
+      "excludeModels": [
+        "z"
+      ]
+    },
+    {
+      "name": "p2",
+      "type": "responses",
+      "baseUrl": "https://x/v1",
+      "auth": "oauth",
+      "oauthSource": "codex",
+      "billing": "api",
+      "login": {
+        "label": "work",
+        "home": "/Users/x/.codex-work",
+        "credentialsPath": "/a/b",
+        "keychainService": "svc",
+        "keychainAccount": "acct"
+      },
+      "models": [],
+      "injectStreamUsage": true
+    },
+    {
+      "name": "p3",
+      "type": "gemini",
+      "baseUrl": "https://g/v1",
+      "auth": "oauth",
+      "billing": "api",
+      "models": [
+        "g"
+      ],
+      "injectStreamUsage": true,
+      "syncModels": false
+    }
+  ],
+  "modelAliases": {
+    "gpt-5": [
+      "gpt-5-codex",
+      "gpt-5.1"
+    ]
+  },
+  "tunnel": {
+    "enabled": true,
+    "provider": "ngrok",
+    "url": "https://casqued.ngrok-free.dev",
+    "publicPort": 9001
+  },
+  "lan": {
+    "enabled": true,
+    "host": "192.168.1.5",
+    "port": 9100
+  },
+  "routing": {
+    "mode": "off",
+    "routings": [
+      {
+        "id": "plan",
+        "label": "Plan X",
+        "description": "d",
+        "models": [
+          "a",
+          "b"
+        ],
+        "providers": {
+          "a": [
+            "p1"
+          ],
+          "b": []
+        },
+        "effort": "xhigh"
+      },
+      {
+        "id": "execute",
+        "label": "Execute",
+        "description": "implementation, debugging, tool loops",
+        "models": []
+      },
+      {
+        "id": "utility",
+        "label": "Background",
+        "description": "background calls, titles, summaries",
+        "models": []
+      },
+      {
+        "id": "chat",
+        "label": "Chit-chat",
+        "description": "casual chat, greetings, small talk",
+        "models": []
+      },
+      {
+        "id": "my-custom",
+        "label": "Mine",
+        "description": "",
+        "models": [
+          "a"
+        ],
+        "providers": {
+          "a": [
+            "p2"
+          ]
+        }
+      }
+    ],
+    "tiers": {
+      "plan": [
+        "a",
+        "b"
+      ],
+      "execute": [],
+      "utility": [],
+      "chat": []
+    },
+    "sessionTtlMinutes": 5,
+    "baselineModel": "a",
+    "capacities": {
+      "a": {
+        "contextWindow": 1000,
+        "maxOutput": 50,
+        "efforts": [
+          "low",
+          "max"
+        ]
+      }
+    },
+    "defaultEffort": "high",
+    "quotaGuard": {
+      "enabled": false,
+      "lowPercent": 33.5,
+      "resetAware": false
+    },
+    "brains": [
+      {
+        "channel": "cloudflare",
+        "baseUrl": "https://b",
+        "accountId": "acc",
+        "apiKeyEnv": "CF",
+        "model": "@cf/x",
+        "timeoutMs": 9000,
+        "minConfidence": 0.3,
+        "fullPrompt": true
+      },
+      {
+        "channel": "kev",
+        "timeoutMs": 5000,
+        "minConfidence": 0.6
+      },
+      {
+        "channel": "typesafe",
+        "timeoutMs": 5000,
+        "minConfidence": 0.6
+      }
+    ],
+    "brainPicksEffort": false
+  },
+  "modelSync": {
+    "enabled": false,
+    "intervalMinutes": 15
+  },
+  "promptPolicy": {
+    "builtins": false,
+    "rewrites": [
+      {
+        "match": "foo",
+        "replace": "bar",
+        "flags": "gi"
+      }
+    ]
+  },
+  "tokenSaver": {
+    "enabled": false,
+    "command": "rtk2",
+    "timeoutMs": 1234
+  }
+}

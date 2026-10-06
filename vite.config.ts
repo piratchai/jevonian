@@ -4,15 +4,17 @@ export default defineConfig({
   staged: {
     "*": "vp check --fix",
   },
-  pack: { deps: { resolveDepSubpath: true }, entry: ["src/cli.ts"], dts: false, sourcemap: false },
   lint: {
     options: {
       typeAware: true,
-      typeCheck: true,
+      typeCheck: false,
     },
   },
   fmt: {
     sortImports: {},
     sortPackageJson: true,
+    // Generated parity fixtures and the docs mirror the TypeScript reference
+    // byte-for-byte; do not reformat them.
+    ignorePatterns: ["internal/**/testdata/**", "docs/**"],
   },
 });

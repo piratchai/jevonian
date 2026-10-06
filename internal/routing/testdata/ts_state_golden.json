@@ -1,0 +1,1757 @@
+[
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "hi"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "hi",
+   "session_goal": "hi",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "hi"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 57
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "fix it"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "tool_calls": [
+      {
+       "id": "1",
+       "type": "function",
+       "function": {
+        "name": "bash",
+        "arguments": "{\"command\":\"ls\"}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "Error: boom"
+    },
+    {
+     "role": "tool",
+     "content": "ok"
+    },
+    {
+     "role": "tool",
+     "content": "FAIL a.test"
+    },
+    {
+     "role": "tool",
+     "content": "exit code 2"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "fix it",
+   "session_goal": "fix it",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "fix it"
+    }
+   ],
+   "recent_tool_calls": [
+    "bash(<command redacted>)"
+   ],
+   "recent_tool_results": [
+    "FAIL a.test",
+    "exit code 2"
+   ],
+   "has_tool_results": true,
+   "has_tools": true,
+   "consecutive_failures": 2,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 6,
+   "estimated_tokens": 303
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "tool",
+     "content": [
+      {
+       "type": "text",
+       "text": "failed  \n\n\n\nx"
+      },
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "data:image/png;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "fine"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [
+    "failed\n\nx\n[image]"
+   ],
+   "has_tool_results": true,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 2,
+   "estimated_tokens": 1955
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "anthropic",
+  "body": {
+   "system": "sys",
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "<system-reminder>x</system-reminder>"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": "real ask here please"
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "tool_use",
+       "id": "t",
+       "name": "edit",
+       "input": {
+        "a": 1
+       }
+      },
+      {
+       "type": "text",
+       "text": "doing"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "tool_result",
+       "tool_use_id": "t",
+       "content": "traceback (most recent)"
+      }
+     ]
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "real ask here please",
+   "last_assistant_message": "doing",
+   "session_goal": "real ask here please",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "real ask here please"
+    },
+    {
+     "role": "assistant",
+     "text": "doing"
+    }
+   ],
+   "recent_tool_calls": [
+    "edit({\"a\":1})"
+   ],
+   "recent_tool_results": [
+    "traceback (most recent)"
+   ],
+   "has_tool_results": true,
+   "has_tools": false,
+   "consecutive_failures": 1,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 4,
+   "estimated_tokens": 312
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "responses",
+  "body": {
+   "instructions": "inst",
+   "input": [
+    {
+     "type": "message",
+     "role": "user",
+     "content": [
+      {
+       "type": "input_text",
+       "text": "<environment_context>\npath\n</environment_context>"
+      }
+     ]
+    },
+    {
+     "type": "message",
+     "role": "user",
+     "content": [
+      {
+       "type": "input_text",
+       "text": "fix the thing in the repo"
+      }
+     ]
+    },
+    {
+     "type": "function_call",
+     "name": "shell",
+     "arguments": "{\"command\":\"ls\"}"
+    },
+    {
+     "type": "function_call_output",
+     "call_id": "1",
+     "output": "AssertionError"
+    },
+    {
+     "type": "local_shell_call",
+     "action": {
+      "command": [
+       "ls"
+      ]
+     }
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "fix the thing in the repo",
+   "session_goal": "fix the thing in the repo",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "fix the thing in the repo"
+    }
+   ],
+   "recent_tool_calls": [
+    "shell(<command redacted>)",
+    "shell(<command redacted>)"
+   ],
+   "recent_tool_results": [
+    "AssertionError"
+   ],
+   "has_tool_results": true,
+   "has_tools": false,
+   "consecutive_failures": 1,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 5,
+   "estimated_tokens": 345
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "responses",
+  "body": {
+   "input": "plain string input",
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "plain string input",
+   "session_goal": "plain string input",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 38
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "<user_info>\nOS\n</user_info>"
+    },
+    {
+     "role": "assistant",
+     "content": "hello"
+    },
+    {
+     "role": "user",
+     "content": "<user_query>你是什么模型</user_query>"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "你是什么模型",
+   "last_assistant_message": "hello",
+   "session_goal": "你是什么模型",
+   "recent_messages": [
+    {
+     "role": "assistant",
+     "text": "hello"
+    },
+    {
+     "role": "user",
+     "text": "你是什么模型"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 3,
+   "estimated_tokens": 153
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "<div class='a'>broken layout</div>"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "<div class='a'>broken layout</div>",
+   "session_goal": "<div class='a'>broken layout</div>",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "<div class='a'>broken layout</div>"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 75
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "<environment_context>\npath=/tmp"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 74
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "text <custom>a</custom> more <b>bold</b> tail <unclosed> rest"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "text <custom>a</custom> more <b>bold</b> tail <unclosed> rest",
+   "session_goal": "text <custom>a</custom> more <b>bold</b> tail <unclosed> rest",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "text <custom>a</custom> more <b>bold</b> tail <unclosed> rest"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 90
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "<Div>x</DIV> <thing>y</THING> z"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "<Div>x</DIV> <thing>y</THING> z",
+   "session_goal": "<Div>x</DIV> <thing>y</THING> z",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "<Div>x</DIV> <thing>y</THING> z"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 80
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "hello"
+    },
+    {
+     "role": "user",
+     "content": "build the whole app now"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "build the whole app now",
+   "session_goal": "build the whole app now",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "hello"
+    },
+    {
+     "role": "user",
+     "text": "build the whole app now"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 2,
+   "estimated_tokens": 90
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "继续"
+    },
+    {
+     "role": "user",
+     "content": "实现登录功能 and tests please"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "实现登录功能 and tests please",
+   "session_goal": "实现登录功能 and tests please",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "继续"
+    },
+    {
+     "role": "user",
+     "text": "实现登录功能 and tests please"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 2,
+   "estimated_tokens": 96
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "model": "auto",
+   "messages": [
+    {
+     "role": "user",
+     "content": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x data:image/png;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "f",
+      "parameters": {
+       "type": "object"
+      }
+     }
+    }
+   ],
+   "system": "s"
+  },
+  "state": {
+   "last_user_message": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x [image]",
+   "session_goal": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x ",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x "
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": true,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 1,
+   "estimated_tokens": 2663
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "user": "u1",
+   "messages": [],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 0,
+   "estimated_tokens": 33
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "metadata": {
+    "user_id": "meta-1"
+   },
+   "messages": [],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 0,
+   "estimated_tokens": 33
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "prompt_cache_key": "pck",
+   "messages": [],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 0,
+   "estimated_tokens": 33
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "responses",
+  "body": {
+   "previous_response_id": "prev",
+   "input": [],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 0,
+   "estimated_tokens": 33
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "",
+   "recent_messages": [],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 0,
+   "estimated_tokens": 33
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "anthropic",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "start the migration of everything"
+    },
+    {
+     "role": "assistant",
+     "content": "  line one\n\n  line   two\t\tthree zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "start the migration of everything",
+   "last_assistant_message": "line one line two three zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+   "session_goal": "start the migration of everything",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "start the migration of everything"
+    },
+    {
+     "role": "assistant",
+     "text": "line one line two three zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 2,
+   "estimated_tokens": 261
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "kind": "openai",
+  "body": {
+   "messages": [
+    {
+     "role": "user",
+     "content": "start the migration of everything"
+    },
+    {
+     "role": "assistant",
+     "content": "ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀"
+    },
+    {
+     "role": "user",
+     "content": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    }
+   ],
+   "model": "auto"
+  },
+  "state": {
+   "last_user_message": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "last_assistant_message": "ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀",
+   "session_goal": "start the migration of everything",
+   "recent_messages": [
+    {
+     "role": "user",
+     "text": "start the migration of everything"
+    },
+    {
+     "role": "assistant",
+     "text": "ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀ok 😀"
+    },
+    {
+     "role": "user",
+     "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+    }
+   ],
+   "recent_tool_calls": [],
+   "recent_tool_results": [],
+   "has_tool_results": false,
+   "has_tools": false,
+   "consecutive_failures": 0,
+   "cache_keep": "first",
+   "session_turns": 1,
+   "message_count": 3,
+   "estimated_tokens": 6359
+  },
+  "routingModels": [
+   {
+    "id": "plan",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "execute",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "utility",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   },
+   {
+    "id": "chat",
+    "models": [
+     [
+      "cache",
+      "model",
+      "preference_rank",
+      "provider"
+     ]
+    ]
+   }
+  ]
+ }
+]

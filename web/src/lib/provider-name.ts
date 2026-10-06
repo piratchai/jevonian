@@ -27,6 +27,8 @@ const NAME_OVERRIDES: Record<string, string> = {
   codex: "ChatGPT",
   "workbuddy-ai-subscription": "WorkBuddy AI",
   "workbuddy-ai": "WorkBuddy AI",
+  "freebuff-subscription": "Freebuff",
+  freebuff: "Freebuff",
   workbuddy: "WorkBuddy AI",
 };
 

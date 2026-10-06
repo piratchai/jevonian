@@ -1,0 +1,1 @@
+{"routing":{"tiers":{"plan":["a"],"execute":["b"],"utility":["c"],"chat":["d"]},"brain":{"channel":"openrouter","model":"typesafe/jev-1.13"}},"providers":[]}

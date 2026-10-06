@@ -16,7 +16,7 @@ GitHub release only by default. **npm publish is a separate, explicit step.**
 - Never `npm publish` / `pnpm publish` unless the user said so in this turn.
 - Never push `--force` to `main` or move an existing release tag.
 - Never skip quality gates unless the user waives them for this release.
-- Version in `package.json`, git tag `vX.Y.Z`, and CHANGELOG heading must match.
+- Version in `package.json`, `internal/cli/cli.go` `Version`, git tag `vX.Y.Z`, and CHANGELOG heading must match.
 
 ## Workflow
 
@@ -72,12 +72,13 @@ From repo root, sequentially:
 
 ```bash
 pnpm exec vp check
-pnpm test
+go test ./...
+node --test test/*.test.js
 pnpm build
 pnpm smoke
 ```
 
-Done when all four exit 0. On failure: fix or stop; do not tag a red release.
+Done when all exit 0. On failure: fix or stop; do not tag a red release.
 
 ### 4. CHANGELOG + package.json
 
@@ -101,14 +102,15 @@ Create `CHANGELOG.md` if missing. Prepend a section (Keep a Changelog style):
 
 Omit empty subsections. Derive bullets from commits/PRs since the previous `v*` tag (or all history for the first tagged release). Write for users, not commit hashes.
 
-Set `package.json` `"version"` to `X.Y.Z` (no `v` prefix).
+Set `package.json` `"version"` to `X.Y.Z` (no `v` prefix). Set `var Version` in
+`internal/cli/cli.go` to the same value; `TestVersionMatchesPackageJSON` fails when they differ.
 
 ### 5. Commit, tag, push
 
 Follow the repo git commit rules (status/diff/log, HEREDOC message, no secrets).
 
 ```bash
-git add package.json CHANGELOG.md
+git add package.json CHANGELOG.md internal/cli/cli.go
 # include any gate fixes from this release only
 git commit -m "$(cat <<'EOF'
 Release vX.Y.Z.
@@ -127,14 +129,37 @@ Done when `git status` is clean and `origin` has the commit + tag.
 
 ### 6. GitHub Release
 
+Build the native assets and upload them with the release. The npm shim and `jevonian update`
+both download `jevonian-<os>-<arch>[.exe]` plus `checksums.txt` from the `vX.Y.Z` release, so
+the assets are the release.
+
 ```bash
-gh release create "vX.Y.Z" --title "vX.Y.Z" --notes-file - <<'EOF'
+# CGO-free binaries for every supported platform. The version comes from
+# package.json and is stamped into the binary; `jevonian version` and the
+# update check read it, so a wrong stamp means a never-ending "update available".
+version="$(node -p 'require("./package.json").version')"
+mkdir -p /tmp/jevonian-release
+for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64; do
+  os="${target%/*}"; arch="${target#*/}"
+  out="/tmp/jevonian-release/jevonian-$os-$arch"
+  [ "$os" = "windows" ] && out="$out.exe"
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+    -ldflags "-s -w -X github.com/xinyao27/jevonian/internal/cli.Version=$version" \
+    -o "$out" ./cmd/jevonian
+done
+# Every binary must report the package version.
+[ "$(/tmp/jevonian-release/jevonian-$(go env GOOS)-$(go env GOARCH) version)" = "jevonian $version" ]
+( cd /tmp/jevonian-release && shasum -a 256 jevonian-* | sed 's|  *|  |' > checksums.txt )
+```
+
+```bash
+gh release create "vX.Y.Z" --title "vX.Y.Z" --notes-file - /tmp/jevonian-release/* <<'EOF'
 ## What's changed
 <same bullets as CHANGELOG section, tightened>
 EOF
 ```
 
-Done when `gh release view vX.Y.Z` works. Return the release URL.
+Done when `gh release view vX.Y.Z` works and every asset in `checksums.txt` is attached. Return the release URL.
 
 ### 7. Stop and remind
 

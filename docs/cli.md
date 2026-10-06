@@ -50,11 +50,12 @@ jevonian launch claude --model jevonian/auto -- -p "summarize this repo"
 
 In `/model` you should see **Jevonian Auto** (and Haiku labeled **Jevonian Utility** when that routing exists). The built-in Sonnet/Opus/Haiku aliases resolve to those same models.
 
-Running from a source checkout, prefix these with `node dist/cli.mjs`:
+Running from a source checkout, build the binary once and prefix these with `./`:
 
 ```bash
-node dist/cli.mjs
-node dist/cli.mjs report
+go build -o jevonian ./cmd/jevonian
+./jevonian
+./jevonian report
 ```
 
 ## Dashboard routes

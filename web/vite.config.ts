@@ -21,7 +21,7 @@ export default defineConfig({
     __JEVONIAN_VERSION__: JSON.stringify(version),
   },
   build: {
-    outDir: resolve(root, "../dist/web"),
+    outDir: resolve(root, "dist"),
     emptyOutDir: true,
   },
   server: {

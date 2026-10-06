@@ -188,6 +188,18 @@ touches messages that already carry tool output, so a fresh first turn is sent b
 | `JEVONIAN_CAPTURE_BODIES`       | set to `0` to stop storing request/brain payloads                                 |
 | `JEVONIAN_NO_OPEN`              | set to `1` to skip launching the browser                                          |
 | `JEVONIAN_UPSTREAM_RETRIES`     | retries after a transient upstream failure (default `2`, `0` disables, max `5`)   |
+| `JEVONIAN_SAME_HOST_RETRIES`    | repeats against the same host before failing over (default `1`)                   |
+| `JEVONIAN_UPSTREAM_CONNECT_TIMEOUT_MS` | connect timeout (default `15000`)                                          |
+| `JEVONIAN_UPSTREAM_HEADERS_TIMEOUT_MS` | headers timeout (default `60000`)                                          |
+| `JEVONIAN_UPSTREAM_BODY_TIMEOUT_MS`    | whole-body timeout (default `90000`)                                       |
+| `JEVONIAN_UPSTREAM_FIRST_BYTE_TIMEOUT_MS` | first-byte timeout (default `60000`)                                     |
+| `JEVONIAN_UPSTREAM_STREAM_IDLE_TIMEOUT_MS` | mid-stream idle timeout (default `120000`)                              |
+| `JEVONIAN_PROVIDER_CONCURRENCY` | max in-flight requests per provider (default `8`)                                 |
+| `JEVONIAN_PROVIDER_BREAKER_THRESHOLD` | consecutive failures that open the provider breaker (default `3`)          |
+| `JEVONIAN_PROVIDER_BREAKER_COOLDOWN_MS` | breaker cooldown (default `60000`)                                       |
+| `JEVONIAN_MODELS_DEV_URL`       | models.dev catalog/benchmark endpoint override                                     |
+| `JEVONIAN_WEB_DIR`              | directory served as the dashboard instead of the embedded build                   |
+| `JEVONIAN_WEB_DEV`              | set during `pnpm dev`: reuse the dashboard tab across watcher restarts            |
 | `JEVONIAN_SYSTEM_PROXY`         | set to `off` to ignore the macOS system proxy                                     |
 | `JEVONIAN_CLAUDE_CREDENTIALS`   | Claude Code credentials file (disables the keychain fallback)                     |
 | `JEVONIAN_CODEX_AUTH`           | Codex `auth.json` path                                                            |

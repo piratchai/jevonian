@@ -11,6 +11,9 @@ const APP_PORT = Number(process.env.JEVONIAN_PORT ?? 18888);
 const WEB_PORT = Number(process.env.JEVONIAN_WEB_PORT ?? 15174);
 const WEB_DEV_URL = `http://127.0.0.1:${WEB_PORT}`;
 
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const GO_BIN = join(REPO_ROOT, "jevonian");
+
 const children = [];
 let shuttingDown = false;
 
@@ -97,19 +100,28 @@ if (await portInUse(APP_PORT)) {
 
 // `vp` is a local devDep, not on the daemon PATH — resolve it through the repo root so
 // `launchctl` / `npm run dev` both find the same binary.
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VP_BIN = join(REPO_ROOT, "node_modules", ".bin", "vp");
-const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
-const CLI_ENTRY = join(REPO_ROOT, "src", "cli.ts");
 
 run(VP_BIN, ["-C", "web", "dev"]);
 
 setTimeout(() => {
-  run(TSX_BIN, ["watch", CLI_ENTRY, "serve", "--foreground", ...process.argv.slice(2)], {
-    JEVONIAN_WEB_DEV: WEB_DEV_URL,
-    JEVONIAN_PORT: String(APP_PORT),
-    JEVONIAN_CONFIG: DEV_CONFIG,
-    JEVONIAN_DATA_DIR: DEV_DATA,
-    JEVONIAN_BROWSER_STATE: DEV_BROWSER_STATE,
+  // Rebuild the Go binary on every start so a source edit is picked up. `go run` is not
+  // used here because the dev server needs a stable executable for the relaunch path.
+  const build = spawn("go", ["build", "-o", GO_BIN, "./cmd/jevonian"], {
+    stdio: "inherit",
+    cwd: REPO_ROOT,
+  });
+  build.on("exit", (code) => {
+    if (code !== 0) {
+      shutdown(code ?? 1);
+      return;
+    }
+    run(GO_BIN, ["serve", "--foreground", ...process.argv.slice(2)], {
+      JEVONIAN_WEB_DEV: WEB_DEV_URL,
+      JEVONIAN_PORT: String(APP_PORT),
+      JEVONIAN_CONFIG: DEV_CONFIG,
+      JEVONIAN_DATA_DIR: DEV_DATA,
+      JEVONIAN_BROWSER_STATE: DEV_BROWSER_STATE,
+    });
   });
 }, 1_200);

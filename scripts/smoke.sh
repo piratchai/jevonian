@@ -26,8 +26,8 @@ check_headers() {
 cd "$ROOT"
 
 echo "building..."
-vp pack >/dev/null
 vp -C web build >/dev/null
+go build -o "$ROOT/jevonian" ./cmd/jevonian
 
 cat > "$TMP/config.json" <<JSON
 {
@@ -88,6 +88,7 @@ JSON
 
 export JEVONIAN_CONFIG="$TMP/config.json"
 export JEVONIAN_LEDGER="$TMP/ledger.jsonl"
+export JEVONIAN_LEDGER_DB="$TMP/ledger.sqlite"
 export JEVONIAN_DATA_DIR="$TMP/data"
 export JEVONIAN_CREDENTIALS="$TMP/credentials.json"
 
@@ -96,7 +97,7 @@ MOCK_PID=$!
 # --foreground keeps this server in-process. Bare `serve` on macOS installs a
 # LaunchAgent instead, which would ignore the temp config above and talk to the
 # developer's real background service.
-node "$ROOT/dist/cli.mjs" serve --foreground > "$TMP/server.log" 2>&1 &
+"$ROOT/jevonian" serve --foreground > "$TMP/server.log" 2>&1 &
 JEV_PID=$!
 sleep 1
 
@@ -204,11 +205,11 @@ if grep -q '"object":"chat.completion"' "$TMP/r7"; then pass "translated respons
 
 echo "ledger..."
 sleep 0.3
-records="$(wc -l < "$TMP/ledger.jsonl" | tr -d ' ')"
+records="$(sqlite3 "$TMP/ledger.sqlite" 'select count(*) from records;' 2>/dev/null || echo 0)"
 if [ "$records" -ge 7 ]; then pass "ledger captured $records requests"; else fail "ledger captured only $records requests"; fi
-if grep -q '"brain":"' "$TMP/ledger.jsonl"; then pass "brain decider recorded"; else fail "brain decider recorded"; fi
-if grep -q '"costUsd":' "$TMP/ledger.jsonl"; then pass "cost recorded"; else fail "cost recorded"; fi
-if grep -q '"billing":"subscription"' "$TMP/ledger.jsonl"; then pass "subscription billing recorded"; else fail "subscription billing recorded"; fi
+if [ "$(sqlite3 "$TMP/ledger.sqlite" "select count(*) from records where brain != '';")" -ge 1 ]; then pass "brain decider recorded"; else fail "brain decider recorded"; fi
+if [ "$(sqlite3 "$TMP/ledger.sqlite" 'select count(*) from records where cost_usd is not null;')" -ge 1 ]; then pass "cost recorded"; else fail "cost recorded"; fi
+if [ "$(sqlite3 "$TMP/ledger.sqlite" "select count(*) from records where billing = 'subscription';")" -ge 1 ]; then pass "subscription billing recorded"; else fail "subscription billing recorded"; fi
 
 echo "quota..."
 if curl -s "http://127.0.0.1:$PORT/api/quota" | grep -q '"quotas"'; then pass "quota api"; else fail "quota api"; fi
@@ -282,9 +283,9 @@ curl -s -D "$TMP/h5" -o /dev/null "http://127.0.0.1:$PORT/v1/chat/completions" \
 check_headers "$TMP/h5" "x-jevonian-brain: jev" "brain fallback consulted"
 check_headers "$TMP/h5" "x-jevonian-brain-channel: custom" "brain channel reported"
 check_headers "$TMP/h5" "x-jevonian-model: claude-fable-5-1" "brain chose a listed candidate"
-if grep -q '"status":502' "$TMP/ledger.jsonl"; then pass "failed brain call recorded"; else fail "failed brain call recorded"; fi
+if [ "$(sqlite3 "$TMP/ledger.sqlite" 'select count(*) from records where status = 502;')" -ge 1 ]; then pass "failed brain call recorded"; else fail "failed brain call recorded"; fi
 sleep 0.3
-if grep -q '"kind":"brain"' "$TMP/ledger.jsonl"; then pass "brain usage recorded"; else fail "brain usage recorded"; fi
+if [ "$(sqlite3 "$TMP/ledger.sqlite" "select count(*) from records where kind = 'brain';")" -ge 1 ]; then pass "brain usage recorded"; else fail "brain usage recorded"; fi
 
 echo "log detail..."
 log_id="$(curl -s "http://127.0.0.1:$PORT/api/logs?limit=10" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const logs=JSON.parse(d).logs;const hit=logs.find((l)=>l.kind!=='brain'&&l.id);console.log(hit?hit.id:'')})")"
@@ -295,8 +296,10 @@ if printf '%s' "$detail" | grep -q 'jev check'; then pass "log detail includes t
 if printf '%s' "$detail" | grep -q '"verdict"'; then pass "brain detail includes the verdict"; else fail "brain detail includes the verdict"; fi
 
 echo "report..."
-if node "$ROOT/dist/cli.mjs" report | grep -q "savings"; then pass "report computes savings"; else fail "report computes savings"; fi
-if node "$ROOT/dist/cli.mjs" doctor | grep -q "plan:"; then pass "doctor shows tiers"; else fail "doctor shows tiers"; fi
+report_out="$("$ROOT/jevonian" report)"
+if printf '%s' "$report_out" | grep -q "savings"; then pass "report computes savings"; else fail "report computes savings"; fi
+doctor_out="$("$ROOT/jevonian" doctor)"
+if printf '%s' "$doctor_out" | grep -q "plan:"; then pass "doctor shows tiers"; else fail "doctor shows tiers"; fi
 
 echo ""
 echo "all checks passed"

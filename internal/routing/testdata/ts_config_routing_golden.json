@@ -1,0 +1,1453 @@
+[
+ {
+  "name": "default",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ]
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "legacy-tiers",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "tiers": {
+     "plan": [
+      "m1"
+     ],
+     "execute": [
+      "m2"
+     ],
+     "utility": [],
+     "chat": [
+      "m3"
+     ]
+    }
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": [
+       "m2"
+      ]
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": [
+       "m3"
+      ]
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m1"
+     ],
+     "execute": [
+      "m2"
+     ],
+     "utility": [],
+     "chat": [
+      "m3"
+     ]
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "routings-partial-builtin",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "plan",
+      "label": " Plan X ",
+      "models": [
+       "m1"
+      ]
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan X",
+      "description": "",
+      "models": [
+       "m1"
+      ]
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m1"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "routings-custom",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "frontend",
+      "label": "Frontend",
+      "description": "ui",
+      "models": [
+       "m1"
+      ],
+      "effort": "high"
+     },
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [
+       "m2"
+      ]
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": [
+       "m2"
+      ]
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     },
+     {
+      "id": "frontend",
+      "label": "Frontend",
+      "description": "ui",
+      "models": [
+       "m1"
+      ],
+      "effort": "high"
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m2"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "routings-and-legacy-tiers",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "tiers": {
+     "execute": [
+      "legacyx"
+     ]
+    },
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [
+       "m2"
+      ]
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": [
+       "m2"
+      ]
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": [
+       "legacyx"
+      ]
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m2"
+     ],
+     "execute": [
+      "legacyx"
+     ],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "providerOrder-legacy",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [
+       "m1",
+       "m2"
+      ],
+      "providerOrder": {
+       "m1": [
+        "b",
+        "a",
+        "b",
+        ""
+       ],
+       "zz": [
+        "q"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": [
+       "m1",
+       "m2"
+      ],
+      "providers": {
+       "m1": [
+        "b",
+        "a"
+       ]
+      }
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m1",
+      "m2"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "providers-empty-list",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [
+       "m1"
+      ],
+      "providers": {
+       "m1": []
+      }
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": [
+       "m1"
+      ],
+      "providers": {
+       "m1": []
+      }
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m1"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "providers-beats-providerOrder",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [
+       "m1"
+      ],
+      "providers": {
+       "m1": [
+        "a"
+       ]
+      },
+      "providerOrder": {
+       "m1": [
+        "b"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": [
+       "m1"
+      ],
+      "providers": {
+       "m1": [
+        "a"
+       ]
+      }
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "m1"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "bad-effort",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "models": [],
+      "effort": "turbo"
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "P",
+      "description": "",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "capacities",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "capacities": {
+     "m1": {
+      "contextWindow": 1000,
+      "maxOutput": 10,
+      "efforts": [
+       "low",
+       "bogus",
+       "high"
+      ]
+     },
+     "m2": {
+      "contextWindow": -1
+     },
+     "m3": {
+      "efforts": [
+       "bogus"
+      ]
+     },
+     "m4": {
+      "maxOutput": 5
+     }
+    }
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "capacities": {
+     "m1": {
+      "contextWindow": 1000,
+      "maxOutput": 10,
+      "efforts": [
+       "low",
+       "high"
+      ]
+     },
+     "m4": {
+      "maxOutput": 5
+     }
+    },
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "defaults-misc",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "mode": "auto",
+    "sessionTtlMinutes": 0,
+    "brainPicksEffort": false,
+    "defaultEffort": "medium",
+    "baselineModel": "m1"
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "baselineModel": "m1",
+    "defaultEffort": "medium",
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": false
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "ttl",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "sessionTtlMinutes": 15
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 15,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "err-id-auto",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "auto",
+      "label": "A",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings[0].id must be a slug (lowercase letters, digits, hyphens; not \"auto\")"
+  }
+ },
+ {
+  "name": "err-id-caps",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "Front",
+      "label": "A",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings[0].id must be a slug (lowercase letters, digits, hyphens; not \"auto\")"
+  }
+ },
+ {
+  "name": "err-id-digit",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "1x",
+      "label": "A",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings[0].id must be a slug (lowercase letters, digits, hyphens; not \"auto\")"
+  }
+ },
+ {
+  "name": "err-id-long",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "label": "A",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings[0].id must be a slug (lowercase letters, digits, hyphens; not \"auto\")"
+  }
+ },
+ {
+  "name": "ok-id-64",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "label": "A",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     },
+     {
+      "id": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "label": "A",
+      "description": "",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "err-label",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "x",
+      "label": "  ",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings[0].label must be a non-empty string"
+  }
+ },
+ {
+  "name": "err-dup",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [
+     {
+      "id": "x",
+      "label": "A",
+      "models": []
+     },
+     {
+      "id": "x",
+      "label": "B",
+      "models": []
+     }
+    ]
+   }
+  },
+  "want": {
+   "error": "routing.routings: duplicate id \"x\""
+  }
+ },
+ {
+  "name": "err-mode",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "mode": "weird"
+   }
+  },
+  "want": {
+   "error": "routing.mode must be \"auto\" or \"off\""
+  }
+ },
+ {
+  "name": "empty-routings-array-uses-tiers",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {
+    "routings": [],
+    "tiers": {
+     "plan": [
+      "t1"
+     ]
+    }
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": [
+       "t1"
+      ]
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [
+      "t1"
+     ],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": null
+  }
+ },
+ {
+  "name": "aliases",
+  "raw": {
+   "defaultProvider": "a",
+   "providers": [
+    {
+     "name": "a",
+     "type": "openai",
+     "baseUrl": "http://x/v1",
+     "apiKey": "k",
+     "models": [
+      "m1",
+      "m2"
+     ]
+    }
+   ],
+   "routing": {},
+   "modelAliases": {
+    "gizmo": [
+     "b/y-2",
+     "x-1"
+    ]
+   }
+  },
+  "want": {
+   "routing": {
+    "mode": "auto",
+    "routings": [
+     {
+      "id": "plan",
+      "label": "Plan",
+      "description": "planning, coordination, review",
+      "models": []
+     },
+     {
+      "id": "execute",
+      "label": "Execute",
+      "description": "implementation, debugging, tool loops",
+      "models": []
+     },
+     {
+      "id": "utility",
+      "label": "Background",
+      "description": "background calls, titles, summaries",
+      "models": []
+     },
+     {
+      "id": "chat",
+      "label": "Chit-chat",
+      "description": "casual chat, greetings, small talk",
+      "models": []
+     }
+    ],
+    "tiers": {
+     "plan": [],
+     "execute": [],
+     "utility": [],
+     "chat": []
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+     "enabled": true,
+     "lowPercent": 10,
+     "resetAware": true
+    },
+    "brains": [],
+    "brainPicksEffort": true
+   },
+   "modelAliases": {
+    "gizmo": [
+     "b/y-2",
+     "x-1"
+    ]
+   }
+  }
+ }
+]

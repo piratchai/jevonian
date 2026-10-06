@@ -23,7 +23,8 @@ git status   # clean
 node -p "require('./package.json').version"   # must equal X.Y.Z without v
 pnpm install --frozen-lockfile
 pnpm exec vp check
-pnpm test
+go test ./...
+node --test test/*.test.js
 pnpm build
 pnpm smoke
 npm pack --dry-run
@@ -31,13 +32,15 @@ npm pack --dry-run
 
 Check dry-run output:
 
-- [ ] Includes `dist/cli.mjs`, `dist/web/**`, `LICENSE`, `README.md`
+- [ ] Includes `bin/jevonian.js`, `LICENSE`, `README.md`
 - [ ] No `*.map` files
-- [ ] No `src/`, `web/src/`, `.env`, credentials
+- [ ] No `src/`, `dist/`, `web/src/`, `.env`, credentials
 - [ ] License field is `AGPL-3.0-only`
-- [ ] Tarball size looks sane (on the order of hundreds of KB to low MB)
+- [ ] Tarball size is small (the package ships no native binary; the shim downloads it)
 
-`prepublishOnly` already runs `vp check`, `test`, and `build` on publish; still run them manually so failures are caught before the npm round-trip.
+The published package is a **fetch-and-exec shim**: `postinstall` downloads the platform Go
+binary from the matching GitHub release (`jevonian-<os>-<arch>` + `checksums.txt`) and the `bin`
+entry execs it. The tarball itself stays tiny; no router code runs in Node.
 
 ## Publish
 

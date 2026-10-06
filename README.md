@@ -271,15 +271,15 @@ Jevonian makes no claim about model quality, and does not gate or accept code. I
 
 ## Development
 
-Built with [Vite+](https://viteplus.dev); Oxlint, Oxfmt, Vitest, and tsdown come from the `vite-plus` bundle. From a source checkout:
+The router is a native Go binary; the dashboard is the React + Vite SPA under `web/`. From a source checkout:
 
 ```bash
 pnpm install
-pnpm dev           # Vite dev server (5173) + proxy (8787), HMR, opens the dashboard
-vp check           # format + lint + type check (primary gate; --fix to apply)
-vp test            # unit tests
+pnpm dev           # Go serve (18888) + Vite dev server (15174), HMR, opens the dashboard
+vp check           # format + lint (primary gate; --fix to apply)
+go test ./...      # unit tests
 pnpm smoke         # end-to-end assertions against a mock upstream, no API keys needed
-pnpm build         # bundle the CLI and build the web UI
+pnpm build         # build the web UI, then the Go binary
 ```
 
 See [development.md](docs/development.md) for the source layout and the release process.

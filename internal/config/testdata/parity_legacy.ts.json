@@ -1,0 +1,93 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 8787
+  },
+  "providers": [],
+  "tunnel": {
+    "enabled": false,
+    "provider": "cloudflare"
+  },
+  "lan": {
+    "enabled": false
+  },
+  "routing": {
+    "mode": "auto",
+    "routings": [
+      {
+        "id": "plan",
+        "label": "Plan",
+        "description": "planning, coordination, review",
+        "models": [
+          "a"
+        ]
+      },
+      {
+        "id": "execute",
+        "label": "Execute",
+        "description": "implementation, debugging, tool loops",
+        "models": [
+          "b"
+        ]
+      },
+      {
+        "id": "utility",
+        "label": "Background",
+        "description": "background calls, titles, summaries",
+        "models": [
+          "c"
+        ]
+      },
+      {
+        "id": "chat",
+        "label": "Chit-chat",
+        "description": "casual chat, greetings, small talk",
+        "models": [
+          "d"
+        ]
+      }
+    ],
+    "tiers": {
+      "plan": [
+        "a"
+      ],
+      "execute": [
+        "b"
+      ],
+      "utility": [
+        "c"
+      ],
+      "chat": [
+        "d"
+      ]
+    },
+    "sessionTtlMinutes": 720,
+    "quotaGuard": {
+      "enabled": true,
+      "lowPercent": 10,
+      "resetAware": true
+    },
+    "brains": [
+      {
+        "channel": "openrouter",
+        "model": "typesafe/jev-1.13",
+        "timeoutMs": 5000,
+        "minConfidence": 0.6
+      }
+    ],
+    "brainPicksEffort": true
+  },
+  "modelSync": {
+    "enabled": true,
+    "intervalMinutes": 720
+  },
+  "promptPolicy": {
+    "builtins": true,
+    "rewrites": []
+  },
+  "tokenSaver": {
+    "enabled": true,
+    "command": "rtk",
+    "timeoutMs": 3000
+  }
+}
