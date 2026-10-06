@@ -23,8 +23,8 @@ import {
 } from "@lobehub/icons";
 import type { ComponentType, SVGProps } from "react";
 
-import orcarouter from "@/assets/logos/orcarouter.png";
 import freebuff from "@/assets/logos/freebuff.svg";
+import orcarouter from "@/assets/logos/orcarouter.png";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: string | number };
 type LobeIcon = ComponentType<IconProps> & {
