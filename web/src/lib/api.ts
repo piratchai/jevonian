@@ -383,18 +383,91 @@ export interface LogAttempt {
   fail?: string;
 }
 
+/**
+ * What the client actually received for a turn, decoded from the provider's wire format.
+ * Older records have no capture at all, so every consumer must treat this as optional.
+ */
+export interface CapturedResponse {
+  wire: "openai" | "anthropic" | "responses";
+  status: number;
+  stream: boolean;
+  /** Assistant visible text; may be empty. */
+  text: string;
+  /** Thinking text, when the wire exposes it. */
+  reasoning?: string;
+  /** Tool calls the model asked for; `arguments` is raw JSON text. */
+  toolCalls?: Array<{ id?: string; name: string; arguments: string }>;
+  /** Native finish reason from the wire. */
+  finishReason?: string;
+  /** Set when the turn failed. */
+  error?: string;
+  /** The capture was cut at a size cap. */
+  truncated?: boolean;
+}
+
 export interface LogDetailResponse {
   record: LogRecord;
   body?: unknown;
   brainCalls: Array<{ record: LogRecord; body?: unknown }>;
 }
 
-/** Filters shared by the list, the live stream, and the header chart. */
-export interface LogQuery {
-  phase?: string;
-  model?: string;
+/**
+ * Filters shared by the list, the live stream, the header chart, and the facet
+ * counts. Each list is repeatable on the wire: values within one group are
+ * OR-ed, groups are AND-ed. `"all"` and empty entries are dropped before send.
+ */
+export interface LogFilterParams {
+  phase?: string[];
+  model?: string[];
+  provider?: string[];
+  /** Only "ok" and "error" carry meaning; the server ignores anything else. */
+  status?: string[];
   /** Free-text match over model, provider, phase, session, reason, and effort. */
   q?: string;
+  /** Exact, case-sensitive session id, for the session strip on the detail page. */
+  session?: string;
+}
+
+/** @deprecated Use LogFilterParams; kept under the old name for callers. */
+export type LogQuery = LogFilterParams;
+
+export interface LogFacetValue {
+  value: string;
+  count: number;
+}
+
+/**
+ * Grouped value counts for the filter rail. Each group's counts apply every
+ * current filter except that group's own, so siblings stay visible while one
+ * value is checked. `status` always lists both values, even at zero count.
+ */
+export interface LogFacets {
+  total: number;
+  groups: {
+    status?: LogFacetValue[];
+    phase?: LogFacetValue[];
+    provider?: LogFacetValue[];
+    model?: LogFacetValue[];
+  };
+}
+
+/** Append one repeatable filter group; `"all"` and blank values are ignored. */
+function appendFilterValues(query: URLSearchParams, name: string, values?: string[]): void {
+  for (const raw of values ?? []) {
+    const value = raw.trim();
+    if (!value || value === "all") continue;
+    query.append(name, value);
+  }
+}
+
+/** Serialize the shared filter groups onto an outgoing query string. */
+function appendLogFilters(query: URLSearchParams, params: LogFilterParams): void {
+  appendFilterValues(query, "phase", params.phase);
+  appendFilterValues(query, "model", params.model);
+  appendFilterValues(query, "provider", params.provider);
+  appendFilterValues(query, "status", params.status);
+  if (params.q?.trim()) query.set("q", params.q.trim());
+  if (params.session?.trim()) query.set("session", params.session.trim());
 }
 
 export interface LogPage {
@@ -753,27 +826,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ provider }),
     }),
-  logs: (
-    params: { limit?: number; phase?: string; model?: string; q?: string; before?: number } = {},
-  ) => {
+  logs: (params: { limit?: number; before?: number } & LogFilterParams = {}) => {
     const query = new URLSearchParams();
     if (params.limit) query.set("limit", String(params.limit));
-    if (params.phase) query.set("phase", params.phase);
-    if (params.model) query.set("model", params.model);
-    if (params.q) query.set("q", params.q);
     if (params.before !== undefined) query.set("before", String(params.before));
+    appendLogFilters(query, params);
     const suffix = query.toString();
     return request<LogPage>(`/api/logs${suffix ? `?${suffix}` : ""}`);
   },
-  logSeries: (params: { minutes?: number; buckets?: number } & LogQuery = {}) => {
+  logSeries: (params: { minutes?: number; buckets?: number } & LogFilterParams = {}) => {
     const query = new URLSearchParams();
     if (params.minutes) query.set("minutes", String(params.minutes));
     if (params.buckets) query.set("buckets", String(params.buckets));
-    if (params.phase) query.set("phase", params.phase);
-    if (params.model) query.set("model", params.model);
-    if (params.q) query.set("q", params.q);
+    appendLogFilters(query, params);
     const suffix = query.toString();
     return request<LogSeries>(`/api/logs/series${suffix ? `?${suffix}` : ""}`);
+  },
+  logFacets: (params: LogFilterParams & { minutes?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.minutes) query.set("minutes", String(params.minutes));
+    appendLogFilters(query, params);
+    const suffix = query.toString();
+    return request<LogFacets>(`/api/logs/facets${suffix ? `?${suffix}` : ""}`);
   },
   logDetail: (id: string) => request<LogDetailResponse>(`/api/logs/${encodeURIComponent(id)}`),
   addBrain: (payload: Partial<BrainView> & { apiKey?: string }) =>

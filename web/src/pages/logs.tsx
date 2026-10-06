@@ -1,21 +1,29 @@
+import { ListFilterIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { RequestsChart } from "@/components/activity-charts";
+import { LogDetailView } from "@/components/log-detail/log-detail-view";
+import { CollapsedRail, FilterRail } from "@/components/logs/filter-rail";
+import {
+  EMPTY_FILTERS,
+  filtersActive,
+  filtersToParams,
+  filtersToQuery,
+  toggleValue,
+  type FilterGroupKey,
+  type LogFilters,
+} from "@/components/logs/filter-types";
+import { StatusPills } from "@/components/logs/status-pills";
+import { useLogFacets } from "@/components/logs/use-log-facets";
+import { useMediaQuery } from "@/components/logs/use-media-query";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
 import { ProviderLogo } from "@/components/provider-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Autocomplete } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLogStream } from "@/hooks/use-log-stream";
 import { useVirtualizer } from "@/hooks/use-virtualizer";
@@ -29,8 +37,9 @@ import {
 import { providerDisplayName } from "@/lib/provider-name";
 import { cn, formatTime, money } from "@/lib/utils";
 
-const MODEL_SUGGESTION_LIMIT = 50;
 const ROW_ESTIMATE_HEIGHT = 44;
+const SEARCH_DEBOUNCE_MS = 300;
+const CHART_DEBOUNCE_MS = 800;
 
 /** Map the logs series endpoint onto the shared Activity chart shape. */
 function toRequestSeries(series: LogSeries | null): ActivitySeriesPointView[] {
@@ -56,12 +65,16 @@ function toRequestSeries(series: LogSeries | null): ActivitySeriesPointView[] {
 }
 
 export function LogsPage() {
-  const navigate = useNavigate();
-  const [phase, setPhase] = useState("all");
-  const [model, setModel] = useState("");
+  const [filters, setFilters] = useState<LogFilters>(EMPTY_FILTERS);
   const [searchDraft, setSearchDraft] = useState("");
-  const [search, setSearch] = useState("");
   const [live, setLive] = useState(true);
+  const [railOpen, setRailOpen] = useState(true);
+  /** Mobile-only rail drawer; the md+ rail is controlled by `railOpen`. */
+  const [railDrawerOpen, setRailDrawerOpen] = useState(false);
+  /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Tailwind's xl breakpoint; the drawer only opens below it. */
+  const isXl = useMediaQuery("(min-width: 80rem)");
 
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -71,39 +84,37 @@ export function LogsPage() {
   const [error, setError] = useState("");
   const [newLogIds, setNewLogIds] = useState<Set<string>>(() => new Set());
   const [series, setSeries] = useState<LogSeries | null>(null);
-  const [knownModels, setKnownModels] = useState<string[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const queryParams = useMemo(() => {
-    const q = new URLSearchParams();
-    if (phase && phase !== "all") q.set("phase", phase);
-    if (model.trim()) q.set("model", model.trim());
-    if (search.trim()) q.set("q", search.trim());
-    return q.toString();
-  }, [phase, model, search]);
+  // One serialization feeds the list, the chart, the facets, and the stream,
+  // so every surface sees the identical filtered ledger.
+  const filterParams = useMemo(() => filtersToParams(filters), [filters]);
+  const streamQuery = useMemo(() => filtersToQuery(filters), [filters]);
+  const { facets, stale: facetsStale, refresh: refreshFacets } = useLogFacets(filters);
 
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchDraft), 300);
+    const timer = setTimeout(
+      () => setFilters((current) => ({ ...current, q: searchDraft })),
+      SEARCH_DEBOUNCE_MS,
+    );
     return () => clearTimeout(timer);
   }, [searchDraft]);
+
+  const toggleFilter = useCallback((group: FilterGroupKey, value: string) => {
+    setFilters((current) => ({ ...current, [group]: toggleValue(current[group], value) }));
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    setSearchDraft("");
+  }, []);
 
   const loadInitial = useCallback(async () => {
     setLoadingInitial(true);
     try {
       const [res, chartRes] = await Promise.all([
-        api.logs({
-          limit: 100,
-          phase: phase === "all" ? "" : phase,
-          model: model.trim(),
-          q: search.trim(),
-        }),
-        api.logSeries({
-          minutes: 60,
-          buckets: 40,
-          phase: phase === "all" ? "" : phase,
-          model: model.trim(),
-          q: search.trim(),
-        }),
+        api.logs({ limit: 100, ...filterParams }),
+        api.logSeries({ minutes: 60, buckets: 40, ...filterParams }),
       ]);
       setLogs(res.logs);
       setTotal(res.total);
@@ -115,19 +126,13 @@ export function LogsPage() {
     } finally {
       setLoadingInitial(false);
     }
-  }, [phase, model, search]);
+  }, [filterParams]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || nextBefore === null) return;
     setLoadingMore(true);
     try {
-      const res = await api.logs({
-        limit: 100,
-        before: nextBefore,
-        phase: phase === "all" ? "" : phase,
-        model: model.trim(),
-        q: search.trim(),
-      });
+      const res = await api.logs({ limit: 100, before: nextBefore, ...filterParams });
       setLogs((prev) => {
         const existing = new Set(prev.map(logKey));
         const append = res.logs.filter((item) => !existing.has(logKey(item)));
@@ -140,48 +145,22 @@ export function LogsPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, nextBefore, phase, model, search]);
+  }, [loadingMore, nextBefore, filterParams]);
 
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await api.logs({ limit: 1000 });
-        if (cancelled) return;
-        setKnownModels((current) => {
-          const next = new Set(current);
-          for (const log of result.logs) next.add(log.model);
-          return [...next].sort((a, b) => a.localeCompare(b));
-        });
-      } catch {
-        // Suggestions are convenience.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const chartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshChart = useCallback(() => {
     if (chartTimer.current) clearTimeout(chartTimer.current);
     chartTimer.current = setTimeout(() => {
       void api
-        .logSeries({
-          minutes: 60,
-          buckets: 40,
-          phase: phase === "all" ? "" : phase,
-          model: model.trim(),
-          q: search.trim(),
-        })
+        .logSeries({ minutes: 60, buckets: 40, ...filterParams })
         .then(setSeries)
         .catch(() => {});
-    }, 800);
-  }, [phase, model, search]);
+    }, CHART_DEBOUNCE_MS);
+  }, [filterParams]);
 
   useEffect(() => {
     return () => {
@@ -210,13 +189,14 @@ export function LogsPage() {
       });
       setTotal((prev) => (prev !== null ? prev + 1 : 1));
       refreshChart();
+      refreshFacets();
     },
-    [refreshChart],
+    [refreshChart, refreshFacets],
   );
 
   const streamStatus = useLogStream({
     enabled: live,
-    query: queryParams,
+    query: streamQuery,
     onRecord: handleLiveRecord,
     onReady: refreshChart,
   });
@@ -241,8 +221,7 @@ export function LogsPage() {
     return () => el.removeEventListener("scroll", onScroll);
   }, [loadMore]);
 
-  const suggestions = useMemo(() => knownModels.slice(0, MODEL_SUGGESTION_LIMIT), [knownModels]);
-  const filtered = Boolean(model.trim() || phase !== "all" || search.trim());
+  const filtered = filtersActive(filters);
   const requestSeries = useMemo(() => toRequestSeries(series), [series]);
   const chartDescription = useMemo(() => {
     const window = series?.minutes ?? 60;
@@ -251,256 +230,329 @@ export function LogsPage() {
     return `Last ${window} minutes ${scope}. Primary bars are request volume; red marks intervals that include errors. ${count} ${count === 1 ? "record" : "records"} loaded.`;
   }, [series?.minutes, total, logs.length, filtered]);
 
+  const selectRecord = useCallback((log: LogRecord) => {
+    if (log.id) setSelectedId(log.id);
+  }, []);
+
   return (
-    <div className="flex h-[calc(100svh-6rem)] flex-col gap-3 md:h-[calc(100svh-3rem)]">
-      <div className="flex shrink-0 items-center justify-between gap-4">
-        <h1 className="shrink-0 text-lg font-semibold tracking-tight">Logs</h1>
-        <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
-          <Select value={phase} onValueChange={(value) => setPhase(String(value))}>
-            <SelectTrigger className="h-9 w-[7.5rem] shrink-0" aria-label="Phase">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">all phases</SelectItem>
-              <SelectItem value="plan">plan</SelectItem>
-              <SelectItem value="execute">execute</SelectItem>
-              <SelectItem value="utility">utility</SelectItem>
-              <SelectItem value="chat">chat</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Autocomplete
-            value={model}
-            onChange={setModel}
-            options={suggestions.map((known) => ({ value: known, label: known }))}
-            placeholder="Model"
-            emptyText="No recorded model matches — the typed id is used as-is."
-            className="w-44 shrink-0"
-          />
-
-          <Input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder="Search…"
-            autoComplete="off"
-            className="h-9 w-40 shrink-0"
-            aria-label="Search logs"
-          />
-
-          {filtered || searchDraft.trim() ? (
-            <Button
-              variant="ghost"
-              className="h-9 shrink-0 px-2.5 text-muted-foreground"
-              onClick={() => {
-                setPhase("all");
-                setModel("");
-                setSearchDraft("");
-                setSearch("");
-              }}
-            >
-              Clear
-            </Button>
-          ) : null}
-
-          <Button
-            variant="outline"
-            className="h-9 shrink-0 gap-2 px-3"
-            aria-pressed={live}
-            title={live ? "Pause live stream" : "Resume live stream"}
-            onClick={() => setLive((current) => !current)}
-          >
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                streamStatus === "live"
-                  ? "animate-pulse bg-emerald-500"
-                  : streamStatus === "connecting"
-                    ? "animate-pulse bg-amber-500"
-                    : "bg-muted-foreground/50",
-              )}
-            />
-            <span className="capitalize">
-              {streamStatus === "live"
-                ? "Live"
-                : streamStatus === "connecting"
-                  ? "Connecting"
-                  : "Paused"}
-            </span>
-          </Button>
-
-          <Button variant="outline" className="h-9 shrink-0" onClick={() => void loadInitial()}>
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {error ? <p className="shrink-0 text-xs text-destructive">{error}</p> : null}
-
-      <div className="shrink-0">
-        <RequestsChart
-          series={requestSeries}
-          title="Requests over time"
-          description={chartDescription}
-          compact
+    <div className="flex h-[calc(100svh-6rem)] gap-3 md:h-[calc(100svh-3rem)]">
+      {railOpen ? (
+        <FilterRail
+          filters={filters}
+          facets={facets}
+          facetsStale={facetsStale}
+          onToggle={toggleFilter}
+          onClear={clearFilters}
+          onCollapse={() => setRailOpen(false)}
+          className="hidden w-60 shrink-0 rounded-xl border bg-card md:flex"
         />
-      </div>
+      ) : (
+        <CollapsedRail
+          filters={filters}
+          onExpand={() => setRailOpen(true)}
+          className="hidden w-10 rounded-xl border bg-card md:flex"
+        />
+      )}
 
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
-        <div className="grid shrink-0 grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-          <div className="col-span-1">Time</div>
-          <div className="col-span-3">Model</div>
-          <div className="col-span-2">Provider</div>
-          <div className="col-span-1">Phase</div>
-          <div className="col-span-1">Effort</div>
-          <div className="col-span-1">Status</div>
-          <div className="col-span-1">Cost</div>
-          <div className="col-span-1">Latency</div>
-          <div className="col-span-1 text-right">Details</div>
+      {/* Below md the rail is a left drawer; from md up it is the strip above. */}
+      <Sheet open={railDrawerOpen} onOpenChange={setRailDrawerOpen}>
+        <SheetContent side="left" className="w-72 gap-0 p-0 md:hidden">
+          <FilterRail
+            filters={filters}
+            facets={facets}
+            facetsStale={facetsStale}
+            onToggle={toggleFilter}
+            onClear={clearFilters}
+            className="h-full"
+          />
+        </SheetContent>
+      </Sheet>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex shrink-0 items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="md:hidden"
+              aria-label="Toggle filters"
+              title="Toggle filters"
+              onClick={() => setRailDrawerOpen(true)}
+            >
+              <ListFilterIcon />
+            </Button>
+            <h1 className="shrink-0 text-lg font-semibold tracking-tight">Logs</h1>
+          </div>
+          <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
+            <Input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder="Search…"
+              autoComplete="off"
+              className="h-9 w-40 shrink-0"
+              aria-label="Search logs"
+            />
+
+            <Button
+              variant="outline"
+              className="h-9 shrink-0 gap-2 px-3"
+              aria-pressed={live}
+              title={live ? "Pause live stream" : "Resume live stream"}
+              onClick={() => setLive((current) => !current)}
+            >
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  streamStatus === "live"
+                    ? "animate-pulse bg-emerald-500"
+                    : streamStatus === "connecting"
+                      ? "animate-pulse bg-amber-500"
+                      : "bg-muted-foreground/50",
+                )}
+              />
+              <span className="capitalize">
+                {streamStatus === "live"
+                  ? "Live"
+                  : streamStatus === "connecting"
+                    ? "Connecting"
+                    : "Paused"}
+              </span>
+            </Button>
+
+            <Button variant="outline" className="h-9 shrink-0" onClick={() => void loadInitial()}>
+              Refresh
+            </Button>
+          </div>
         </div>
 
-        <div
-          ref={scrollContainerRef}
-          className="relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto"
-        >
-          {loadingInitial ? (
-            <LogsTableSkeleton rows={12} />
-          ) : logs.length === 0 ? (
-            <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-              {filtered
-                ? "No requests match these filters."
-                : "No traffic yet — proxied requests will stream in here."}
-            </div>
-          ) : (
-            <div style={{ height: `${totalHeight}px`, width: "100%", position: "relative" }}>
-              {virtualItems.map((virtualRow) => {
-                const log = logs[virtualRow.index];
-                if (!log) return null;
-                const key = logKey(log);
-                const isNew = newLogIds.has(key);
+        {error ? <p className="shrink-0 text-xs text-destructive">{error}</p> : null}
 
-                return (
-                  <div
-                    key={key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                    onClick={() => {
-                      if (log.id) void navigate(`/logs/${log.id}`);
-                    }}
-                    className={cn(
-                      "grid grid-cols-12 items-center gap-2 px-4 py-2.5 text-xs transition-colors hover:bg-muted/60",
-                      log.id ? "cursor-pointer" : "",
-                      isNew ? "animate-flash-new" : "",
-                    )}
-                    title={log.id ? "Open request details" : "No record ID captured"}
-                  >
-                    <div className="col-span-1 font-mono whitespace-nowrap text-muted-foreground">
-                      {formatTime(log.ts)}
-                    </div>
-                    <div className="col-span-3 flex min-w-0 items-center gap-1.5 pr-2">
-                      <span className="truncate font-medium text-foreground">{log.model}</span>
-                      {log.billing === "subscription" ? (
-                        <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
-                          sub
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="col-span-2 flex min-w-0 items-center gap-1.5">
-                      <ProviderLogo id={log.provider} />
-                      <span className="truncate text-muted-foreground">
-                        {providerDisplayName(log.provider)}
-                      </span>
-                    </div>
-                    <div className="col-span-1">
-                      <Badge
-                        variant={
-                          log.phase === "plan"
-                            ? "default"
-                            : log.phase === "execute"
-                              ? "secondary"
-                              : "outline"
+        <div className="shrink-0">
+          <RequestsChart
+            series={requestSeries}
+            title="Requests over time"
+            description={chartDescription}
+            compact
+          />
+        </div>
+
+        <StatusPills
+          status={filters.status}
+          onChange={(next) => setFilters((c) => ({ ...c, status: next }))}
+        />
+
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
+          <div className="grid shrink-0 grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            <div className="col-span-1">Time</div>
+            <div className="col-span-3">Model</div>
+            <div className="col-span-2">Provider</div>
+            <div className="col-span-1">Phase</div>
+            <div className="col-span-1">Effort</div>
+            <div className="col-span-1">Status</div>
+            <div className="col-span-1">Cost</div>
+            <div className="col-span-1">Latency</div>
+            <div className="col-span-1 text-right">Details</div>
+          </div>
+
+          <div
+            ref={scrollContainerRef}
+            className="relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto"
+          >
+            {loadingInitial ? (
+              <LogsTableSkeleton rows={12} />
+            ) : logs.length === 0 ? (
+              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+                {filtered
+                  ? "No requests match these filters."
+                  : "No traffic yet — proxied requests will stream in here."}
+              </div>
+            ) : (
+              <div style={{ height: `${totalHeight}px`, width: "100%", position: "relative" }}>
+                {virtualItems.map((virtualRow) => {
+                  const log = logs[virtualRow.index];
+                  if (!log) return null;
+                  const key = logKey(log);
+                  const isNew = newLogIds.has(key);
+                  const isSelected = Boolean(log.id) && log.id === selectedId;
+                  const failed = log.status >= 400;
+
+                  return (
+                    <div
+                      key={key}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      role="button"
+                      tabIndex={log.id ? 0 : -1}
+                      aria-selected={isSelected}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      onClick={() => selectRecord(log)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          selectRecord(log);
                         }
-                        className="text-[10px]"
-                      >
-                        {log.phase ?? "-"}
-                      </Badge>
-                    </div>
-                    <div className="col-span-1">
-                      {log.effort ? (
+                      }}
+                      className={cn(
+                        "grid grid-cols-12 items-center gap-2 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
+                        log.id ? "cursor-pointer" : "",
+                        isNew ? "animate-flash-new" : "",
+                        isSelected ? "bg-muted hover:bg-muted" : failed ? "bg-destructive/5" : "",
+                      )}
+                      title={log.id ? "Inspect this request" : "No record ID captured"}
+                    >
+                      <div className="col-span-1 flex items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "size-1.5 shrink-0 rounded-full",
+                            failed ? "bg-destructive" : "bg-emerald-500",
+                          )}
+                        />
+                        {formatTime(log.ts)}
+                      </div>
+                      <div className="col-span-3 flex min-w-0 items-center gap-1.5 pr-2">
+                        <span className="truncate font-medium text-foreground">{log.model}</span>
+                        {log.billing === "subscription" ? (
+                          <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
+                            sub
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="col-span-2 flex min-w-0 items-center gap-1.5">
+                        <ProviderLogo id={log.provider} />
+                        <span className="truncate text-muted-foreground">
+                          {providerDisplayName(log.provider)}
+                        </span>
+                      </div>
+                      <div className="col-span-1">
                         <Badge
-                          variant="outline"
-                          title={log.effortNote ?? undefined}
+                          variant={
+                            log.phase === "plan"
+                              ? "default"
+                              : log.phase === "execute"
+                                ? "secondary"
+                                : "outline"
+                          }
                           className="text-[10px]"
                         >
-                          {log.effort}
+                          {log.phase ?? "-"}
                         </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">default</span>
-                      )}
+                      </div>
+                      <div className="col-span-1">
+                        {log.effort ? (
+                          <Badge
+                            variant="outline"
+                            title={log.effortNote ?? undefined}
+                            className="text-[10px]"
+                          >
+                            {log.effort}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">default</span>
+                        )}
+                      </div>
+                      <div
+                        className={cn(
+                          "col-span-1 flex min-w-0 items-center gap-1.5 font-mono font-medium",
+                          failed ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      >
+                        <span>{log.status}</span>
+                        {log.tries && log.tries.length > 1 ? (
+                          <span className="inline-flex shrink-0 items-center gap-0.5">
+                            {log.tries.map((attempt, index) => (
+                              <span
+                                key={`${attempt.provider}-${index}`}
+                                title={`${attempt.provider}/${attempt.model} · ${attempt.cause}${
+                                  attempt.fail ? ` · ${attempt.fail}` : ""
+                                }${attempt.status !== undefined ? ` · ${attempt.status}` : ""}`}
+                                className={cn(
+                                  "size-1.5 shrink-0 rounded-full",
+                                  attempt.fail ? "bg-destructive" : "bg-emerald-500",
+                                )}
+                              />
+                            ))}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="col-span-1 font-mono text-muted-foreground">
+                        {log.costUsd === null ? "—" : money(log.costUsd)}
+                      </div>
+                      <div className="col-span-1 font-mono text-muted-foreground">
+                        {log.latencyMs}ms
+                      </div>
+                      <div className="col-span-1 text-right text-muted-foreground">
+                        {log.id ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span>open →</span>
+                            <Link
+                              to={`/logs/${log.id}`}
+                              className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                              title="Open the full detail page"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              page
+                            </Link>
+                          </span>
+                        ) : (
+                          "no id"
+                        )}
+                      </div>
                     </div>
-                    <div
-                      className={cn(
-                        "col-span-1 flex min-w-0 items-center gap-1.5 font-mono font-medium",
-                        log.status >= 400 ? "text-destructive" : "text-muted-foreground",
-                      )}
-                    >
-                      <span>{log.status}</span>
-                      {log.tries && log.tries.length > 1 ? (
-                        <span className="inline-flex shrink-0 items-center gap-0.5">
-                          {log.tries.map((attempt, index) => (
-                            <span
-                              key={`${attempt.provider}-${index}`}
-                              title={`${attempt.provider}/${attempt.model} · ${attempt.cause}${
-                                attempt.fail ? ` · ${attempt.fail}` : ""
-                              }${attempt.status !== undefined ? ` · ${attempt.status}` : ""}`}
-                              className={cn(
-                                "size-1.5 shrink-0 rounded-full",
-                                attempt.fail ? "bg-destructive" : "bg-emerald-500",
-                              )}
-                            />
-                          ))}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="col-span-1 font-mono text-muted-foreground">
-                      {log.costUsd === null ? "—" : money(log.costUsd)}
-                    </div>
-                    <div className="col-span-1 font-mono text-muted-foreground">
-                      {log.latencyMs}ms
-                    </div>
-                    <div className="col-span-1 text-right text-muted-foreground">
-                      {log.id ? "details →" : "no id"}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
 
-          {loadingMore ? (
-            <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
-              {Array.from({ length: 3 }, (_, index) => (
-                <div key={index} className="grid grid-cols-12 items-center gap-2 py-1.5">
-                  <Skeleton className="col-span-1 h-3 w-10" />
-                  <Skeleton className="col-span-3 h-3 w-[80%]" />
-                  <Skeleton className="col-span-2 h-3 w-16" />
-                  <Skeleton className="col-span-6 h-3 w-full" />
-                </div>
-              ))}
-            </div>
-          ) : nextBefore === null && logs.length > 0 ? (
-            <div className="border-t bg-muted/10 py-2.5 text-center text-xs text-muted-foreground">
-              Beginning of ledger reached ({logs.length} records)
-            </div>
+            {loadingMore ? (
+              <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
+                {Array.from({ length: 3 }, (_, index) => (
+                  <div key={index} className="grid grid-cols-12 items-center gap-2 py-1.5">
+                    <Skeleton className="col-span-1 h-3 w-10" />
+                    <Skeleton className="col-span-3 h-3 w-[80%]" />
+                    <Skeleton className="col-span-2 h-3 w-16" />
+                    <Skeleton className="col-span-6 h-3 w-full" />
+                  </div>
+                ))}
+              </div>
+            ) : nextBefore === null && logs.length > 0 ? (
+              <div className="border-t bg-muted/10 py-2.5 text-center text-xs text-muted-foreground">
+                Beginning of ledger reached ({logs.length} records)
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      </div>
+
+      {/* Inline panel on xl and up; below xl the same view lives in the Sheet. */}
+      <aside className="hidden min-h-0 w-[30rem] shrink-0 overflow-hidden rounded-xl border bg-card xl:block">
+        {selectedId ? (
+          <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+            Select a request to inspect it here.
+          </div>
+        )}
+      </aside>
+
+      <Sheet
+        open={Boolean(selectedId) && !isXl}
+        onOpenChange={(open) => {
+          if (!open) setSelectedId(null);
+        }}
+      >
+        <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-lg">
+          {selectedId ? (
+            <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
           ) : null}
-        </div>
-      </Card>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

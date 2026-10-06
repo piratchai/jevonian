@@ -25,7 +25,7 @@ func TestEveryWebRouteIsRegistered(t *testing.T) {
 		{"GET", "/catalog/refresh"}, {"POST", "/catalog/refresh"}, {"GET", "/stats"}, {"GET", "/update"}, {"GET", "/update/check"}, {"POST", "/update/check"},
 		{"POST", "/update/install"}, {"GET", "/clients"}, {"POST", "/clients/claude"}, {"DELETE", "/clients/claude"},
 		{"GET", "/tunnel"}, {"PUT", "/tunnel"}, {"GET", "/lan"}, {"PUT", "/lan"}, {"GET", "/quota"},
-		{"GET", "/logs"}, {"GET", "/logs/series"}, {"GET", "/logs/abc"},
+		{"GET", "/logs"}, {"GET", "/logs/series"}, {"GET", "/logs/facets"}, {"GET", "/logs/abc"},
 		{"POST", "/brains"}, {"PUT", "/brains/0"}, {"DELETE", "/brains/0"}, {"POST", "/brains/0/move"},
 		{"PUT", "/routing"}, {"POST", "/brain/test"}, {"POST", "/providers"}, {"DELETE", "/providers/none"},
 		{"POST", "/providers/discover"}, {"POST", "/oauth/workbuddy-ai/signin"}, {"PUT", "/token-saver"},

@@ -38,7 +38,16 @@ type LogSource interface{ Records() ([]LogRecord, error) }
 type LogSubscriber interface{ Subscribe(func(LogRecord)) func() }
 
 // LogFilter has the same semantics as the dashboard's request-only filters.
-type LogFilter struct{ Phase, Model, Query string }
+// Values inside one group are OR-ed; groups are AND-ed. Session is an exact,
+// case-sensitive match on the record's session id.
+type LogFilter struct {
+	Phases    []string
+	Models    []string
+	Providers []string
+	Status    []string
+	Query     string
+	Session   string
+}
 type LogQuery struct {
 	Filter LogFilter
 	Before *int64 // Exclusive zero-based append offset, never a SQLite rowid.
@@ -72,6 +81,17 @@ type LogBucket struct {
 }
 type LogSeriesQuerier interface {
 	QueryLogSeries(context.Context, LogFilter, time.Time, time.Time, int) ([]LogBucket, error)
+}
+type LogFacetValue struct {
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+type LogFacets struct {
+	Total  int64                      `json:"total"`
+	Groups map[string][]LogFacetValue `json:"groups"`
+}
+type LogFacetQuerier interface {
+	QueryLogFacets(context.Context, LogFilter, *time.Time) (LogFacets, error)
 }
 type LogBatch struct {
 	Logs   []LogRecord
@@ -323,6 +343,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("DELETE /keys/{id}", h.keyAPI)
 	h.mux.HandleFunc("GET /logs", h.logs)
 	h.mux.HandleFunc("GET /logs/series", h.logSeries)
+	h.mux.HandleFunc("GET /logs/facets", h.logFacets)
 	h.mux.HandleFunc("GET /logs/stream", h.logStream)
 	h.mux.HandleFunc("GET /logs/{id}", h.logDetail)
 	h.mux.HandleFunc("GET /stats", h.stats)

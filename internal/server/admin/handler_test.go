@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -221,8 +222,8 @@ func TestKeysCRUDAndStateRedaction(t *testing.T) {
 func TestLogsPaginationFiltersDetailSeriesAndReports(t *testing.T) {
 	source := &logs{rows: []admin.LogRecord{
 		{"id": "older", "ts": "2026-10-05T10:00:00.000Z", "kind": "request", "model": "anthropic/claude-3.5-sonnet-20241022", "provider": "p", "phase": "plan", "session": "s", "status": 200, "latencyMs": 100, "promptTokens": 100, "completionTokens": 20, "cacheReadTokens": 30, "costUsd": 1.0, "keyId": "k", "keyName": "Work"},
-		{"id": "brain", "requestId": "older", "ts": "2026-10-05T10:00:00.000Z", "kind": "brain", "model": "jev", "costUsd": 0.1},
-		{"id": "newer", "ts": "2026-10-05T11:55:00.000Z", "kind": "request", "model": "claude-3-5-sonnet", "provider": "p", "phase": "execute", "session": "s", "status": 502, "latencyMs": 300, "promptTokens": 50, "completionTokens": 10, "cacheReadTokens": 0, "costUsd": 2.0, "billing": "subscription", "keyId": "other", "tries": []any{map[string]any{"cause": "retry"}}},
+		{"id": "brain", "requestId": "older", "ts": "2026-10-05T10:00:00.000Z", "kind": "brain", "model": "jev", "session": "s", "costUsd": 0.1},
+		{"id": "newer", "ts": "2026-10-05T11:55:00.000Z", "kind": "request", "model": "claude-3-5-sonnet", "provider": "p", "phase": "execute", "session": "s2", "status": 502, "latencyMs": 300, "promptTokens": 50, "completionTokens": 10, "cacheReadTokens": 0, "costUsd": 2.0, "billing": "subscription", "keyId": "other", "tries": []any{map[string]any{"cause": "retry"}}},
 	}}
 	x := setup(t, source)
 	code, out := request(t, x.h, "GET", "/logs?limit=1", nil)
@@ -237,6 +238,40 @@ func TestLogsPaginationFiltersDetailSeriesAndReports(t *testing.T) {
 	_, out = request(t, x.h, "GET", "/logs?q=retry", nil)
 	if out["total"] != float64(1) {
 		t.Fatal("tries search")
+	}
+	// The exact session filter keeps non-brain rows only and composes with the
+	// other filters and the pagination cursor.
+	_, out = request(t, x.h, "GET", "/logs?session=s", nil)
+	if out["total"] != float64(1) || out["logs"].([]any)[0].(map[string]any)["id"] != "older" {
+		t.Fatalf("session filter %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s2", nil)
+	if out["total"] != float64(1) || out["logs"].([]any)[0].(map[string]any)["id"] != "newer" {
+		t.Fatalf("session filter %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=S", nil)
+	if out["total"] != float64(0) {
+		t.Fatal("session filter must be case-sensitive")
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s&phase=plan", nil)
+	if out["total"] != float64(1) || out["logs"].([]any)[0].(map[string]any)["id"] != "older" {
+		t.Fatalf("session + phase %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s&phase=execute", nil)
+	if out["total"] != float64(0) {
+		t.Fatalf("session + phase mismatch %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s&limit=1", nil)
+	if out["total"] != float64(1) || out["nextBefore"] != nil {
+		t.Fatalf("session + pagination %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s&limit=1&before=3", nil)
+	if out["total"] != float64(1) || out["logs"].([]any)[0].(map[string]any)["id"] != "older" {
+		t.Fatalf("session + cursor %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs?session=s&limit=1&before=0", nil)
+	if out["total"] != float64(1) || len(out["logs"].([]any)) != 0 {
+		t.Fatalf("session + early cursor %#v", out)
 	}
 	_, out = request(t, x.h, "GET", "/logs/older", nil)
 	if len(out["brainCalls"].([]any)) != 1 {
@@ -265,6 +300,104 @@ func TestLogsPaginationFiltersDetailSeriesAndReports(t *testing.T) {
 		t.Fatalf("bad stats %#v", out)
 	}
 }
+func TestLogFacetsExclusionSortCapAndBrain(t *testing.T) {
+	rows := []admin.LogRecord{
+		{"id": "a", "ts": "2026-10-05T11:30:00.000Z", "kind": "request", "model": "gpt-5", "provider": "openai", "phase": "execute", "status": 200},
+		{"id": "b", "ts": "2026-10-05T11:31:00.000Z", "kind": "request", "model": "gpt-5", "provider": "openai", "phase": "execute", "status": 200},
+		{"id": "c", "ts": "2026-10-05T11:32:00.000Z", "kind": "request", "model": "gpt-5", "provider": "anthropic", "phase": "plan", "status": 500},
+		{"id": "d", "ts": "2026-10-05T11:33:00.000Z", "kind": "request", "model": "claude", "provider": "anthropic", "phase": "plan", "status": 500},
+		{"id": "e", "ts": "2026-10-05T11:34:00.000Z", "kind": "request", "model": "claude", "provider": "anthropic", "phase": "", "status": 200},
+		// Brain rows must never appear in any facet or in the total.
+		{"id": "brain", "requestId": "a", "ts": "2026-10-05T11:30:00.000Z", "kind": "brain", "model": "gpt-5", "provider": "openai", "phase": "execute", "status": 200},
+	}
+	x := setup(t, &logs{rows: rows})
+	code, out := request(t, x.h, "GET", "/logs/facets", nil)
+	checkStatus(t, code, 200, out)
+	if out["total"] != float64(5) {
+		t.Fatalf("total excludes brain: %#v", out)
+	}
+	groups := out["groups"].(map[string]any)
+	status := groups["status"].([]any)
+	if len(status) != 2 {
+		t.Fatalf("status always lists ok and error: %#v", status)
+	}
+	if status[0].(map[string]any)["value"] != "ok" || status[0].(map[string]any)["count"] != float64(3) ||
+		status[1].(map[string]any)["value"] != "error" || status[1].(map[string]any)["count"] != float64(2) {
+		t.Fatalf("status facet %#v", status)
+	}
+	// phase "-" collects the missing phase; sorted by count desc, then value.
+	phase := groups["phase"].([]any)
+	wantPhase := []struct {
+		value string
+		count float64
+	}{{"execute", 2}, {"plan", 2}, {"-", 1}}
+	if len(phase) != len(wantPhase) {
+		t.Fatalf("phase facet %#v", phase)
+	}
+	for i, w := range wantPhase {
+		row := phase[i].(map[string]any)
+		if row["value"] != w.value || row["count"] != w.count {
+			t.Fatalf("phase[%d] %#v want %#v", i, row, w)
+		}
+	}
+	provider := groups["provider"].([]any)
+	if len(provider) != 2 || provider[0].(map[string]any)["value"] != "anthropic" || provider[0].(map[string]any)["count"] != float64(3) {
+		t.Fatalf("provider facet %#v", provider)
+	}
+	model := groups["model"].([]any)
+	if len(model) != 2 || model[0].(map[string]any)["value"] != "gpt-5" || model[0].(map[string]any)["count"] != float64(3) || model[1].(map[string]any)["value"] != "claude" {
+		t.Fatalf("model facet %#v", model)
+	}
+	if strings.Contains(string(mustJSON(out)), "brain") {
+		t.Fatalf("brain row leaked: %s", mustJSON(out))
+	}
+
+	// With status=error the status group ignores its own filter but respects
+	// the others; the total still applies every filter.
+	_, out = request(t, x.h, "GET", "/logs/facets?status=error", nil)
+	checkStatus(t, code, 200, out)
+	if out["total"] != float64(2) {
+		t.Fatalf("filtered total %#v", out)
+	}
+	status = out["groups"].(map[string]any)["status"].([]any)
+	if status[0].(map[string]any)["value"] != "ok" || status[0].(map[string]any)["count"] != float64(3) ||
+		status[1].(map[string]any)["value"] != "error" || status[1].(map[string]any)["count"] != float64(2) {
+		t.Fatalf("status exclusion %#v", status)
+	}
+	// The phase group DOES respect the status=error filter.
+	phase = out["groups"].(map[string]any)["phase"].([]any)
+	if len(phase) != 1 || phase[0].(map[string]any)["value"] != "plan" || phase[0].(map[string]any)["count"] != float64(2) {
+		t.Fatalf("phase respects status %#v", phase)
+	}
+
+	// The optional minutes window keeps only recent records.
+	_, out = request(t, x.h, "GET", "/logs/facets?minutes=60", nil)
+	if out["total"] != float64(5) {
+		t.Fatalf("window total %#v", out)
+	}
+	_, out = request(t, x.h, "GET", "/logs/facets?minutes=1", nil)
+	if out["total"] != float64(0) {
+		t.Fatalf("empty window total %#v", out)
+	}
+}
+
+func TestLogFacetModelCap(t *testing.T) {
+	rows := []admin.LogRecord{}
+	for i := 0; i < 60; i++ {
+		rows = append(rows, admin.LogRecord{"id": fmt.Sprintf("r-%d", i), "kind": "request", "model": fmt.Sprintf("model-%02d", i), "status": 200})
+	}
+	x := setup(t, &logs{rows: rows})
+	_, out := request(t, x.h, "GET", "/logs/facets", nil)
+	models := out["groups"].(map[string]any)["model"].([]any)
+	if len(models) != 50 {
+		t.Fatalf("model cap = %d want 50", len(models))
+	}
+	// Equal counts sort by value asc, so the first 50 lexicographic values win.
+	if models[0].(map[string]any)["value"] != "model-00" || models[49].(map[string]any)["value"] != "model-49" {
+		t.Fatalf("model cap order %#v %#v", models[0], models[49])
+	}
+}
+
 func TestProviderDiscoveryAndWirePins(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
@@ -393,6 +526,63 @@ func TestSSEReadyFilteredLogAndCancellation(t *testing.T) {
 		t.Fatalf("filter failed %s", line)
 	}
 	response.Body.Close()
+}
+func TestSSESessionFilterExcludesBrainRows(t *testing.T) {
+	source := &logs{}
+	x := setup(t, source)
+	server := httptest.NewServer(x.h)
+	defer server.Close()
+	response, err := http.Get(server.URL + "/logs/stream?session=s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	line, err := reader.ReadString('\n')
+	if err != nil || line != "event: ready\n" {
+		t.Fatalf("ready: %q %v", line, err)
+	}
+	reader.ReadString('\n')
+	reader.ReadString('\n')
+	source.append(admin.LogRecord{"id": "other", "session": "s2"})
+	source.append(admin.LogRecord{"id": "brain", "kind": "brain", "session": "s"})
+	source.append(admin.LogRecord{"id": "match", "session": "s"})
+	line, err = reader.ReadString('\n')
+	if err != nil || line != "event: log\n" {
+		t.Fatalf("log: %q %v", line, err)
+	}
+	line, _ = reader.ReadString('\n')
+	if !strings.Contains(line, "match") || strings.Contains(line, "other") || strings.Contains(line, "brain") {
+		t.Fatalf("session filter failed %s", line)
+	}
+}
+func TestSSEMultiValueStatusFilter(t *testing.T) {
+	source := &logs{}
+	x := setup(t, source)
+	server := httptest.NewServer(x.h)
+	defer server.Close()
+	response, err := http.Get(server.URL + "/logs/stream?status=error")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	reader := bufio.NewReader(response.Body)
+	line, err := reader.ReadString('\n')
+	if err != nil || line != "event: ready\n" {
+		t.Fatalf("ready: %q %v", line, err)
+	}
+	reader.ReadString('\n')
+	reader.ReadString('\n')
+	source.append(admin.LogRecord{"id": "ok", "status": 200})
+	source.append(admin.LogRecord{"id": "bad", "status": 503})
+	line, err = reader.ReadString('\n')
+	if err != nil || line != "event: log\n" {
+		t.Fatalf("log: %q %v", line, err)
+	}
+	line, _ = reader.ReadString('\n')
+	if !strings.Contains(line, "bad") || strings.Contains(line, "\"ok\"") {
+		t.Fatalf("multi-value status filter failed %s", line)
+	}
 }
 func TestSQLiteAdapterReadsGoLedger(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.sqlite")

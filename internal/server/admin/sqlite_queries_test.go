@@ -65,11 +65,16 @@ func seededSQLite(t testing.TB, count int) (*admin.SQLiteLogs, *sql.DB) {
 		if i%5 == 0 {
 			model = "other"
 		}
+		// Status variety exercises the ok/error facets; every fourth row errors.
+		status := 200
+		if i%4 == 0 {
+			status = 500
+		}
 		ts := at
 		if i < count-20 {
 			ts = at.Add(-48 * time.Hour)
 		}
-		if _, err := stmt.Exec(i*3+10, fmt.Sprintf("row-%d", i), requestID, ts.UnixMilli(), ts.Format(time.RFC3339Nano), model, "Provider", kind, phase, "session", "reason", "high", 0, 0, 200, 120, 0.25, `[{"cause":"retry","marker":"preserved"}]`, `[{"provider":"skipped"}]`, `{"hit":true}`, "typesafe", 1); err != nil {
+		if _, err := stmt.Exec(i*3+10, fmt.Sprintf("row-%d", i), requestID, ts.UnixMilli(), ts.Format(time.RFC3339Nano), model, "Provider", kind, phase, "session", "reason", "high", 0, 0, status, 120, 0.25, `[{"cause":"retry","marker":"preserved"}]`, `[{"provider":"skipped"}]`, `{"hit":true}`, "typesafe", 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,6 +101,15 @@ func TestSQLiteQueriesMatchAppendOffsetsAndFilters(t *testing.T) {
 	for _, query := range []string{
 		"?limit=1", "?limit=7&before=2001", "?before=0", "?before=-2", "?before=9000",
 		"?phase=-&model=m&limit=9", "?phase=all&q=retry&limit=3", "?q=PROVIDER%20execute", "?q=retry%20retry", "?q=retry%20failover", "?q=%25", "?q=preserved", "?q=reason%20high%20retry",
+		"?session=session", "?session=missing", "?session=session&model=m&limit=9",
+		"?session=session&phase=execute", "?session=session&limit=7&before=2001",
+		"?session=session&q=retry", "?session=%20session%20",
+		// Repeatable, multi-value filters. Within a group values are OR-ed.
+		"?model=m&model=other", "?model=m&model=missing", "?phase=execute&phase=-",
+		"?phase=-&phase=execute&model=other", "?provider=Provider", "?provider=Provider&provider=none",
+		"?status=ok", "?status=error", "?status=ok&phase=plan", "?status=ok&phase=execute",
+		"?provider=Provider&provider=none&q=retry", "?status=ok&status=error", "?status=bogus",
+		"?status=error&model=m&model=other&session=session", "?status=&status=all&status=ok",
 	} {
 		_, got := request(t, fast.h, "GET", "/logs"+query, nil)
 		_, want := request(t, slow.h, "GET", "/logs"+query, nil)
@@ -103,12 +117,40 @@ func TestSQLiteQueriesMatchAppendOffsetsAndFilters(t *testing.T) {
 			t.Fatalf("%s\ngot %s\nwant %s", query, mustJSON(got), mustJSON(want))
 		}
 	}
-	for _, path := range []string{"/logs/row-1", "/logs/missing", "/logs/series?minutes=60&buckets=6&q=retry", "/activity?range=today", "/activity?range=all"} {
+	// Facets must agree between the GROUP BY path and the in-memory path,
+	// with and without filters and with the optional minutes window.
+	for _, query := range []string{
+		"", "?status=error", "?status=ok&phase=plan", "?model=m&model=other",
+		"?provider=Provider&provider=none&q=retry", "?session=session&status=error",
+		"?minutes=60", "?minutes=60&status=error", "?minutes=1", "?minutes=0", "?minutes=99999",
+	} {
+		_, got := request(t, fast.h, "GET", "/logs/facets"+query, nil)
+		_, want := request(t, slow.h, "GET", "/logs/facets"+query, nil)
+		if string(mustJSON(got)) != string(mustJSON(want)) {
+			t.Fatalf("facets %s\ngot %s\nwant %s", query, mustJSON(got), mustJSON(want))
+		}
+	}
+	for _, path := range []string{"/logs/row-1", "/logs/missing", "/logs/series?minutes=60&buckets=6&q=retry", "/logs/series?minutes=60&buckets=6&session=session", "/logs/series?minutes=60&buckets=6&session=missing", "/activity?range=today", "/activity?range=all"} {
 		gotCode, got := request(t, fast.h, "GET", path, nil)
 		wantCode, want := request(t, slow.h, "GET", path, nil)
 		if gotCode != wantCode || string(mustJSON(got)) != string(mustJSON(want)) {
 			t.Fatalf("%s\ngot %s\nwant %s", path, mustJSON(got), mustJSON(want))
 		}
+	}
+	// The exact session filter keeps non-brain rows only; brain rows share the
+	// same session value and must stay excluded on both paths.
+	session, err := source.QueryLogs(context.Background(), admin.LogQuery{Filter: admin.LogFilter{Session: "session"}, Limit: 5})
+	if err != nil || session.Total != 2571 || len(session.Logs) != 5 {
+		t.Fatalf("session page %#v: %v", session, err)
+	}
+	for _, rec := range session.Logs {
+		if rec["kind"] == "brain" {
+			t.Fatalf("brain row leaked into session filter: %#v", rec)
+		}
+	}
+	missing, err := source.QueryLogs(context.Background(), admin.LogQuery{Filter: admin.LogFilter{Session: "session-other"}})
+	if err != nil || missing.Total != 0 || len(missing.Logs) != 0 {
+		t.Fatalf("session miss %#v: %v", missing, err)
 	}
 	page, err := source.QueryLogs(context.Background(), admin.LogQuery{Limit: 1})
 	if err != nil || len(page.Logs) != 1 || page.NextBefore == nil || *page.NextBefore != 2999 {
@@ -325,6 +367,7 @@ func TestSQLiteRangeUsesIndexesAndCancellation(t *testing.T) {
 		{`SELECT id FROM records INDEXED BY idx_admin_records_request_kind WHERE request_id = 'row-1' AND kind = 'brain' AND rowid > 0 ORDER BY rowid LIMIT 256`, "idx_admin_records_request_kind"},
 		{`SELECT COUNT(*) FROM records WHERE ts_ms >= 1791198000000 AND ts_ms <= 1791201600000 AND kind != 'brain'`, "idx_admin_records_ts"},
 		{`SELECT id FROM records INDEXED BY idx_admin_records_ts WHERE ts_ms >= 1791198000000 AND ts_ms <= 1791201600000 ORDER BY rowid`, "idx_admin_records_ts"},
+		{`SELECT id FROM records WHERE session = 'session' AND kind != 'brain' ORDER BY rowid DESC LIMIT 5`, "idx_admin_records_session"},
 	}
 	for _, q := range queries {
 		rows, err := db.Query("EXPLAIN QUERY PLAN " + q.sql)

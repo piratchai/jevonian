@@ -87,6 +87,14 @@ type turn struct {
 	// input already excludes cache reads.
 	exclusiveInput bool
 	hasUsage       bool
+	// capture is the request payload queued by captureRequest so record can
+	// re-save it with the response merged in. nil when capture never ran.
+	capture map[string]any
+	// respCapture tees a streaming turn's client-wire bytes; respData holds the
+	// final client-wire JSON of a non-stream turn. Exactly one is set on a
+	// successful turn.
+	respCapture *streamCapture
+	respData    []byte
 }
 
 // handleChat is the routing-driven inference flow for every /v1 inference path.
@@ -266,6 +274,9 @@ func (t *turn) captureRequest() {
 	if d == nil {
 		return
 	}
+	// A failover overwrites the capture: drop the previous attempt's answer too.
+	t.respCapture = nil
+	t.respData = nil
 	decision := map[string]any{
 		"provider":       d.Provider,
 		"model":          d.Model,
@@ -284,13 +295,62 @@ func (t *turn) captureRequest() {
 	if d.Canonical != "" {
 		decision["canonical"] = d.Canonical
 	}
-	SaveBody(t.requestID, map[string]any{
+	t.capture = map[string]any{
 		"kind":     "request",
 		"at":       time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		"path":     strings.TrimPrefix(t.path, "/v1"),
 		"decision": decision,
 		"body":     t.body,
-	})
+	}
+	SaveBody(t.requestID, t.capture)
+}
+
+// saveResponseCapture re-saves the request capture with the model's answer
+// merged in as a top-level `response`. It runs once per turn from record, after
+// the stream has ended, so the tee buffer is settled. A turn whose request was
+// never captured writes nothing.
+func (t *turn) saveResponseCapture(status int, errText string) {
+	if t.capture == nil || !captureEnabled() {
+		return
+	}
+	wireKind := string(t.kind)
+	var response map[string]any
+	switch {
+	case t.respCapture != nil:
+		data, truncated := t.respCapture.snapshot()
+		response = normalizeResponse(t.kind, true, data)
+		if truncated {
+			response["truncated"] = true
+		}
+	case t.respData != nil:
+		response = normalizeResponse(t.kind, false, t.respData)
+	case errText != "":
+		response = map[string]any{"wire": wireKind, "text": ""}
+	default:
+		return
+	}
+	response["wire"] = wireKind
+	response["status"] = status
+	response["stream"] = t.stream
+	if errText != "" {
+		response["error"] = t.redactText(errText)
+	}
+	t.capture["response"] = response
+	SaveBody(t.requestID, t.capture)
+}
+
+// redactText scrubs the answering provider's credential from text before it is
+// stored in a capture the dashboard shows.
+func (t *turn) redactText(text string) string {
+	if t.decision == nil {
+		return text
+	}
+	for i := range t.cfg.Providers {
+		if t.cfg.Providers[i].Name == t.decision.Provider {
+			return softstream.RedactSecrets(text, config.ResolveAPIKey(t.cfg.Providers[i]))
+		}
+	}
+	return text
 }
 
 func (t *turn) decide(ctx context.Context) (*routing.Decision, error) {
@@ -473,6 +533,16 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 		var streamBody io.ReadCloser = attempt.Response.Body
 		var usageFn func() wire.Usage
 		streamBody, usageFn = t.bridgeStream(streamBody, attempt, tracker)
+		// Tee the client-wire bytes so the body capture can show the answer.
+		// This seam sees the exact SSE the client renders, after bridging but
+		// before soft wrapping, and runs synchronously inside WriteStream's copy
+		// loop, so the buffer is settled before record() reads it. Skip the tee
+		// entirely when capture is off.
+		if captureEnabled() {
+			capture := &streamCapture{}
+			t.respCapture = capture
+			streamBody = &teeReadCloser{source: streamBody, capture: capture}
+		}
 		var softErr atomic.Pointer[string]
 		var canceled atomic.Bool
 		WriteStream(w, r, streamBody, StreamOptions{
@@ -545,6 +615,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 	}
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(200)
+	t.respData = raw
 	_, _ = w.Write(raw)
 	t.record(200, usage, t.costOf(usage), true, "")
 	return false
@@ -957,6 +1028,7 @@ func (t *turn) record(status int, usage wire.Usage, costUSD *float64, pricingKno
 		return
 	}
 	t.recorded = true
+	t.saveResponseCapture(status, errText)
 	s := t.srv
 	d := t.decision
 	rec := ledger.Record{

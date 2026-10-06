@@ -30,18 +30,78 @@ func (h *Handler) records(w http.ResponseWriter) ([]LogRecord, bool) {
 	}
 	return records, true
 }
-func logFilter(r *http.Request) LogFilter {
-	phase := r.URL.Query().Get("phase")
-	if phase == "all" {
-		phase = ""
+
+// values normalizes a repeatable query parameter: trimmed, de-duplicated, and
+// with empty entries dropped. dropAll also removes the phase sentinel "all".
+// Order is preserved.
+func values(r *http.Request, name string, dropAll bool) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, raw := range r.URL.Query()[name] {
+		v := strings.TrimSpace(raw)
+		if v == "" || (dropAll && v == "all") || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
 	}
-	model := strings.TrimSpace(r.URL.Query().Get("model"))
-	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	return LogFilter{Phase: phase, Model: model, Query: query}
+	return out
 }
-func matcher(r *http.Request) func(LogRecord) bool {
-	filter := logFilter(r)
-	phase, model, query := filter.Phase, filter.Model, filter.Query
+func logFilter(r *http.Request) LogFilter {
+	return LogFilter{
+		Phases:    values(r, "phase", true),
+		Models:    values(r, "model", false),
+		Providers: values(r, "provider", false),
+		Status:    values(r, "status", false),
+		Query:     strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q"))),
+		Session:   strings.TrimSpace(r.URL.Query().Get("session")),
+	}
+}
+
+// statuses maps the two accepted status values to a predicate. Unknown values
+// are ignored; when nothing remains the status filter is inactive.
+func statuses(list []string) (ok, err bool) {
+	for _, s := range list {
+		switch s {
+		case "ok":
+			ok = true
+		case "error":
+			err = true
+		}
+	}
+	return ok, err
+}
+
+// statusMatch reports whether a record's status satisfies the ok/error filter.
+// A missing status reads as 0, so it counts as ok, matching number().
+func statusMatch(ok, wantErr bool, status float64) bool {
+	switch {
+	case ok && wantErr:
+		return true
+	case ok:
+		return status < 400
+	case wantErr:
+		return status >= 400
+	}
+	return true
+}
+
+// matchFilter is the single in-memory source of truth for request filtering.
+// A nil skip group leaves that group's filter unapplied, which faceting uses.
+func matchFilter(f LogFilter, skip string) func(LogRecord) bool {
+	phases, models, providers := f.Phases, f.Models, f.Providers
+	ok, wantErr := statuses(f.Status)
+	query, session := f.Query, f.Session
+	switch skip {
+	case "phase":
+		phases = nil
+	case "model":
+		models = nil
+	case "provider":
+		providers = nil
+	case "status":
+		ok, wantErr = false, false
+	}
 	return func(rec LogRecord) bool {
 		if rec["kind"] == "brain" {
 			return false
@@ -50,10 +110,20 @@ func matcher(r *http.Request) func(LogRecord) bool {
 		if p == "" {
 			p = "-"
 		}
-		if phase != "" && phase != p {
+		if len(phases) > 0 && !contains(phases, p) {
 			return false
 		}
-		if model != "" && model != text(rec["model"]) {
+		if len(models) > 0 && !contains(models, text(rec["model"])) {
+			return false
+		}
+		if len(providers) > 0 && !contains(providers, text(rec["provider"])) {
+			return false
+		}
+		if !statusMatch(ok, wantErr, number(rec["status"])) {
+			return false
+		}
+		// Session is an exact, case-sensitive match on the stored id.
+		if session != "" && session != text(rec["session"]) {
 			return false
 		}
 		if query == "" {
@@ -78,6 +148,15 @@ func matcher(r *http.Request) func(LogRecord) bool {
 		return strings.Contains(strings.ToLower(strings.Join(parts, " ")), query)
 	}
 }
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+func matcher(r *http.Request) func(LogRecord) bool { return matchFilter(logFilter(r), "") }
 func intQuery(r *http.Request, name string, fallback, min, max int) int {
 	n, err := strconv.Atoi(r.URL.Query().Get(name))
 	if err != nil || n == 0 {
@@ -193,6 +272,120 @@ func (h *Handler) logSeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	send(w, 200, map[string]any{"minutes": minutes, "buckets": buckets})
+}
+
+// facetsStart parses the optional minutes window. Only a valid 1..10080 value
+// is honored; anything else counts the whole ledger.
+func (h *Handler) facetsStart(r *http.Request) *time.Time {
+	minutes, err := strconv.Atoi(r.URL.Query().Get("minutes"))
+	if err != nil || minutes < 1 || minutes > 10080 {
+		return nil
+	}
+	at := h.deps.Now().Add(-time.Duration(minutes) * time.Minute)
+	return &at
+}
+
+// logFacets serves grouped value counts for the filter rail. Each group's
+// counts apply every current filter except that group's own filter.
+func (h *Handler) logFacets(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Ledger == nil {
+		failure(w, 503, "Ledger is unavailable.")
+		return
+	}
+	filter := logFilter(r)
+	start := h.facetsStart(r)
+	if source, ok := h.deps.Ledger.(LogFacetQuerier); ok {
+		facets, err := source.QueryLogFacets(r.Context(), filter, start)
+		if err != nil {
+			failure(w, 500, err.Error())
+			return
+		}
+		send(w, 200, facets)
+		return
+	}
+	all, ok := h.records(w)
+	if !ok {
+		return
+	}
+	rows := []LogRecord{}
+	for _, rec := range all {
+		if start != nil {
+			at, err := time.Parse(time.RFC3339Nano, text(rec["ts"]))
+			if err != nil || at.Before(*start) {
+				continue
+			}
+		}
+		rows = append(rows, rec)
+	}
+	send(w, 200, collectFacets(rows, filter))
+}
+
+// collectFacets mirrors the SQLite facet queries over already-read records.
+func collectFacets(rows []LogRecord, filter LogFilter) LogFacets {
+	total := 0
+	for _, rec := range rows {
+		if matchFilter(filter, "")(rec) {
+			total++
+		}
+	}
+	groups := map[string][]LogFacetValue{}
+	collectFacet(rows, filter, "status", func(rec LogRecord) []string {
+		if number(rec["status"]) >= 400 {
+			return []string{"error"}
+		}
+		return []string{"ok"}
+	}, groups)
+	collectFacet(rows, filter, "phase", func(rec LogRecord) []string {
+		p := text(rec["phase"])
+		if p == "" {
+			p = "-"
+		}
+		return []string{p}
+	}, groups)
+	collectFacet(rows, filter, "provider", func(rec LogRecord) []string {
+		if v := text(rec["provider"]); v != "" {
+			return []string{v}
+		}
+		return nil
+	}, groups)
+	collectFacet(rows, filter, "model", func(rec LogRecord) []string {
+		if v := text(rec["model"]); v != "" {
+			return []string{v}
+		}
+		return nil
+	}, groups)
+	// status always lists both values, even at zero count.
+	counts := map[string]int64{}
+	for _, entry := range groups["status"] {
+		counts[entry.Value] = entry.Count
+	}
+	groups["status"] = []LogFacetValue{{Value: "ok", Count: counts["ok"]}, {Value: "error", Count: counts["error"]}}
+	return LogFacets{Total: int64(total), Groups: groups}
+}
+
+// collectFacet counts one group under all filters except the group's own.
+func collectFacet(rows []LogRecord, filter LogFilter, group string, key func(LogRecord) []string, groups map[string][]LogFacetValue) {
+	match := matchFilter(filter, group)
+	counts := map[string]int64{}
+	for _, rec := range rows {
+		if !match(rec) {
+			continue
+		}
+		for _, v := range key(rec) {
+			counts[v]++
+		}
+	}
+	entries := []LogFacetValue{}
+	for value, count := range counts {
+		if count > 0 {
+			entries = append(entries, LogFacetValue{Value: value, Count: count})
+		}
+	}
+	sortFacets(entries)
+	if group == "model" && len(entries) > 50 {
+		entries = entries[:50]
+	}
+	groups[group] = entries
 }
 
 const logStreamQueueLimit = 256

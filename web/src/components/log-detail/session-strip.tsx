@@ -1,0 +1,111 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api, type LogRecord } from "@/lib/api";
+import { cn, formatTime } from "@/lib/utils";
+
+const SESSION_LIMIT = 50;
+
+/**
+ * The other turns in this session, newest first. Loads on its own so a slow or failing
+ * session query never blocks the rest of the page.
+ */
+export function SessionStrip({ session, currentId }: { session: string; currentId?: string }) {
+  const [logs, setLogs] = useState<LogRecord[] | null>(null);
+  const [error, setError] = useState("");
+  const [total, setTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    setLogs(null);
+    setError("");
+    void api
+      .logs({ session, limit: SESSION_LIMIT })
+      .then((page) => {
+        if (cancelled) return;
+        setLogs(page.logs);
+        setTotal(page.total);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setError(String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  return (
+    <Card className="min-w-0 overflow-hidden">
+      <CardHeader className="flex-row items-baseline justify-between gap-2 p-4 pb-2">
+        <CardTitle>Session</CardTitle>
+        {total !== null ? (
+          <span className="text-[11px] text-muted-foreground">
+            {total} turn{total === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        {!session ? (
+          <p className="text-xs text-muted-foreground">No session id was recorded for this turn.</p>
+        ) : error ? (
+          <p className="text-xs text-muted-foreground">Session turns are unavailable right now.</p>
+        ) : logs === null ? (
+          <div className="flex flex-col gap-1.5">
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : logs.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No other turns in this session.</p>
+        ) : (
+          <ul className="flex min-w-0 flex-col divide-y divide-border/40">
+            {logs.map((log) => {
+              const current = Boolean(currentId) && log.id === currentId;
+              const failed = log.status >= 400;
+              const row = (
+                <span className="flex min-w-0 items-center gap-2 py-1.5 text-xs">
+                  <span
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      failed ? "bg-destructive" : "bg-emerald-500",
+                    )}
+                    aria-hidden
+                  />
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {formatTime(log.ts)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{log.model}</span>
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {log.latencyMs}ms
+                  </span>
+                </span>
+              );
+              return (
+                <li key={log.id ?? `${log.ts}-${log.model}`} className="min-w-0">
+                  {log.id ? (
+                    <Link
+                      to={`/logs/${log.id}`}
+                      className={cn(
+                        "block min-w-0 rounded-sm px-1 transition-colors hover:bg-muted/60",
+                        current ? "bg-muted/60 font-medium" : "",
+                      )}
+                      title={current ? "This turn" : "Open this turn"}
+                    >
+                      {row}
+                    </Link>
+                  ) : (
+                    <span className="block min-w-0 px-1">{row}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

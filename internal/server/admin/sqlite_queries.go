@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,20 +47,86 @@ func (s *SQLiteLogs) prepare() error {
 	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_admin_records_ts ON records(ts_ms);
 		CREATE INDEX IF NOT EXISTS idx_admin_records_request_kind ON records(request_id, kind);
 		CREATE INDEX IF NOT EXISTS idx_admin_records_model ON records(model) WHERE kind != 'brain';
-		CREATE INDEX IF NOT EXISTS idx_admin_records_phase ON records(COALESCE(NULLIF(phase, ''), '-')) WHERE kind != 'brain';`)
+		CREATE INDEX IF NOT EXISTS idx_admin_records_phase ON records(COALESCE(NULLIF(phase, ''), '-')) WHERE kind != 'brain';
+		CREATE INDEX IF NOT EXISTS idx_admin_records_provider ON records(provider) WHERE kind != 'brain';
+		CREATE INDEX IF NOT EXISTS idx_admin_records_session ON records(session) WHERE kind != 'brain';`)
 	return err
 }
 
+// logFilterClause renders one filter group. An empty group is omitted, so
+// filterSQL can drop exactly one group for faceted counting.
+func logFilterClause(f LogFilter, group string) (string, []any) {
+	switch group {
+	case "phase":
+		if len(f.Phases) == 0 {
+			return "", nil
+		}
+		// COALESCE(NULLIF(...)) keeps idx_admin_records_phase usable.
+		return "COALESCE(NULLIF(phase, ''), '-') IN (" + placeholders(len(f.Phases)) + ")", toAny(f.Phases)
+	case "model":
+		if len(f.Models) == 0 {
+			return "", nil
+		}
+		return "model IN (" + placeholders(len(f.Models)) + ")", toAny(f.Models)
+	case "provider":
+		if len(f.Providers) == 0 {
+			return "", nil
+		}
+		return "provider IN (" + placeholders(len(f.Providers)) + ")", toAny(f.Providers)
+	case "status":
+		ok, wantErr := statuses(f.Status)
+		switch {
+		case ok && wantErr:
+			return "", nil // Both values are selected: no constraint.
+		case ok:
+			// A missing status reads as 0, so it counts as ok. SQLite coerces a
+			// NULL comparison to NULL (false), so COALESCE it to 0 explicitly.
+			return "COALESCE(status, 0) < 400", nil
+		case wantErr:
+			return "COALESCE(status, 0) >= 400", nil
+		}
+		return "", nil
+	}
+	return "", nil
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return "NULL"
+	}
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
+}
+
+func toAny(list []string) []any {
+	out := make([]any, len(list))
+	for i, v := range list {
+		out[i] = v
+	}
+	return out
+}
+
 func (s *SQLiteLogs) filterSQL(f LogFilter) (string, []any) {
+	return s.filterSQLExcept(f, "")
+}
+
+// filterSQLExcept builds the WHERE clause with one group omitted, for facets.
+func (s *SQLiteLogs) filterSQLExcept(f LogFilter, skip string) (string, []any) {
 	clauses := []string{"kind != 'brain'"}
 	args := []any{}
-	if f.Phase != "" && f.Phase != "all" {
-		clauses = append(clauses, "COALESCE(NULLIF(phase, ''), '-') = ?")
-		args = append(args, f.Phase)
+	for _, group := range []string{"phase", "model", "provider", "status"} {
+		if group == skip {
+			continue
+		}
+		clause, extra := logFilterClause(f, group)
+		if clause == "" {
+			continue
+		}
+		clauses = append(clauses, clause)
+		args = append(args, extra...)
 	}
-	if f.Model != "" {
-		clauses = append(clauses, "model = ?")
-		args = append(args, f.Model)
+	if f.Session != "" {
+		clauses = append(clauses, "session = ?")
+		args = append(args, f.Session)
 	}
 	if f.Query != "" {
 		// Match the joined search text, not OR-ed per-field LIKE expressions:
@@ -262,6 +329,83 @@ func (s *SQLiteLogs) QueryLogSeries(ctx context.Context, filter LogFilter, start
 		}
 	}
 	return out, rows.Err()
+}
+
+// QueryLogFacets returns grouped value counts. Each group applies every filter
+// except the group's own filter. The optional start bounds ts_ms.
+func (s *SQLiteLogs) QueryLogFacets(ctx context.Context, filter LogFilter, start *time.Time) (LogFacets, error) {
+	facets := LogFacets{Groups: map[string][]LogFacetValue{}}
+	window := ""
+	windowArgs := []any{}
+	if start != nil {
+		window = " AND ts_ms >= ?"
+		windowArgs = append(windowArgs, start.UnixMilli())
+	}
+	// total applies every filter, including all groups.
+	where, args := s.filterSQL(filter)
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM records WHERE "+where+window, append(args, windowArgs...)...).Scan(&facets.Total); err != nil {
+		return facets, err
+	}
+	type group struct {
+		name string
+		expr string
+	}
+	// phase keeps the COALESCE(NULLIF(...)) expression the index uses.
+	groups := []group{
+		{"status", "CASE WHEN COALESCE(status, 0) >= 400 THEN 'error' ELSE 'ok' END"},
+		{"phase", "COALESCE(NULLIF(phase, ''), '-')"},
+		{"provider", "provider"},
+		{"model", "model"},
+	}
+	for _, g := range groups {
+		where, args := s.filterSQLExcept(filter, g.name)
+		rows, err := s.db.QueryContext(ctx, "SELECT "+g.expr+", COUNT(*) FROM records WHERE "+where+window+" GROUP BY 1", append(args, windowArgs...)...)
+		if err != nil {
+			return facets, err
+		}
+		entries := []LogFacetValue{}
+		for rows.Next() {
+			var value sql.NullString
+			var count int64
+			if err := rows.Scan(&value, &count); err != nil {
+				rows.Close()
+				return facets, err
+			}
+			if !value.Valid || value.String == "" {
+				continue
+			}
+			entries = append(entries, LogFacetValue{Value: value.String, Count: count})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return facets, err
+		}
+		rows.Close()
+		if g.name == "status" {
+			counts := map[string]int64{}
+			for _, e := range entries {
+				counts[e.Value] = e.Count
+			}
+			entries = []LogFacetValue{{Value: "ok", Count: counts["ok"]}, {Value: "error", Count: counts["error"]}}
+		} else {
+			sortFacets(entries)
+			if g.name == "model" && len(entries) > 50 {
+				entries = entries[:50]
+			}
+		}
+		facets.Groups[g.name] = entries
+	}
+	return facets, nil
+}
+
+// sortFacets orders counts by count desc, then value asc.
+func sortFacets(entries []LogFacetValue) {
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Count != entries[j].Count {
+			return entries[i].Count > entries[j].Count
+		}
+		return entries[i].Value < entries[j].Value
+	})
 }
 
 func (s *SQLiteLogs) TailCursor(ctx context.Context) (int64, error) {
