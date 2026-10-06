@@ -238,6 +238,17 @@
     "billing": "subscription"
   },
   {
+    "id": "freebuff-subscription",
+    "name": "Freebuff",
+    "type": "openai",
+    "baseUrl": "https://www.codebuff.com",
+    "auth": "oauth",
+    "oauthSource": "freebuff",
+    "keysUrl": "https://freebuff.com",
+    "hint": "Free, ad-supported coding agent. Save opens a browser sign-in; or set FREEBUFF_AUTH_TOKEN. Daily quota resets at midnight Pacific.",
+    "billing": "subscription"
+  },
+  {
     "id": "jevonian-remote",
     "name": "Jevonian (another machine)",
     "type": "both",

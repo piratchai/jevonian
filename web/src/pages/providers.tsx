@@ -485,7 +485,8 @@ export function ProvidersPage() {
   const needsApiKey =
     !(helpPreset?.noKey === true) && (auth === "api-key" || oauthSource === "static");
   // Save signs in then discovers when the list is empty — don't force a Discover-first deadlock.
-  const canSaveWithoutModels = auth === "oauth" && oauthSource === "workbuddy-ai";
+  const canSaveWithoutModels =
+    auth === "oauth" && (oauthSource === "workbuddy-ai" || oauthSource === "freebuff");
 
   /**
    * Whether this credential source keeps its sign-in somewhere a `login` can point at. A stored
