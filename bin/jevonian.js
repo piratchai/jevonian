@@ -110,12 +110,7 @@ export async function ensureBinary({
   return target;
 }
 
-export function installEnvironment({
-  entry,
-  nodeExecutable,
-  env = process.env,
-  platform = process.platform,
-}) {
+export function installEnvironment({ entry, nodeExecutable, env = process.env }) {
   const path = entry.replaceAll("\\", "/");
   const global =
     path.includes("/lib/node_modules/jevonian/") ||
@@ -162,7 +157,7 @@ export async function main({
   if (argv.length === 1 && argv[0] === "--download-only") return 0;
   const child = spawnImpl(target, argv, {
     stdio: "inherit",
-    env: installEnvironment({ entry, nodeExecutable, env, platform }),
+    env: installEnvironment({ entry, nodeExecutable, env }),
   });
   // Node has no portable exec(2); forwarding stdio, signals and the exit status is
   // the thin wrapper equivalent. Managed services should launch the binary directly.
