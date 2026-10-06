@@ -519,7 +519,12 @@ export function ProvidersPage({
   }
 
   async function resetLocalQuota(provider: string) {
-    if (!window.confirm(`Clear Jevonian's local quota state for ${provider}? This does not reset the provider's remote quota.`)) return;
+    if (
+      !window.confirm(
+        `Clear Jevonian's local quota state for ${provider}? This does not reset the provider's remote quota.`,
+      )
+    )
+      return;
     setBusy(true);
     setError("");
     try {

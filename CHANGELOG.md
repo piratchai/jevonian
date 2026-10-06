@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.3] - 2026-10-06
+
+### Added
+
+- **Quota reset controls and live reset data.** View and manage quota reset details from the dashboard.
+
+### Fixed
+
+- **Dependency updates work again.** The update command is restored.
+
 ## [0.6.2] - 2026-10-06
 
 ### Changed
