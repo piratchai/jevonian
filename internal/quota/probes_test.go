@@ -53,7 +53,9 @@ func TestRealLiveProviderEndpoints(t *testing.T) {
 		plan, note string
 		balance    *float64
 	}{
-		{name: "codex", p: config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthCodex, BaseURL: "https://chatgpt.com/backend-api/codex"}, path: "/backend-api/wham/usage", body: `{"rate_limit":{"primary_window":{"used_percent":1,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":75,"window_minutes":10080}},"credits":{"balance":"4.2"},"plan_type":"plus"}`, used: []float64{1, 75}, plan: "plus", note: "credits 4.2"},
+		{name: "codex", p: config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthCodex, BaseURL: "https://chatgpt.com/backend-api/codex"}, path: "/backend-api/wham/usage", body: `{"account":{"account_id":"account-1"},"rate_limit":{"primary_window":{"used_percent":1,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":75,"window_minutes":10080}},"rate_limit_reset_credits":{"available_count":2},"credits":{"balance":"4.2"},"plan_type":"plus"}`, used: []float64{1, 75}, plan: "plus", note: "credits 4.2"},
+
+		{name: "cursor", p: config.Provider{Type: config.ProviderTypeCursor, Auth: config.AuthOAuth, OAuthSource: config.OAuthCursor, BaseURL: "https://api2.cursor.sh"}, path: "/aiserver.v1.DashboardService/GetCurrentPeriodUsage", body: `{"billingCycleEnd":"1893456000000","planUsage":{"autoPercentUsed":21,"apiPercentUsed":9,"totalPercentUsed":30}}`, used: []float64{21, 9, 30}},
 		{name: "opencode", p: config.Provider{BaseURL: "https://opencode.ai/zen/go/v1"}, path: "/zen/go/v1/usage", body: `{"usage":{"rolling":{"percent":1,"resetsAt":1893456000},"weekly":{"percent":19},"monthly":{"percent":33}}}`, used: []float64{1, 19, 33}},
 		{name: "commandcode", p: config.Provider{BaseURL: "https://api.commandcode.ai/v1"}, path: "/alpha/billing/credits", body: `{"windowLimits":{"fiveHour":{"used":2,"cap":20,"resetAt":1893456000000},"weekly":{"used":5,"cap":10,"exceeded":true}},"credits":{"monthlyCredits":60}}`, used: []float64{10, 50, 40}, plan: "PRO", note: "$60.00 credits left"},
 		{name: "antigravity", p: config.Provider{Type: config.ProviderTypeGemini, BaseURL: "https://cloud.google.com/v1internal"}, path: "/v1internal:fetchAvailableModels", body: `{"models":{"a":{"modelProvider":"MODEL_PROVIDER_GOOGLE","quotaInfo":{"remainingFraction":0.8}},"b":{"modelProvider":"MODEL_PROVIDER_ANTHROPIC","quotaInfo":{"remainingFraction":0.1}},"c":{"modelProvider":"MODEL_PROVIDER_GOOGLE","quotaInfo":{"remainingFraction":0.7,"resetTime":"2030-01-01T00:00:00Z"}}}}`, used: []float64{30, 90}, note: "2 quota counters"},
@@ -69,6 +71,12 @@ func TestRealLiveProviderEndpoints(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				switch r.URL.Path {
+				case "/backend-api/wham/rate-limit-reset-credits":
+					if r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get("chatgpt-account-id") != "account-1" {
+						t.Error("missing token or account id on reset-credits request")
+					}
+					fmt.Fprint(w, `{"available_count":2,"credits":[{"id":"r1","status":"available","expires_at":"2030-01-01T00:00:00Z"},{"id":"r2","status":"available","expires_at":"2030-02-01T00:00:00Z"}]}`)
+					return
 				case "/alpha/usage/summary":
 					fmt.Fprint(w, `{"totalMonthlyCredits":40}`)
 					return
@@ -77,7 +85,13 @@ func TestRealLiveProviderEndpoints(t *testing.T) {
 					return
 				}
 				if r.URL.Path != c.path {
-					t.Errorf("path = %s want %s", r.URL.Path, c.path)
+					if c.name == "codex" && r.URL.Path == "/backend-api/wham/usage" {
+						if r.Header.Get("chatgpt-account-id") != "account-1" {
+							t.Error("Codex usage request missing account id")
+						}
+					} else {
+						t.Errorf("path = %s want %s", r.URL.Path, c.path)
+					}
 				}
 				if c.name == "devin" {
 					if r.Header.Get("Authorization") != "Basic test-token-test-token" || r.Method != "POST" {
@@ -133,6 +147,12 @@ func TestRealLiveProviderEndpoints(t *testing.T) {
 			}
 			if c.balance != nil && (q.Balance == nil || q.Balance.Amount != *c.balance) {
 				t.Fatalf("balance = %+v", q.Balance)
+			}
+			if c.name == "codex" && (q.Resets == nil || q.Resets.Count != 2 || len(q.Resets.Each) != 2 || q.Resets.Until != "2030-01-01T00:00:00.000Z") {
+				t.Fatalf("reset credits = %+v", q.Resets)
+			}
+			if c.name == "cursor" && (q.Windows[0].ResetsAt != "2030-01-01T00:00:00.000Z" || q.Windows[0].Label != "Cursor Models") {
+				t.Fatalf("Cursor usage windows = %+v", q.Windows)
 			}
 			if c.name == "openrouter" && tracker.ProviderHealth(p, HealthOptions{}).Status != StatusExhausted {
 				t.Fatal("zero credit not exhausted")

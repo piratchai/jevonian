@@ -175,6 +175,20 @@ export function ProviderQuotaCard({
         <p className="text-[11px] text-muted-foreground">{quota.error}</p>
       ) : null}
 
+      {quota.resets ? (
+        <section className="flex flex-col gap-1 border-t pt-3" aria-label="Available resets">
+          <p className="text-xs font-medium">{quota.resets.count} reset{quota.resets.count === 1 ? "" : "s"} available</p>
+          {quota.resets.each?.map((reset, index) => (
+            <p key={`${reset.expiresAt ?? "never"}-${index}`} className="text-[11px] text-muted-foreground">
+              Reset {index + 1}: {reset.expiresAt ? resetLabel(reset.expiresAt, now) : "no expiry reported"}
+            </p>
+          ))}
+          {!quota.resets.each?.length && quota.resets.until ? (
+            <p className="text-[11px] text-muted-foreground">Next expiry: {resetLabel(quota.resets.until, now)}</p>
+          ) : null}
+        </section>
+      ) : null}
+
       {health?.modelHealth && health.modelHealth.length > 0 ? (
         <section className="flex flex-col gap-2 border-t pt-3" aria-label="Model cooldowns">
           <div>

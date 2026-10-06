@@ -26,6 +26,16 @@ type Balance struct {
 }
 
 // ProviderQuota mirrors src/quota.ts and the dashboard's ProviderQuota payload.
+type ResetCredit struct {
+	ExpiresAt string `json:"expiresAt,omitempty"`
+}
+
+type ResetCredits struct {
+	Count int           `json:"count"`
+	Until string        `json:"until,omitempty"`
+	Each  []ResetCredit `json:"each,omitempty"`
+}
+
 type ProviderQuota struct {
 	Provider  string                 `json:"provider"`
 	Billing   config.ProviderBilling `json:"billing"`
@@ -34,6 +44,7 @@ type ProviderQuota struct {
 	Plan      string                 `json:"plan,omitempty"`
 	Note      string                 `json:"note,omitempty"`
 	Balance   *Balance               `json:"balance,omitempty"`
+	Resets    *ResetCredits          `json:"resets,omitempty"`
 	Windows   []Window               `json:"windows"`
 	Spend     Spend                  `json:"spend"`
 	FetchedAt string                 `json:"fetchedAt"`
@@ -263,7 +274,7 @@ func (s *Service) refresh(ctx context.Context, p config.Provider, key string) {
 	q := s.storedQuota(p, spend, "")
 	if err != nil {
 		q.Error = err.Error()
-	} else if len(live.Windows) > 0 || live.Balance != nil {
+	} else if len(live.Windows) > 0 || live.Balance != nil || live.Resets != nil {
 		var committed bool
 		live.Windows, revision, committed = s.tracker.applyLive(p.Name, revision, live, now, liveTTL(p))
 		if !committed {
@@ -275,6 +286,7 @@ func (s *Service) refresh(ctx context.Context, p config.Provider, key string) {
 		q.Plan = live.Plan
 		q.Note = live.Note
 		q.Balance = live.Balance
+		q.Resets = live.Resets
 	}
 	// A newer refusal/header observation wins, including one arriving while the
 	// failed probe was assembling its fallback.
@@ -383,6 +395,11 @@ func copyProvider(p config.Provider) config.Provider {
 }
 func cloneQuota(q ProviderQuota) ProviderQuota {
 	q.Windows = cloneWindows(q.Windows)
+	if q.Resets != nil {
+		resets := *q.Resets
+		resets.Each = append([]ResetCredit(nil), q.Resets.Each...)
+		q.Resets = &resets
+	}
 	if q.Balance != nil {
 		b := *q.Balance
 		q.Balance = &b

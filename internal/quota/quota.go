@@ -12,6 +12,7 @@ package quota
 
 import (
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -115,8 +116,26 @@ func (t *Tracker) SetClock(now func() time.Time) {
 	t.clock = now
 }
 
-// Reset clears in-memory spent cooldowns and the cached header snapshot
-// (the file on disk is left alone).
+// Reset clears in-memory spent cooldowns and all cached header snapshots
+// (the file on disk is left alone). It does not affect vendor-side quotas.
+func (t *Tracker) ResetProvider(provider string) {
+	if provider == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.spent, provider)
+	for key := range t.spent {
+		if strings.HasPrefix(key, provider+"\x00") {
+			delete(t.spent, key)
+		}
+	}
+	current := t.loadHeadersLocked()
+	delete(current, provider)
+	t.bumpLocked(provider)
+	t.saveHeadersLocked(current)
+}
+
 func (t *Tracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

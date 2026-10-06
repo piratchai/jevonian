@@ -173,6 +173,29 @@ func runServe(args []string) int {
 		BackgroundContext: ctx,
 	})
 	adminDeps.Quotas = liveQuotaService.Quotas
+	adminDeps.ResetQuota = func(ctx context.Context, cfg *config.Config, provider string) error {
+		found := false
+		for _, item := range cfg.Providers {
+			if item.Name == provider {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("provider %q not found", provider)
+		}
+		tracker.ResetProvider(provider)
+		filtered := *cfg
+		filtered.Providers = nil
+		for _, item := range cfg.Providers {
+			if item.Name == provider {
+				filtered.Providers = append(filtered.Providers, item)
+				break
+			}
+		}
+		_, err := liveQuotaService.ProviderQuotas(ctx, &filtered, true)
+		return err
+	}
 
 	catalogDeps := catalogsync.Deps{
 		HTTP:           client,

@@ -724,6 +724,25 @@ func (h *Handler) tunnelAPI(w http.ResponseWriter, r *http.Request) {
 		return out, 200, nil
 	})
 }
+func (h *Handler) quotaResetAPI(w http.ResponseWriter, r *http.Request) {
+	if h.deps.ResetQuota == nil {
+		failure(w, 503, "Quota reset is unavailable.")
+		return
+	}
+	var payload struct {
+		Provider string `json:"provider"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil || strings.TrimSpace(payload.Provider) == "" {
+		failure(w, 400, "provider is required")
+		return
+	}
+	if err := h.deps.ResetQuota(r.Context(), h.current(), strings.TrimSpace(payload.Provider)); err != nil {
+		failure(w, 400, err.Error())
+		return
+	}
+	send(w, 200, map[string]any{"ok": true})
+}
+
 func (h *Handler) quotaAPI(w http.ResponseWriter, r *http.Request) {
 	c := h.current()
 	if h.deps.Quotas == nil {

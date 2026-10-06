@@ -47,6 +47,7 @@ import {
   type StateResponse,
 } from "@/lib/api";
 import { assignProviderModels } from "@/lib/provider-assignment";
+import { providerDisplayName } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
 const CUSTOM_PRESET: PresetView = {
@@ -517,6 +518,20 @@ export function ProvidersPage({
     }
   }
 
+  async function resetLocalQuota(provider: string) {
+    if (!window.confirm(`Clear Jevonian's local quota state for ${provider}? This does not reset the provider's remote quota.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.resetQuota(provider);
+      await load(true);
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refreshQuota() {
     setBusy(true);
     try {
@@ -856,7 +871,7 @@ export function ProvidersPage({
       ) : null}
 
       {!settingsOnly ? (
-        <details className="order-3 rounded-md border">
+        <details className="order-3 rounded-md border" open>
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
             Usage and quota details
           </summary>
@@ -869,7 +884,19 @@ export function ProvidersPage({
               </p>
             </div>
             <QuotaGrid quotas={quotas} health={health} bare />
-            <div>
+            <div className="flex flex-wrap gap-2">
+              {quotas.map((quota) => (
+                <Button
+                  key={`reset-${quota.provider}`}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void resetLocalQuota(quota.provider)}
+                  disabled={busy}
+                  title="Clears Jevonian's local cooldown and cached response quota only."
+                >
+                  Reset local state · {providerDisplayName(quota.provider)}
+                </Button>
+              ))}
               <Button
                 variant="outline"
                 size="sm"

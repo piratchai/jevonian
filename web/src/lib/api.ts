@@ -440,6 +440,7 @@ export interface QuotaWindow {
 
 export interface ProviderQuotaView {
   provider: string;
+  resets?: { count: number; until?: string; each?: Array<{ expiresAt?: string }> };
   billing: ProviderBillingView;
   auth: string;
   source: "live" | "headers" | "ledger" | "none";
@@ -747,6 +748,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   quota: (refresh = false) => request<QuotaResponse>(`/api/quota${refresh ? "?refresh=1" : ""}`),
+  resetQuota: (provider: string) =>
+    request<{ ok: boolean }>("/api/quota/reset", {
+      method: "POST",
+      body: JSON.stringify({ provider }),
+    }),
   logs: (
     params: { limit?: number; phase?: string; model?: string; q?: string; before?: number } = {},
   ) => {

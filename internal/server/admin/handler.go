@@ -131,6 +131,7 @@ type Deps struct {
 	Quota       QuotaSource
 	// Quotas supplies vendor live probes; refresh=true must block until complete.
 	Quotas      func(context.Context, *config.Config, bool) ([]map[string]any, error)
+	ResetQuota  func(context.Context, *config.Config, string) error
 	Tunnel      TunnelManager
 	Brain       BrainClient
 	OAuth       *oauth.Resolver
@@ -332,6 +333,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /oauth/workbuddy-ai/signin", h.signIn)
 	h.mux.HandleFunc("GET /models", h.models)
 	h.mux.HandleFunc("GET /quota", h.quotaAPI)
+	h.mux.HandleFunc("POST /quota/reset", h.quotaResetAPI)
 	h.mux.HandleFunc("GET /lan", h.lanAPI)
 	h.mux.HandleFunc("PUT /lan", h.lanAPI)
 	h.mux.HandleFunc("GET /tunnel", h.tunnelAPI)

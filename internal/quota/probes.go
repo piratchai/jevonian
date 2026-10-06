@@ -13,8 +13,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xinyao27/jevonian/internal/config"
+	"github.com/xinyao27/jevonian/internal/oauth"
 	"github.com/xinyao27/jevonian/internal/provider/devin"
 	"github.com/xinyao27/jevonian/internal/provider/workbuddy"
 )
@@ -22,6 +24,7 @@ import (
 type liveQuota struct {
 	Windows    []Window
 	Balance    *Balance
+	Resets     *ResetCredits
 	Plan, Note string
 }
 
@@ -41,13 +44,15 @@ func probeKind(p config.Provider) string {
 		return "commandcode"
 	case p.Type == config.ProviderTypeGemini || (p.Auth == config.AuthOAuth && p.OAuthSource == config.OAuthAntigravity):
 		return "antigravity"
+	case p.Type == config.ProviderTypeCursor || (p.Auth == config.AuthOAuth && p.OAuthSource == config.OAuthCursor):
+		return "cursor"
 	case p.Type == config.ProviderTypeDevin || (p.Auth == config.AuthOAuth && p.OAuthSource == config.OAuthDevin):
 		return "devin"
 	case matches("deepseek.com"):
 		return "deepseek"
 	case matches("openrouter.ai"):
 		return "openrouter"
-	case matches("moonshot.ai"):
+	case matches("moonshot.ai") || matches("moonshot.cn"):
 		return "moonshot"
 	case p.Auth == config.AuthOAuth:
 		switch p.OAuthSource {
@@ -55,6 +60,8 @@ func probeKind(p config.Provider) string {
 			return "claude"
 		case config.OAuthCodex:
 			return "codex"
+		case config.OAuthCursor:
+			return "cursor"
 		case config.OAuthWorkbuddyAI:
 			return "workbuddy"
 		}
@@ -71,6 +78,12 @@ func (s *Service) fetchLive(ctx context.Context, p config.Provider) (liveQuota, 
 		return liveQuota{}, err
 	}
 	base := strings.TrimRight(p.BaseURL, "/")
+	if kind == "cursor" {
+		if auth.Token == "" {
+			return liveQuota{}, fmt.Errorf("Missing Cursor token for provider %q", p.Name)
+		}
+		return s.cursorUsage(ctx, auth.Token)
+	}
 	if kind == "devin" {
 		if auth.Token == "" {
 			return liveQuota{}, fmt.Errorf("Missing Devin token for provider %q", p.Name)
@@ -125,7 +138,11 @@ func (s *Service) fetchLive(ctx context.Context, p config.Provider) (liveQuota, 
 			target = os.Getenv("JEVONIAN_CODEX_USAGE_URL")
 		}
 		if target == "" {
-			target = "https://chatgpt.com/backend-api/wham/usage"
+			if strings.Contains(base, "chatgpt.com/backend-api/codex") {
+				target = "https://chatgpt.com/backend-api/wham/usage"
+			} else {
+				target = strings.TrimRight(base, "/") + "/wham/usage"
+			}
 		}
 	case "opencode":
 		target = base + "/usage"
@@ -180,6 +197,18 @@ func (s *Service) fetchLive(ctx context.Context, p config.Provider) (liveQuota, 
 		return out, nil
 	case "codex":
 		out := liveQuota{Plan: text(j["plan_type"])}
+		resets := record(j["rate_limit_reset_credits"])
+		if count, ok := finiteNumber(resets["available_count"]); ok && count > 0 {
+			resetAuth := auth
+			resetAuth.Headers = make(map[string]string, len(auth.Headers)+1)
+			for key, value := range auth.Headers {
+				resetAuth.Headers[key] = value
+			}
+			if id := text(record(j["account"])["account_id"]); id != "" && resetAuth.Headers["chatgpt-account-id"] == "" {
+				resetAuth.Headers["chatgpt-account-id"] = id
+			}
+			out.Resets = s.codexResetCredits(ctx, strings.TrimSuffix(base, "/codex"), resetAuth, int(count))
+		}
 		rate := record(j["rate_limit"])
 		for _, pair := range [][2]string{{"primary_window", "codex-primary"}, {"secondary_window", "codex-secondary"}} {
 			if w := codexLiveWindow(pair[1], rate[pair[0]]); w != nil {
@@ -238,9 +267,77 @@ func (s *Service) fetchLive(ctx context.Context, p config.Provider) (liveQuota, 
 		if !ok {
 			return liveQuota{}, nil
 		}
-		return liveQuota{Balance: &Balance{Amount: round6(amount), Currency: "USD"}}, nil
+		currency := "USD"
+		if u, parseErr := url.Parse(p.BaseURL); parseErr == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), "moonshot.cn") {
+			currency = "CNY"
+		}
+		return liveQuota{Balance: &Balance{Amount: round6(amount), Currency: currency}}, nil
 	}
 	return liveQuota{}, nil
+}
+
+func (s *Service) codexResetCredits(ctx context.Context, base string, auth oauth.AuthResolution, count int) *ResetCredits {
+	out := &ResetCredits{Count: count}
+	headers := map[string]string{}
+	for key, value := range auth.Headers {
+		headers[key] = value
+	}
+	if accountID := auth.Headers["chatgpt-account-id"]; accountID != "" {
+		headers["chatgpt-account-id"] = accountID
+	}
+	j, status, err := s.requestJSON(ctx, http.MethodGet, base+"/wham/rate-limit-reset-credits", headers, nil)
+	if err != nil || status < 200 || status >= 300 {
+		return out
+	}
+	credits, _ := j["credits"].([]any)
+	for _, raw := range credits {
+		credit := record(raw)
+		if text(credit["status"]) != "available" || text(credit["id"]) == "" {
+			continue
+		}
+		reset := toISO(credit["expires_at"])
+		item := ResetCredit{ExpiresAt: reset}
+		out.Each = append(out.Each, item)
+		if reset != "" && (out.Until == "" || reset < out.Until) {
+			out.Until = reset
+		}
+	}
+	if len(out.Each) != count {
+		out.Each = nil
+	}
+	return out
+}
+
+func (s *Service) cursorUsage(ctx context.Context, token string) (liveQuota, error) {
+	const target = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+	j, status, err := s.requestJSON(ctx, http.MethodPost, target, map[string]string{
+		"authorization":            "Bearer " + token,
+		"connect-protocol-version": "1",
+	}, map[string]any{})
+	if err != nil {
+		return liveQuota{}, err
+	}
+	if status < 200 || status >= 300 {
+		return liveQuota{}, fmt.Errorf("Cursor usage request failed (%d)", status)
+	}
+	usage := record(j["planUsage"])
+	if len(usage) == 0 {
+		return liveQuota{}, nil
+	}
+	reset := ""
+	if value := text(j["billingCycleEnd"]); value != "" {
+		if ms, parseErr := strconv.ParseInt(value, 10, 64); parseErr == nil && ms > 0 {
+			reset = time.UnixMilli(ms).UTC().Format(isoMillis)
+		}
+	}
+	out := liveQuota{}
+	for _, item := range []struct{ key, label string }{{"autoPercentUsed", "Cursor Models"}, {"apiPercentUsed", "Other Models"}, {"totalPercentUsed", "Total"}} {
+		if pct, ok := finiteNumber(usage[item.key]); ok {
+			id := strings.ToLower(strings.ReplaceAll(item.label, " ", "-"))
+			out.Windows = append(out.Windows, Window{ID: "cursor-" + id, Label: item.label, UsedPercent: clampPercent(pct), ResetsAt: reset})
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) requestJSON(ctx context.Context, method, target string, headers map[string]string, body any) (map[string]any, int, error) {
