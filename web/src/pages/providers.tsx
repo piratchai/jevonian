@@ -47,7 +47,6 @@ import {
   type StateResponse,
 } from "@/lib/api";
 import { assignProviderModels } from "@/lib/provider-assignment";
-import { providerDisplayName } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
 const CUSTOM_PRESET: PresetView = {
@@ -888,20 +887,14 @@ export function ProvidersPage({
                 models.dev rates.
               </p>
             </div>
-            <QuotaGrid quotas={quotas} health={health} bare />
+            <QuotaGrid
+              quotas={quotas}
+              health={health}
+              bare
+              onReset={(provider) => void resetLocalQuota(provider)}
+              resetDisabled={busy}
+            />
             <div className="flex flex-wrap gap-2">
-              {quotas.map((quota) => (
-                <Button
-                  key={`reset-${quota.provider}`}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void resetLocalQuota(quota.provider)}
-                  disabled={busy}
-                  title="Clears Jevonian's local cooldown and cached response quota only."
-                >
-                  Reset local state · {providerDisplayName(quota.provider)}
-                </Button>
-              ))}
               <Button
                 variant="outline"
                 size="sm"

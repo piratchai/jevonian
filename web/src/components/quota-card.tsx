@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ProviderLogo } from "@/components/provider-logo";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
   ModelQuotaHealthView,
@@ -122,9 +123,14 @@ function ModelCooldownRow({ model, now }: { model: ModelQuotaHealthView; now: nu
 export function ProviderQuotaCard({
   quota,
   health,
+  onReset,
+  resetDisabled,
 }: {
   quota: ProviderQuotaView;
   health?: QuotaHealthView;
+  /** Clears Jevonian's local quota state for this provider. Omit to hide the control. */
+  onReset?: (provider: string) => void;
+  resetDisabled?: boolean;
 }) {
   const spend = quota.spend;
   const now = useResetClock();
@@ -175,11 +181,24 @@ export function ProviderQuotaCard({
         <p className="text-[11px] text-muted-foreground">{quota.error}</p>
       ) : null}
 
-      {quota.resets ? (
+      {quota.resets && quota.resets.count > 0 ? (
         <section className="flex flex-col gap-1 border-t pt-3" aria-label="Available resets">
-          <p className="text-xs font-medium">
-            {quota.resets.count} reset{quota.resets.count === 1 ? "" : "s"} available
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium">
+              {quota.resets.count} reset{quota.resets.count === 1 ? "" : "s"} available
+            </p>
+            {onReset ? (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => onReset(quota.provider)}
+                disabled={resetDisabled}
+                title="Clears Jevonian's local cooldown and cached response quota only."
+              >
+                Reset local state
+              </Button>
+            ) : null}
+          </div>
           {quota.resets.each?.map((reset, index) => (
             <p
               key={`${reset.expiresAt ?? "never"}-${index}`}
@@ -249,6 +268,8 @@ export function QuotaGrid({
   title = "Usage & limits",
   description,
   bare = false,
+  onReset,
+  resetDisabled,
 }: {
   quotas: ProviderQuotaView[];
   health?: QuotaHealthView[];
@@ -256,6 +277,9 @@ export function QuotaGrid({
   description?: string;
   /** Render just the provider grid, for callers that supply their own card. */
   bare?: boolean;
+  /** Clears Jevonian's local quota state for one provider. Omit to hide the control. */
+  onReset?: (provider: string) => void;
+  resetDisabled?: boolean;
 }) {
   const byProvider = new Map(health.map((item) => [item.provider, item]));
   const grid =
@@ -268,6 +292,8 @@ export function QuotaGrid({
             key={quota.provider}
             quota={quota}
             health={byProvider.get(quota.provider)}
+            onReset={onReset}
+            resetDisabled={resetDisabled}
           />
         ))}
       </div>
