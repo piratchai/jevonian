@@ -260,9 +260,7 @@ func classifyAt(status int, text, token string, now time.Time) *StreamError {
 		message = kindDefaultMessage[kind]
 	}
 	message = redactCredentials(message, kind, token)
-	if len(message) > 2000 {
-		message = message[:2000]
-	}
+	message = wire.TruncateRunes(message, 2000)
 	out := &StreamError{Status: kindStatus[kind], Kind: kind, Message: message}
 	if kind == KindRateLimit || kind == KindQuota {
 		if d := resetDuration(message); d > 0 {

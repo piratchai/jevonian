@@ -5,20 +5,20 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 - `jevonian` / `jevonian serve` — start the local proxy (default). On macOS this installs a LaunchAgent, keeps it running in the background, and returns; on other platforms it serves in the foreground. Use `--foreground` for an attached process on macOS
 - `jevonian start` — macOS alias for the above after `jevonian stop` (reloads the LaunchAgent; same as bare `jevonian`)
 - `jevonian stop [--uninstall]` — stop the macOS background service (`--uninstall` also removes the LaunchAgent). Prints how to start again
-- `jevonian restart` — macOS: kickstart the LaunchAgent in place (or start it if it was stopped). Prefer this over `stop` + `start` when reloading config or applying an update
-- `jevonian status` — LaunchAgent state, pid, LAN state, and recent serve log (macOS)
+- `jevonian restart` — macOS: kickstart the LaunchAgent onto this binary (rewrites a stale/missing ProgramArguments path after the Node→Go cutover; refuses a live different install). Prefer this over `stop` + `start` when reloading config or applying an update
+- `jevonian status` — LaunchAgent state, pid, installed binary path, LAN state, and recent serve log (macOS)
 - `jevonian init` — setup wizard for the first provider (non-interactive: writes an example config)
 - `jevonian add [provider]` — add or update a provider; interactive picker, live model discovery, auto tiers
 - `jevonian providers` — list configured providers with key source and model count
 - `jevonian remove <provider> [--keep-key]` — remove a provider and its stored key
 - `jevonian report` — spend, cache hit rate, brain-decided turns, savings vs the baseline model, and tokens the tool-result saver removed
-- `jevonian doctor [--network]` — config, providers, tiers, ledger, catalog, pricing health
+- `jevonian doctor [--network]` — config, LaunchAgent health, providers, tiers, ledger, catalog, pricing health
 - `jevonian models [--refresh]` — discovered models per provider (hits each provider's `/models`)
 - `jevonian models --sync` — append newly discovered model ids into `config.json` (same pass `serve` runs in the background)
 - `jevonian pricing [--refresh]` — price table source and size; `--refresh` pulls from models.dev
 - `jevonian quota [--refresh]` — per-provider quota windows, reset times, and 30-day spend
 - `jevonian kev [--start] [--stop] [--status] [--run CHECKPOINT] [--port P] [--no-config]` — deploy a local Kev routing brain: clone the repo to `~/.local/share/jevonian/kev`, `uv sync --extra serve`, optionally start `kev.serve`, then add the Kev brain as the primary brain (skip with `--no-config`); see [brain.md](brain.md#self-hosting-with-kev)
-- `jevonian update [--check]` — check for or install the latest release through the detected package manager; on macOS a running LaunchAgent is restarted onto the new build automatically
+- `jevonian update [--check]` — check for or install the latest release through the detected package manager; on macOS a running LaunchAgent is restarted onto the new build (same rewrite path as `restart`)
 - `jevonian launch claude [--model M] [--] [args…]` — run Claude Code through Jevonian (Ollama-style env remap)
 
 `serve` also accepts `--tunnel` and `--no-tunnel` to force the public endpoint on or off for that run (these imply foreground on macOS); see [tunnel.md](tunnel.md). Background serve logs to `~/.local/share/jevonian/serve.log`.
@@ -30,7 +30,7 @@ Every command works against the same `~/.config/jevonian/config.json` the dashbo
 A machine has one Jevonian service and one `config.json`, so a second instance must not grab the first's ports or its LaunchAgent. Two guards enforce that:
 
 - **Foreground `serve` refuses an occupied `listen.port`.** If something is already listening there, it exits with a message instead of fighting (or appearing to replace) the running instance.
-- **A background service is never repointed by accident.** Bare `jevonian` installs a LaunchAgent for _its own_ install. If a service is already installed that points at a different install — e.g. a git checkout while a global install is running — it refuses rather than `bootout` the running one and repoint the agent at the checkout. Override deliberately with `JEVONIAN_SERVICE_TAKEOVER=1`, or remove the old one first with `jevonian stop --uninstall`.
+- **A background service is never repointed by accident.** Bare `jevonian` installs a LaunchAgent for _its own_ install. If a service is already installed that points at a different install — e.g. a git checkout while a global install is running — it refuses rather than `bootout` the running one and repoint the agent at the checkout. Override deliberately with `JEVONIAN_SERVICE_TAKEOVER=1`, or remove the old one first with `jevonian stop --uninstall`. Auto-rewrite is allowed when the installed ProgramArguments path is missing on disk, or when it is the same npm package's old Node `dist/cli.mjs` after the Go cutover.
 - **`JEVONIAN_SERVICE_PLIST` cannot control the live agent.** That override is for reading and unit tests only. Install/stop/start always act on `~/Library/LaunchAgents/ai.jevonian.serve.plist`; a redirected path is refused so a temp plist cannot still `bootout` production. The agent also never inherits `JEVONIAN_CONFIG` / `JEVONIAN_DATA_DIR` / `JEVONIAN_LEDGER` from the installing shell — those stay on the default paths.
 
 To run a local checkout without touching the running service, use `npm run dev`, which uses separate ports and its own config/browser-state (see [development.md](development.md)); or point a second instance at its own `listen.port` and `JEVONIAN_CONFIG` with `--foreground`.

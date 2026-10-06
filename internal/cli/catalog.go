@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xinyao27/jevonian/internal/config"
@@ -25,8 +26,34 @@ import (
 	"github.com/xinyao27/jevonian/internal/proxy"
 )
 
+// systemProxyOnce detects the macOS proxy once per process. Detection shells out
+// to scutil (~200ms); every cliHTTP call would otherwise pay it again on a single
+// command's repeated requests.
+var systemProxyOnce struct {
+	sync.Once
+	proxy *proxy.SystemProxy
+}
+
+// systemProxy reports the detected system proxy, or nil when detection is opted
+// out, an env proxy already wins, or none is set. Mirrors UseSystemProxy's
+// gating so the opt-out and env precedence match a fresh transport.
+func systemProxy() *proxy.SystemProxy {
+	if proxy.IsOptedOut(os.Getenv("JEVONIAN_SYSTEM_PROXY")) || proxy.HasProxyEnv(nil) {
+		return nil
+	}
+	systemProxyOnce.Do(func() { systemProxyOnce.proxy = proxy.DetectSystemProxy() })
+	return systemProxyOnce.proxy
+}
+
+// cliHTTP builds the egress transport once per call. Each returns a fresh
+// *http.Client because commands in one process may need independent cookies or
+// timeouts, but they share one detected system proxy.
 func cliHTTP() *http.Client {
-	transport, _ := proxy.UseSystemProxy()
+	opts := proxy.TransportOptions{ExtraNoProxy: os.Getenv("NO_PROXY")}
+	if p := systemProxy(); p != nil {
+		opts.Proxy = p
+	}
+	transport := proxy.NewTransport(opts)
 	forceHTTP1(transport)
 	return &http.Client{Transport: transport, Timeout: 20 * time.Second}
 }

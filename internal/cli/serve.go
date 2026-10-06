@@ -250,7 +250,7 @@ func runServe(args []string) int {
 	var relaunch atomic.Bool
 	restartFn := func(ctx context.Context) error {
 		if runtime.GOOS == "darwin" && service.ManagedByLaunchd() {
-			_, err := (service.Manager{}).Restart()
+			_, err := (service.Manager{}).RestartOntoCurrent()
 			return err
 		}
 		// Ask the serve loop to stop; it re-execs after the listeners close.

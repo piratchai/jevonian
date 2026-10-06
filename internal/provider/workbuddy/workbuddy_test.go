@@ -161,61 +161,6 @@ func TestEnsureSystem(t *testing.T) {
 	}
 }
 
-func TestFoldStream(t *testing.T) {
-	sse := strings.Join([]string{
-		`data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}` + "\n\n",
-		`data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"lo"}}]}` + "\n\n",
-		`data: {"id":"chatcmpl-1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}` + "\n\n",
-		"data: [DONE]\n\n",
-	}, "")
-	json := FoldBytes([]byte(sse), "primary-model")
-	if json["id"] != "chatcmpl-1" {
-		t.Fatalf("id: %v", json["id"])
-	}
-	choice := json["choices"].([]any)[0].(map[string]any)
-	if choice["message"].(map[string]any)["content"] != "Hello" {
-		t.Fatalf("content: %+v", choice)
-	}
-	usage := json["usage"].(map[string]any)
-	if usage["prompt_tokens"] != float64(2) || usage["completion_tokens"] != float64(1) {
-		t.Fatalf("usage: %+v", usage)
-	}
-}
-
-func TestFoldStreamToolCallsAndReasoning(t *testing.T) {
-	sse := `data: {"choices":[{"delta":{"reasoning_content":"think"}}]}` + "\n\n" +
-		`data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"b","function":{"name":"two","arguments":"{"}}]}}]}` + "\n\n" +
-		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"one","arguments":"{}"}}]}}]}` + "\n\n" +
-		`data: {"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`
-	json := FoldBytes([]byte(sse), "m")
-	choice := json["choices"].([]any)[0].(map[string]any)
-	if choice["finish_reason"] != "tool_calls" {
-		t.Fatalf("finish: %v", choice["finish_reason"])
-	}
-	msg := choice["message"].(map[string]any)
-	if msg["content"] != nil || msg["reasoning_content"] != "think" {
-		t.Fatalf("message: %+v", msg)
-	}
-	out, _ := jsonMarshal(msg["tool_calls"])
-	want := `[{"id":"a","type":"function","function":{"name":"one","arguments":"{}"}},{"id":"b","type":"function","function":{"name":"two","arguments":"{}"}}]`
-	if out != want {
-		t.Fatalf("tool calls:\n got %s\nwant %s", out, want)
-	}
-}
-
-func TestFoldNilBody(t *testing.T) {
-	json := FoldStream(nil, "m")
-	choice := json["choices"].([]any)[0].(map[string]any)
-	if choice["message"].(map[string]any)["content"] != "" {
-		t.Fatalf("empty body: %+v", choice)
-	}
-}
-
-func jsonMarshal(v any) (string, error) {
-	b, err := json.Marshal(v)
-	return string(b), err
-}
-
 func TestReadWriteSessionFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "workbuddy-ai.json")

@@ -1,4 +1,4 @@
-package workbuddy
+package openai
 
 import (
 	"bufio"
@@ -8,14 +8,17 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/xinyao27/jevonian/internal/wire"
 )
 
-// FoldStream folds an OpenAI Chat Completions SSE body into one non-streaming
-// completion. WorkBuddy refuses non-stream requests, so non-stream clients get
-// the stream assembled here.
+// FoldChatStream folds an OpenAI Chat Completions SSE body into one
+// non-streaming completion. Always-stream hosts (WorkBuddy refuses non-stream
+// requests) answer non-stream clients through it.
 //
 // Port of foldOpenAIChatStream in src/workbuddy.ts.
-func FoldStream(body io.Reader, model string) map[string]any {
+func FoldChatStream(body io.Reader, model string) map[string]any {
+	asRecord := func(v any) map[string]any { return wire.AsRecord(v) }
 	result := map[string]any{
 		"id":      "chatcmpl-workbuddy",
 		"object":  "chat.completion",
@@ -102,10 +105,7 @@ func FoldStream(body io.Reader, model string) map[string]any {
 				if calls, ok := delta["tool_calls"].([]any); ok {
 					for _, raw := range calls {
 						call := asRecord(raw)
-						idx := 0
-						if v, ok := number(call["index"]); ok {
-							idx = int(v)
-						}
+						idx := int(wire.Number(call["index"]))
 						existing, ok := toolCalls[idx]
 						if !ok {
 							existing = &toolCall{Type: "function"}
@@ -179,7 +179,7 @@ func FoldStream(body io.Reader, model string) map[string]any {
 	return result
 }
 
-// FoldBytes is FoldStream over an in-memory SSE transcript.
-func FoldBytes(data []byte, model string) map[string]any {
-	return FoldStream(bytes.NewReader(data), model)
+// FoldChatBytes is FoldChatStream over an in-memory SSE transcript.
+func FoldChatBytes(data []byte, model string) map[string]any {
+	return FoldChatStream(bytes.NewReader(data), model)
 }

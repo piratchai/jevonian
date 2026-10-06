@@ -27,6 +27,7 @@ type Installation struct {
 	Bin         string // Absolute package-manager binary when available.
 	Executable  string // Resolved binary to replace, not the PATH symlink.
 	PackagePath string // package.json belonging to the npm shim.
+	Entry       string // The shim's bin/jevonian.js, for npm-channel installs.
 	Command     string // Display only; never passed to a shell.
 }
 
@@ -85,7 +86,7 @@ func DetectInstallation(o DetectionOptions) Installation {
 		entry = envValue(o.Env, "JEVONIAN_NPM_ENTRY")
 	}
 	entry = resolved(entry)
-	install := Installation{Channel: Unknown, Executable: exe}
+	install := Installation{Channel: Unknown, Executable: exe, Entry: entry}
 	if sourceCheckout(exe) || sourceCheckout(entry) {
 		install.Channel = Source
 		return install
@@ -110,6 +111,7 @@ func DetectInstallation(o DetectionOptions) Installation {
 		}
 		i := strings.LastIndex(p, "/node_modules/jevonian/")
 		install.PackagePath = filepath.FromSlash(p[:i] + "/node_modules/jevonian/package.json")
+		install.Entry = filepath.FromSlash(p)
 		node := o.NodeExecutable
 		if node == "" {
 			node = envValue(o.Env, "JEVONIAN_NODE_EXECUTABLE")

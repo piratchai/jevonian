@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -124,31 +125,165 @@ func TestInstallPinsVersionAndVerifiesDisk(t *testing.T) {
 		t.Run(string(channel), func(t *testing.T) {
 			var disk atomic.Value
 			disk.Store("0.0.1")
+			pkg, entry, packagePath, asset := npmPackageFixture(t)
 			calls := 0
-			manager := New(Options{Current: "0.0.1", Installation: &Installation{Channel: channel, Bin: "/space path/npm"},
-				FetchLatest: func(context.Context) (string, error) { return "0.0.2", nil }, ReadInstalledVersion: func() string { return disk.Load().(string) },
+			manager := New(Options{
+				Current: "0.0.1",
+				Installation: &Installation{
+					Channel: channel, Bin: "/space path/npm",
+					Entry: entry, PackagePath: packagePath,
+				},
+				Detection:            DetectionOptions{NodeExecutable: "/usr/local/bin/node", Env: map[string]string{}},
+				FetchLatest:          func(context.Context) (string, error) { return "0.0.2", nil },
+				ReadInstalledVersion: func() string { return disk.Load().(string) },
 				Run: func(ctx context.Context, bin string, args ...string) (string, error) {
 					calls++
-					if bin != "/space path/npm" || strings.Join(args, " ") != strings.Join(InstallArgs(channel, "0.0.2"), " ") {
-						t.Fatal(bin, args)
+					if bin == "/space path/npm" {
+						if strings.Join(args, " ") != strings.Join(InstallArgs(channel, "0.0.2"), " ") {
+							t.Fatal(bin, args)
+						}
+						disk.Store("0.0.2")
+						return "", nil
 					}
-					disk.Store("0.0.2")
+					if len(args) > 0 && args[len(args)-1] == "--download-only" {
+						os.MkdirAll(filepath.Join(pkg, "native"), 0o755)
+						os.WriteFile(filepath.Join(pkg, "native", asset), []byte("bin"), 0o755)
+						return "", nil
+					}
+					t.Fatalf("unexpected run %s %v", bin, args)
 					return "", nil
-				}})
+				},
+			})
 			status, err := manager.Install(context.Background())
-			if err != nil || status.Current != "0.0.1" || status.Installed != "0.0.2" || !status.RestartRequired || calls != 1 {
+			if err != nil || status.Current != "0.0.1" || status.Installed != "0.0.2" || !status.RestartRequired || calls != 2 {
 				t.Fatal(status, err, calls)
 			}
-			if _, err := manager.Install(context.Background()); err != nil || calls != 1 {
+			if _, err := manager.Install(context.Background()); err != nil || calls != 2 {
 				t.Fatal(err, calls)
 			}
 		})
 	}
-	unchanged := New(Options{Current: "0.0.1", Installation: &Installation{Channel: NPM}, FetchLatest: func(context.Context) (string, error) { return "0.0.2", nil }, ReadInstalledVersion: func() string { return "0.0.1" }, Run: func(context.Context, string, ...string) (string, error) { return "", nil }})
+	pkg, entry, packagePath, asset := npmPackageFixture(t)
+	unchanged := New(Options{
+		Current: "0.0.1",
+		Installation: &Installation{
+			Channel: NPM, Bin: "npm", Entry: entry, PackagePath: packagePath,
+		},
+		Detection:            DetectionOptions{NodeExecutable: "node", Env: map[string]string{}},
+		FetchLatest:          func(context.Context) (string, error) { return "0.0.2", nil },
+		ReadInstalledVersion: func() string { return "0.0.1" },
+		Run: func(_ context.Context, bin string, args ...string) (string, error) {
+			if len(args) > 0 && args[len(args)-1] == "--download-only" {
+				os.MkdirAll(filepath.Join(pkg, "native"), 0o755)
+				os.WriteFile(filepath.Join(pkg, "native", asset), []byte("bin"), 0o755)
+			}
+			return "", nil
+		},
+	})
 	if _, err := unchanged.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "still 0.0.1") {
 		t.Fatal(err)
 	}
 }
+
+func npmPackageFixture(t *testing.T) (pkg, entry, packagePath, asset string) {
+	t.Helper()
+	root := t.TempDir()
+	pkg = filepath.Join(root, "lib", "node_modules", "jevonian")
+	entry = filepath.Join(pkg, "bin", "jevonian.js")
+	packagePath = filepath.Join(pkg, "package.json")
+	os.MkdirAll(filepath.Dir(entry), 0o755)
+	os.WriteFile(entry, []byte("#!/usr/bin/env node\n"), 0o755)
+	os.WriteFile(packagePath, []byte(`{"version":"0.0.2"}`+"\n"), 0o644)
+	var err error
+	asset, err = AssetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pkg, entry, packagePath, asset
+}
+
+// npm reinstall wipes the package dir, including the shim's native/ cache that
+// the LaunchAgent execs. Install must re-seed it through the new shim.
+func TestNPMInstallRefetchesNativeBinary(t *testing.T) {
+	var disk atomic.Value
+	disk.Store("0.0.1")
+	root := t.TempDir()
+	pkg := filepath.Join(root, "lib", "node_modules", "jevonian")
+	entry := filepath.Join(pkg, "bin", "jevonian.js")
+	os.MkdirAll(filepath.Dir(entry), 0o755)
+	os.WriteFile(entry, []byte("#!/usr/bin/env node\n"), 0o755)
+	os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"version":"0.0.2"}`+"\n"), 0o644)
+	asset, err := AssetName(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []string
+	manager := New(Options{
+		Current: "0.0.1",
+		Installation: &Installation{
+			Channel:     NPM,
+			Bin:         "/usr/local/bin/npm",
+			Entry:       entry,
+			PackagePath: filepath.Join(pkg, "package.json"),
+		},
+		Detection:            DetectionOptions{NodeExecutable: "/usr/local/bin/node", Env: map[string]string{}},
+		FetchLatest:          func(context.Context) (string, error) { return "0.0.2", nil },
+		ReadInstalledVersion: func() string { return disk.Load().(string) },
+		Run: func(_ context.Context, bin string, args ...string) (string, error) {
+			calls = append(calls, bin+" "+strings.Join(args, " "))
+			if bin == "/usr/local/bin/npm" {
+				disk.Store("0.0.2")
+			}
+			if len(args) > 0 && args[len(args)-1] == "--download-only" {
+				native := filepath.Join(pkg, "native")
+				os.MkdirAll(native, 0o755)
+				os.WriteFile(filepath.Join(native, asset), []byte("bin"), 0o755)
+			}
+			return "", nil
+		},
+	})
+	if _, err := manager.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/usr/local/bin/npm install --global jevonian@0.0.2",
+		"/usr/local/bin/node " + entry + " --download-only",
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s", strings.Join(calls, "\n"))
+	}
+}
+
+func TestNPMInstallFailsWhenNativeMissing(t *testing.T) {
+	pkg, entry, packagePath, _ := npmPackageFixture(t)
+	disk := "0.0.1"
+	manager := New(Options{
+		Current: "0.0.1",
+		Installation: &Installation{
+			Channel:     NPM,
+			Bin:         "npm",
+			Entry:       entry,
+			PackagePath: packagePath,
+		},
+		Detection:            DetectionOptions{NodeExecutable: "node", Env: map[string]string{}},
+		FetchLatest:          func(context.Context) (string, error) { return "0.0.2", nil },
+		ReadInstalledVersion: func() string { return disk },
+		Run: func(_ context.Context, bin string, args ...string) (string, error) {
+			if bin == "npm" {
+				disk = "0.0.2"
+				return "", nil
+			}
+			// --download-only succeeds but writes nothing under native/.
+			_ = pkg
+			return "", nil
+		},
+	})
+	_, err := manager.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "native binary missing") {
+		t.Fatalf("expected missing native error, got %v", err)
+	}
+}
+
 func TestSourceAndUnknownNeverUpdate(t *testing.T) {
 	for _, channel := range []Channel{Source, Unknown} {
 		manager := New(Options{Installation: &Installation{Channel: channel}, FetchLatest: func(context.Context) (string, error) { t.Fatal("source made network request"); return "", nil }, Run: func(context.Context, string, ...string) (string, error) {

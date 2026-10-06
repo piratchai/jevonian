@@ -13,10 +13,11 @@ Routing always consults a Jev brain. Code narrows the candidates — dropping pr
 | TypeSafe (direct)     | `https://api.typesafe.ai/v1/systemone`      | `jev-latest`                                          | `TYPESAFE_API_KEY`                  |
 | OpenRouter            | `https://openrouter.ai/api/alpha/decisions` | `typesafe/jev-1.13`                                   | `OPENROUTER_API_KEY`                |
 | OpenCode Zen          | `https://opencode.ai/zen/v1/systemone`      | `jev-1.13`                                            | `OPENCODE_API_KEY`                  |
-| Vercel AI Gateway     | AI SDK `experimental_evaluate`              | `typesafe-ai/jev`                                     | `AI_GATEWAY_API_KEY`                |
 | Cloudflare Workers AI | `/accounts/{accountId}/ai/run`              | `typesafe/jev` · `@cf/cloudflare/clef` · `clef-flash` | `CLOUDFLARE_API_TOKEN` + account ID |
 | Kev (local)           | `http://127.0.0.1:8009/v1/systemone`        | `kev-latest`                                          | optional (`KEV_API_KEY`)            |
 | Custom                | your SystemOne-compatible URL               | `jev-latest`                                          | per channel                         |
+
+The Go build dropped the Vercel AI Gateway brain (`channel: "vercel"`). A stored Vercel brain stays visible and returns a clear error — switch to TypeSafe, OpenRouter, OpenCode Zen, Cloudflare, Kev, or custom.
 
 The Cloudflare channel hosts three Jev-API-compatible decision models, offered as a picker on the Providers page (any other id can still be typed into the advanced **Model (override)** field):
 

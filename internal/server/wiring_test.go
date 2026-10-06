@@ -484,6 +484,72 @@ func TestResponsesHostServesOpenAINonStreamClient(t *testing.T) {
 	}
 }
 
+// The folded stream carries a `response.failed` rather than an HTTP error, so
+// the refusal hides inside a 200. A quota verdict inside must still fail the
+// provider over (src/upstream.ts messageSpendSignal + quotaFailover).
+func TestResponsesFoldedQuotaFailureFailsOver(t *testing.T) {
+	const failedSSE = "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"message\":\"usage limit reached\"}}}\n\n"
+	var respHits, otherHits int
+	respUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		respHits++
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = io.WriteString(w, failedSSE)
+	}))
+	defer respUp.Close()
+	otherUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		otherHits++
+		w.Header().Set("content-type", "application/json")
+		_, _ = io.WriteString(w, chatOK)
+	}))
+	defer otherUp.Close()
+
+	cfg := config.Config{
+		Listen:          config.ListenConfig{Host: "127.0.0.1", Port: 8787},
+		DefaultProvider: "chatgpt",
+		Routing:         config.DefaultRouting(),
+		Providers: []config.Provider{
+			// Both providers serve the requested model so the failover plan
+			// reaches `other`; canServeClient orders the chat client onto the
+			// Responses host first, then falls back.
+			{Name: "chatgpt", Type: config.ProviderTypeResponses, BaseURL: respUp.URL + "/v1", APIKey: "k", Auth: config.AuthAPIKey, Models: []config.ModelEntry{{ID: "gpt-codex"}}},
+			{Name: "other", Type: config.ProviderTypeOpenAI, BaseURL: otherUp.URL + "/v1", APIKey: "k", Auth: config.AuthAPIKey, Models: []config.ModelEntry{{ID: "gpt-codex"}}},
+		},
+	}
+	zero := 0
+	h := server.New("", server.Deps{Config: &cfg, SameHostRetries: &zero, Sleep: noSleep}).Handler()
+	rr := postJSON(t, h, "/v1/chat/completions", map[string]any{
+		"model": "gpt-codex", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
+	}, nil)
+	if rr.Code != 200 {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	if respHits != 1 || otherHits != 1 {
+		t.Fatalf("resp=%d other=%d (want the folded quota refusal to fail over)", respHits, otherHits)
+	}
+	if rr.Header().Get("x-jevonian-provider") != "other" || rr.Header().Get("x-jevonian-quota-failovers") != "1" {
+		t.Fatalf("headers: %v", rr.Header())
+	}
+}
+
+// A non-quota failure inside the folded stream is the client's answer: 502,
+// no failover. src/upstream.ts returns c.json(..., 502).
+func TestResponsesFoldedNonQuotaFailureIs502(t *testing.T) {
+	const failedSSE = "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"message\":\"model exploded\"}}}\n\n"
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "text/event-stream")
+		_, _ = io.WriteString(w, failedSSE)
+	}))
+	defer up.Close()
+	cfg := responsesChatConfig(up.URL)
+	h := server.New("", server.Deps{Config: &cfg}).Handler()
+	rr := postJSON(t, h, "/v1/chat/completions", map[string]any{
+		"model": "gpt-codex", "messages": []any{map[string]any{"role": "user", "content": "hi"}},
+	}, nil)
+	if rr.Code != 502 || !strings.Contains(rr.Body.String(), "model exploded") {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
 // ---- 4. brain call body capture -------------------------------------------
 
 func TestBrainCallsAreCapturedAndLedgered(t *testing.T) {

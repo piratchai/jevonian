@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.1] - 2026-10-06
+
+### Fixed
+
+- **macOS LaunchAgent heals after the Node→Go cutover.** If ProgramArguments still point at a missing `dist/cli.mjs`, or at that file inside the same npm package while this run is the `native/` binary, any CLI command (and `restart` / `update`) rewrites the agent onto the current binary. A live different install (checkout vs global) still refuses without `JEVONIAN_SERVICE_TAKEOVER=1`.
+- **`jevonian update` fails closed when the native binary cannot be re-downloaded.** An npm reinstall deletes `native/`; a silent download failure no longer leaves LaunchAgent pointing at a missing file.
+- **`jevonian status` and `doctor` surface a broken LaunchAgent.** They print the installed binary path and warn when it is missing or the job has no pid.
+- **Logs latency column is one line again.** The list no longer shows TTFT; open a log detail for first-token timing.
+
+### Upgrading from 0.5.x / 0.6.0
+
+1. `npm i -g jevonian@latest` (or `jevonian update`)
+2. Run any `jevonian` command (or `jevonian restart`) so the LaunchAgent leaves Node `dist/cli.mjs` for the Go binary
+3. If 0.6.0 still refuses takeover: `jevonian stop --uninstall && jevonian start`
+
 ## [0.6.0] - 2026-10-06
 
 ### Changed

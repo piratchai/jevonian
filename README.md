@@ -35,6 +35,8 @@ jevonian
 
 Open `http://127.0.0.1:8787`, add a provider and a routing brain, then connect your agent with a Jevonian API key and `jevonian/auto`. The [quickstart](#quickstart) walks through each step.
 
+**Upgrading from 0.5.x:** `npm i -g jevonian@latest`, then run `jevonian` (or `jevonian restart`). The first Go release may leave a macOS LaunchAgent pointed at the deleted Node entry — a current build rewrites it automatically; if an older 0.6.0 still refuses, run `jevonian stop --uninstall && jevonian start`. See [troubleshooting.md](docs/troubleshooting.md#macos-service-will-not-start-after-upgrading-to-go-06).
+
 **Explore:** [Why Jevonian](#why-jevonian) · [How it works](#how-it-works) · [Quickstart](#quickstart) · [Connect your agent](#connect-your-agent) · [Clients and providers](#clients-and-providers) · [Control and visibility](#control-and-visibility) · [Privacy and limitations](#privacy-and-limitations) · [Documentation](#documentation) · [Development](#development)
 
 Status: **v0.** Transparent pass-through, phase-based automatic routing, a local cost ledger, and subscription providers (API keys or OAuth sign-ins) with live quota meters.

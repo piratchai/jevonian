@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/xinyao27/jevonian/internal/wire"
 )
 
 const (
@@ -72,13 +73,6 @@ func (e *Error) Error() string {
 // Retryable reports whether minting a fresh session or run may fix the call.
 func (e *Error) Retryable() bool { return e.Kind == KindSession || e.Kind == KindRun }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
-
 func has(lower string, needles ...string) bool {
 	for _, n := range needles {
 		if strings.Contains(lower, n) {
@@ -91,7 +85,7 @@ func has(lower string, needles ...string) bool {
 // Classify maps a non-2xx response to an Error. now anchors relative resets.
 func Classify(status int, body string, header http.Header, now time.Time) *Error {
 	lower := strings.ToLower(body)
-	e := &Error{Status: status, Kind: KindOther, Message: truncate(strings.TrimSpace(body), 500)}
+	e := &Error{Status: status, Kind: KindOther, Message: wire.TruncateRunes(strings.TrimSpace(body), 500)}
 	if e.Message == "" {
 		e.Message = http.StatusText(status)
 	}

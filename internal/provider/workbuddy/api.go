@@ -14,6 +14,7 @@ import (
 
 	"github.com/xinyao27/jevonian/internal/oauth/httpx"
 	"github.com/xinyao27/jevonian/internal/provider/multiacct"
+	"github.com/xinyao27/jevonian/internal/wire"
 )
 
 // Client is the WorkBuddy HTTP surface; it reads through an injected
@@ -84,7 +85,7 @@ func (c *Client) call(ctx context.Context, method, rawURL string, headers map[st
 	var parsed any
 	if jsonErr := json.Unmarshal(text, &parsed); jsonErr != nil {
 		if status < 200 || status >= 300 {
-			return nil, fmt.Errorf("WorkBuddy %d: %s", status, truncate(string(text), 200))
+			return nil, fmt.Errorf("WorkBuddy %d: %s", status, wire.TruncateRunes(string(text), 200))
 		}
 		return nil, errors.New("WorkBuddy returned non-JSON")
 	}
@@ -103,13 +104,6 @@ func (c *Client) call(ctx context.Context, method, rawURL string, headers map[st
 		return nil, &APIError{Code: code, Message: msg}
 	}
 	return asRecord(j["data"]), nil
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }
 
 func mergeRefreshed(current Creds, got map[string]any, now time.Time) (Creds, error) {

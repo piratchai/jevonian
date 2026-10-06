@@ -48,9 +48,22 @@ type orderedIdentity struct {
 // identities. Identities keep file order because the index's tie-breaks are
 // first-named-wins.
 type snapshot struct {
-	capabilities map[string]routing.ModelCapabilities
-	identities   []orderedIdentity
-	index        *identityIndex
+	// rawCapabilities is decoded on first use: identity-only callers (doctor's
+	// identity gaps) never pay for the large capabilities map.
+	rawCapabilities json.RawMessage
+	capsOnce        sync.Once
+	capabilities    map[string]routing.ModelCapabilities
+	identities      []orderedIdentity
+	index           *identityIndex
+}
+
+// caps returns the decoded capabilities map, decoding it once.
+func (s *snapshot) caps() map[string]routing.ModelCapabilities {
+	s.capsOnce.Do(func() {
+		s.capabilities = decodeCapabilities(s.rawCapabilities)
+		s.rawCapabilities = nil
+	})
+	return s.capabilities
 }
 
 type snapshotCacheEntry struct {
@@ -60,6 +73,11 @@ type snapshotCacheEntry struct {
 	snap  *snapshot
 }
 
+// snapshotCache is process-wide on purpose: routing asks for capabilities and
+// identities on every turn, and re-parsing the multi-megabyte pricing.json
+// per call is the cost. It re-reads on mtime/size change, guards with a mutex,
+// and never hands out a mutable map. It holds only the capability/identity
+// half; cli's pricingCache holds the price half.
 var snapshotCache struct {
 	sync.Mutex
 	entry *snapshotCacheEntry
@@ -85,7 +103,7 @@ func loadSnapshot() *snapshot {
 }
 
 func parseSnapshot(path string) *snapshot {
-	snap := &snapshot{capabilities: map[string]routing.ModelCapabilities{}}
+	snap := &snapshot{}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return snap
@@ -97,39 +115,49 @@ func parseSnapshot(path string) *snapshot {
 	if json.Unmarshal(data, &top) != nil {
 		return snap
 	}
-	if len(top.Capabilities) > 0 {
-		var raw map[string]json.RawMessage
-		if json.Unmarshal(top.Capabilities, &raw) == nil {
-			for key, entry := range raw {
-				var caps struct {
-					ContextWindow *float64 `json:"contextWindow"`
-					MaxOutput     *float64 `json:"maxOutput"`
-					Efforts       []any    `json:"efforts"`
-				}
-				if json.Unmarshal(entry, &caps) != nil {
-					continue
-				}
-				out := routing.ModelCapabilities{}
-				if caps.ContextWindow != nil && *caps.ContextWindow > 0 {
-					out.ContextWindow = int(*caps.ContextWindow)
-				}
-				if caps.MaxOutput != nil && *caps.MaxOutput > 0 {
-					out.MaxOutput = int(*caps.MaxOutput)
-				}
-				for _, e := range caps.Efforts {
-					if s, ok := e.(string); ok && routing.IsReasoningEffort(s) {
-						out.Efforts = append(out.Efforts, s)
-					}
-				}
-				snap.capabilities[key] = out
-			}
-		}
-	}
+	snap.rawCapabilities = top.Capabilities
 	if len(top.Identities) > 0 {
 		snap.identities = decodeOrderedIdentities(top.Identities)
 	}
 	snap.index = buildIdentityIndex(snap.identities)
 	return snap
+}
+
+// decodeCapabilities reads the stated limits per model id. A corrupt or absent
+// section yields an empty map: unknown is never evidence of a small window.
+func decodeCapabilities(rawSection json.RawMessage) map[string]routing.ModelCapabilities {
+	out := map[string]routing.ModelCapabilities{}
+	if len(rawSection) == 0 {
+		return out
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(rawSection, &raw) != nil {
+		return out
+	}
+	for key, entry := range raw {
+		var caps struct {
+			ContextWindow *float64 `json:"contextWindow"`
+			MaxOutput     *float64 `json:"maxOutput"`
+			Efforts       []any    `json:"efforts"`
+		}
+		if json.Unmarshal(entry, &caps) != nil {
+			continue
+		}
+		c := routing.ModelCapabilities{}
+		if caps.ContextWindow != nil && *caps.ContextWindow > 0 {
+			c.ContextWindow = int(*caps.ContextWindow)
+		}
+		if caps.MaxOutput != nil && *caps.MaxOutput > 0 {
+			c.MaxOutput = int(*caps.MaxOutput)
+		}
+		for _, e := range caps.Efforts {
+			if s, ok := e.(string); ok && routing.IsReasoningEffort(s) {
+				c.Efforts = append(c.Efforts, s)
+			}
+		}
+		out[key] = c
+	}
+	return out
 }
 
 func decodeOrderedIdentities(raw json.RawMessage) []orderedIdentity {
@@ -171,14 +199,14 @@ func Capabilities() routing.CapabilitySource {
 
 // ModelCapabilities resolves one model id against the live snapshot.
 func ModelCapabilities(model string) routing.ModelCapabilities {
-	snap := loadSnapshot()
+	caps := loadSnapshot().caps()
 	tail := routing.BareModelID(model)
 	var catalog routing.ModelCapabilities
-	if c, ok := snap.capabilities[model]; ok {
+	if c, ok := caps[model]; ok {
 		catalog = c
-	} else if c, ok := snap.capabilities[tail]; ok {
+	} else if c, ok := caps[tail]; ok {
 		catalog = c
-	} else if c, ok := snap.capabilities[routing.CanonicalModelID(model)]; ok {
+	} else if c, ok := caps[routing.CanonicalModelID(model)]; ok {
 		catalog = c
 	}
 	// A models.dev row with no limits (or only one of them) must not hide

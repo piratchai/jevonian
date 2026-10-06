@@ -16,7 +16,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/guard"
 	"github.com/xinyao27/jevonian/internal/ledger"
-	"github.com/xinyao27/jevonian/internal/provider/workbuddy"
+	"github.com/xinyao27/jevonian/internal/quota"
 	"github.com/xinyao27/jevonian/internal/routing"
 	"github.com/xinyao27/jevonian/internal/server/admin/trace"
 	"github.com/xinyao27/jevonian/internal/softstream"
@@ -76,6 +76,9 @@ type turn struct {
 	// overflowRetries counts compact-and-retry rounds after a provider's hard
 	// context rejection; at most one per turn.
 	overflowRetries int
+	// exclusiveInput is set by deliver from the answering adapter: its usage
+	// input already excludes cache reads.
+	exclusiveInput bool
 }
 
 // handleChat is the routing-driven inference flow for every /v1 inference path.
@@ -210,7 +213,11 @@ func (t *turn) run(w http.ResponseWriter, r *http.Request) {
 		}
 		switch attempt.Outcome.Kind {
 		case upstream.OutcomeSuccess:
-			t.deliver(w, r, attempt)
+			// A folded 200 can still hide a `response.failed` quota verdict;
+			// deliver reports it so the turn moves to the next provider.
+			if t.deliver(w, r, attempt) && t.failover() {
+				continue
+			}
 			return
 		case upstream.OutcomeCanceled:
 			t.record(499, wire.Usage{}, nil, false, "client canceled")
@@ -375,9 +382,11 @@ func (t *turn) failover() bool {
 }
 
 // deliver writes a successful attempt back in the client's wire, bridging when
-// the plan called for it.
-func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.Attempt) {
+// the plan called for it. Returns false when a folded upstream refusal was
+// marked spent and the turn should fail over instead of answering.
+func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.Attempt) bool {
 	d := t.decision
+	t.exclusiveInput = attempt.Adapter != nil && upstream.ExclusiveInput(attempt.Adapter)
 	headers := t.decisionHeaders(attempt.Retries)
 	upstreamWire := attempt.Plan.Wire
 	bridge := attempt.Plan.Bridge
@@ -436,14 +445,14 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 		if canceled.Load() || r.Context().Err() != nil {
 			st, u, errText := tracker.CancelOutcome()
 			t.record(st, u, t.costOf(u), true, errText)
-			return
+			return false
 		}
 		if reason := softErr.Load(); reason != nil {
 			t.record(http.StatusBadGateway, usage, nil, true, *reason)
-			return
+			return false
 		}
 		t.record(200, usage, t.costOf(usage), true, "")
-		return
+		return false
 	}
 
 	raw, err := io.ReadAll(attempt.Response.Body)
@@ -451,11 +460,26 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 	if err != nil {
 		t.record(http.StatusBadGateway, wire.Usage{}, nil, true, err.Error())
 		writeJSONError(w, http.StatusBadGateway, "jevonian_error", "Failed to read upstream body")
-		return
+		return false
 	}
 	// A streaming-only upstream (responses) always answers SSE; fold it.
 	if attempt.Stream && !t.stream {
-		raw, usage = foldStreamToJSON(raw, attempt, d, t.kind)
+		var failure string
+		raw, usage, failure = foldStreamToJSON(raw, attempt, d, t.kind)
+		if failure != "" {
+			// The folded stream carries a `response.failed` rather than an HTTP
+			// error, so the refusal hides inside a 200. A quota verdict still
+			// fails the provider over; anything else is the client's answer as a
+			// 502 (src/upstream.ts).
+			if t.srv.deps.Quota != nil &&
+				quota.MessageSpendSignal(failure) != quota.SignalNone {
+				t.srv.deps.Quota.MarkSpent(attempt.Entry.Provider.Name, quota.MarkSpentOptions{Label: "limit"})
+				return true
+			}
+			t.record(http.StatusBadGateway, wire.Usage{}, nil, true, failure)
+			writeJSONError(w, http.StatusBadGateway, "jevonian_error", failure)
+			return false
+		}
 		if (upstreamWire == upstream.KindOpenAI && bridge == "to-openai") ||
 			(upstreamWire == upstream.KindResponses && t.kind == upstream.KindOpenAI) {
 			var chat wire.Body
@@ -472,6 +496,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 	w.WriteHeader(200)
 	_, _ = w.Write(raw)
 	t.record(200, usage, t.costOf(usage), true, "")
+	return false
 }
 
 // bridgeStream translates the upstream SSE body into the client wire when the
@@ -591,12 +616,11 @@ func chainTranslators(body io.ReadCloser, first, second wire.Translator) io.Read
 
 // foldStreamToJSON reads a streamed upstream body and folds it into the client
 // wire's non-stream JSON. clientKind is the requesting client's wire, which
-// decides the folded shape when the upstream is Responses.
-func foldStreamToJSON(raw []byte, attempt upstream.Attempt, d *routing.Decision, clientKind upstream.ClientKind) ([]byte, wire.Usage) {
+// decides the folded shape when the upstream is Responses. It reports the
+// upstream failure message (if any) so the turn can still fail over on a quota
+// verdict inside the folded 200.
+func foldStreamToJSON(raw []byte, attempt upstream.Attempt, d *routing.Decision, clientKind upstream.ClientKind) ([]byte, wire.Usage, string) {
 	events := wire.SplitSseEvents(string(raw)).Events
-	// A folded stream carries `response.failed` as a 200 — a quota verdict
-	// inside still fails the provider over upstream of here; at delivery the
-	// refusal is just the body the client sees.
 	if attempt.Plan.Wire == upstream.KindResponses {
 		failure := responseswire.ErrorMessage(events)
 		completed := lastCompletedResponse(events)
@@ -607,7 +631,7 @@ func foldStreamToJSON(raw []byte, attempt upstream.Attempt, d *routing.Decision,
 			}
 			payload := errorBody("jevonian_error", msg)
 			out, _ := json.Marshal(payload)
-			return out, wire.Usage{}
+			return out, wire.Usage{}, msg
 		}
 		repaired := responseswire.RepairOutput(*completed, events)
 		completed = &repaired
@@ -618,17 +642,17 @@ func foldStreamToJSON(raw []byte, attempt upstream.Attempt, d *routing.Decision,
 			result := responseswire.ChatResultFromResponse(*completed)
 			chat := responseswire.ChatCompletionFrom(result, d.Model, "chatcmpl-"+d.Session, time.Now().Unix())
 			out, _ := json.Marshal(chat)
-			return out, result.Usage
+			return out, result.Usage, ""
 		}
 		out, _ := json.Marshal(*completed)
-		return out, u
+		return out, u, ""
 	}
 	// OpenAI chat SSE → folded chat completion (a workbuddy-like always-stream
 	// host answering a non-stream client).
 	u := lastChatUsage(events)
-	out := workbuddy.FoldBytes(raw, d.Model)
+	out := openaiwire.FoldChatBytes(raw, d.Model)
 	buf, _ := json.Marshal(out)
-	return buf, u
+	return buf, u, ""
 }
 
 func lastCompletedResponse(events []wire.Body) *wire.Body {
@@ -641,23 +665,6 @@ func lastCompletedResponse(events []wire.Body) *wire.Body {
 		}
 	}
 	return nil
-}
-
-func collectChatText(events []wire.Body) string {
-	var sb strings.Builder
-	for _, ev := range events {
-		choices, _ := ev["choices"].([]any)
-		for _, c := range choices {
-			if ch, ok := c.(map[string]any); ok {
-				if delta, ok := ch["delta"].(map[string]any); ok {
-					if txt, ok := delta["content"].(string); ok {
-						sb.WriteString(txt)
-					}
-				}
-			}
-		}
-	}
-	return sb.String()
 }
 
 func lastChatUsage(events []wire.Body) wire.Usage {
@@ -849,16 +856,11 @@ func (t *turn) now() time.Time {
 	return time.Now()
 }
 
-// uncachedInput subtracts cache reads unless the usage kind already reports
-// exclusive input (anthropic/devin/cursor).
+// uncachedInput subtracts cache reads unless the delivering adapter's usage
+// already reports exclusive input.
 func uncachedInput(t *turn, u wire.Usage) int {
-	if t.decision != nil && t.decision.Provider != "" {
-		for _, p := range t.cfg.Providers {
-			if p.Name == t.decision.Provider &&
-				(p.Type == config.ProviderTypeAnthropic || p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor) {
-				return u.Input
-			}
-		}
+	if t.exclusiveInput {
+		return u.Input
 	}
 	if u.Input-u.CacheRead < 0 {
 		return 0

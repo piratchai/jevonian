@@ -473,9 +473,6 @@ export function LogsPage() {
                     </div>
                     <div className="col-span-1 font-mono text-muted-foreground">
                       {log.latencyMs}ms
-                      {log.ttftMs !== undefined ? (
-                        <span className="text-muted-foreground/60"> · ttft {log.ttftMs}ms</span>
-                      ) : null}
                     </div>
                     <div className="col-span-1 text-right text-muted-foreground">
                       {log.id ? "details →" : "no id"}

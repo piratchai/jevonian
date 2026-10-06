@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/xinyao27/jevonian/internal/catalogsync"
@@ -61,11 +62,45 @@ var fallbackPrices = map[string]modelPrice{
 }
 
 func pricingPath() string { return filepath.Join(paths.DataDir(), "pricing.json") }
+
+// pricingCache keeps the last parse per path+mtime+size so a single command
+// (doctor calls it for the pricing label, the routing deps and report) reads
+// the multi-megabyte snapshot once instead of once per use. It holds only the
+// price side; capabilities and identities live in catalogsync's cache, so the
+// two caches never hold the same decoded data.
+var pricingCache struct {
+	sync.Mutex
+	path string
+	mod  time.Time
+	size int64
+	snap pricingSnapshot
+}
+
+// pricingView is the read side of pricing.json: the price half only. Leaving
+// out capabilities/identities skips decoding the larger half of the file.
+type pricingView struct {
+	FetchedAt string                  `json:"fetchedAt"`
+	Source    string                  `json:"source"`
+	Models    map[string]modelPrice   `json:"models"`
+	Providers map[string]providerMeta `json:"providers"`
+}
+
 func loadPricing() pricingSnapshot {
 	var s pricingSnapshot
-	b, err := os.ReadFile(pricingPath())
+	path := pricingPath()
+	info, err := os.Stat(path)
+	pricingCache.Lock()
+	defer pricingCache.Unlock()
 	if err == nil {
-		_ = json.Unmarshal(b, &s)
+		if pricingCache.path == path && pricingCache.mod.Equal(info.ModTime()) && pricingCache.size == info.Size() {
+			return pricingCache.snap
+		}
+	}
+	if b, readErr := os.ReadFile(path); readErr == nil {
+		var v pricingView
+		if json.Unmarshal(b, &v) == nil {
+			s = pricingSnapshot{FetchedAt: v.FetchedAt, Source: v.Source, Models: v.Models, Providers: v.Providers}
+		}
 	}
 	if s.Models == nil {
 		s.Models = map[string]modelPrice{}
@@ -75,6 +110,12 @@ func loadPricing() pricingSnapshot {
 		if _, ok := s.Models[id]; !ok {
 			s.Models[id] = p
 		}
+	}
+	if err == nil {
+		pricingCache.path = path
+		pricingCache.mod = info.ModTime()
+		pricingCache.size = info.Size()
+		pricingCache.snap = s
 	}
 	return s
 }

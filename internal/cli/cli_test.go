@@ -334,7 +334,20 @@ func TestPricingRefreshSnapshot(t *testing.T) {
 		t.Fatal(out)
 	}
 	s := loadPricing()
-	if s.Models["openai/gpt-test"].Input != 2 || s.Capabilities["gpt-test"]["contextWindow"] != float64(1000) {
+	if s.Models["openai/gpt-test"].Input != 2 {
 		t.Fatalf("%+v", s)
+	}
+	// Capabilities live in catalogsync's half of the snapshot, not the price
+	// view; read the persisted file for them.
+	raw, readErr := os.ReadFile(pricingPath())
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	var file struct {
+		Capabilities map[string]map[string]any `json:"capabilities"`
+	}
+	_ = json.Unmarshal(raw, &file)
+	if file.Capabilities["gpt-test"]["contextWindow"] != float64(1000) {
+		t.Fatalf("capabilities = %+v", file.Capabilities)
 	}
 }

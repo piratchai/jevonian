@@ -120,7 +120,7 @@ func (c commandContext) start(a arguments, restart bool) error {
 	action := "restarted"
 	restarted := false
 	if restart && m.Status().PlistInstalled {
-		s, err = m.Restart()
+		s, err = m.RestartOntoCurrent()
 		restarted = true
 	} else {
 		var result service.Result
@@ -184,7 +184,8 @@ func (c commandContext) stop(a arguments) error {
 	return c.status()
 }
 func (c commandContext) status() error {
-	s := (service.Manager{}).Status()
+	m := service.Manager{}
+	s := m.Status()
 	fmt.Fprintf(c.out, "label:   %s\nplist:   %s", s.Label, s.PlistPath)
 	if !s.PlistInstalled {
 		fmt.Fprint(c.out, " (missing)")
@@ -198,6 +199,17 @@ func (c commandContext) status() error {
 		fmt.Fprintf(c.out, "pid:     %d\n", s.PID)
 	}
 	fmt.Fprintf(c.out, "log:     %s\n", s.LogPath)
+	if entry := m.InspectEntry(); entry.Path != "" {
+		fmt.Fprintf(c.out, "binary:  %s\n", entry.Path)
+		if entry.Missing {
+			fmt.Fprintln(c.out, "warning: LaunchAgent ProgramArguments path is missing — run `jevonian restart` to repoint onto this install")
+		}
+	} else if s.PlistInstalled && entry.Err != nil {
+		fmt.Fprintf(c.out, "warning: cannot read LaunchAgent ProgramArguments: %v\n", entry.Err)
+	}
+	if s.Loaded && s.PID == 0 {
+		fmt.Fprintln(c.out, "warning: LaunchAgent is loaded but has no pid — check the log or run `jevonian restart`")
+	}
 	if s.Detail != "loaded" && s.Detail != "" {
 		fmt.Fprintf(c.out, "detail:  %s\n", s.Detail)
 	}

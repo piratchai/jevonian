@@ -9,6 +9,8 @@ import (
 	"github.com/xinyao27/jevonian/internal/update"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -223,13 +225,38 @@ func TestSpentProvidersListsFullWindows(t *testing.T) {
 }
 
 func TestUpdateCommandRestartsBackgroundServiceWithFakes(t *testing.T) {
+	pkg, entry, packagePath, asset := func() (string, string, string, string) {
+		// local copy of npmPackageFixture to avoid export churn across packages
+		root := t.TempDir()
+		pkg := filepath.Join(root, "lib", "node_modules", "jevonian")
+		entry := filepath.Join(pkg, "bin", "jevonian.js")
+		packagePath := filepath.Join(pkg, "package.json")
+		os.MkdirAll(filepath.Dir(entry), 0o755)
+		os.WriteFile(entry, []byte("ok\n"), 0o644)
+		os.WriteFile(packagePath, []byte(`{"version":"0.6.0"}`+"\n"), 0o644)
+		asset, err := update.AssetName(runtime.GOOS, runtime.GOARCH)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pkg, entry, packagePath, asset
+	}()
 	installed := "0.5.4"
 	m := update.New(update.Options{
-		Current:      "0.5.4",
-		Installation: &update.Installation{Channel: update.NPM, Bin: "/fake/npm"},
-		FetchLatest:  func(context.Context) (string, error) { return "0.6.0", nil },
-		Run: func(context.Context, string, ...string) (string, error) {
-			installed = "0.6.0"
+		Current: "0.5.4",
+		Installation: &update.Installation{
+			Channel: update.NPM, Bin: "/fake/npm", Entry: entry, PackagePath: packagePath,
+		},
+		Detection:   update.DetectionOptions{NodeExecutable: "node", Env: map[string]string{}},
+		FetchLatest: func(context.Context) (string, error) { return "0.6.0", nil },
+		Run: func(_ context.Context, bin string, args ...string) (string, error) {
+			if bin == "/fake/npm" {
+				installed = "0.6.0"
+				return "", nil
+			}
+			if len(args) > 0 && args[len(args)-1] == "--download-only" {
+				os.MkdirAll(filepath.Join(pkg, "native"), 0o755)
+				os.WriteFile(filepath.Join(pkg, "native", asset), []byte("bin"), 0o755)
+			}
 			return "", nil
 		},
 		ReadInstalledVersion: func() string { return installed },

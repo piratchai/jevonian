@@ -22,7 +22,7 @@ import (
 )
 
 // Version is overridden by release builds using -ldflags -X.
-var Version = "0.6.0"
+var Version = "0.6.1"
 
 const helpText = `Jevonian — local AI router
 
@@ -202,6 +202,15 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 0
 	}
 	c := commandContext{in: in, out: out, errOut: errOut}
+	// Heal a broken LaunchAgent after Node→Go / npm wipe before any other work,
+	// so short commands still bring the background service back.
+	if runtime.GOOS == "darwin" && command != "stop" && command != "help" && command != "version" {
+		if healed, healErr := (service.Manager{}).HealIfNeeded(); healErr != nil {
+			fmt.Fprintf(errOut, "LaunchAgent heal failed: %v\n", healErr)
+		} else if healed {
+			fmt.Fprintln(errOut, "LaunchAgent was pointing at a missing or pre-cutover binary; rewritten onto this install.")
+		}
+	}
 	foregroundServe := command == "serve" && !(runtime.GOOS == "darwin" && !foreground(a))
 	if command != "update" && !foregroundServe {
 		c.printCachedUpdateNotice()
@@ -320,7 +329,9 @@ func (c commandContext) update(a arguments) error {
 			if !m.Status().PlistInstalled {
 				return false
 			}
-			_, err := m.Restart()
+			// RestartOntoCurrent rewrites a stale Node cli.mjs LaunchAgent after
+			// cutover/update; bare Restart would leave the service broken.
+			_, err := m.RestartOntoCurrent()
 			return err == nil
 		},
 	})

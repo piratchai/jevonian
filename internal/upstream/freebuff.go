@@ -26,6 +26,16 @@ func (*freebuffAdapter) EndpointURL(p config.Provider) string {
 	return freebuffprovider.ChatURL(p.BaseURL)
 }
 
+// A second session on one account supersedes the first.
+func (*freebuffAdapter) MaxConcurrent() int { return freebuffprovider.MaxConcurrent }
+
+// Freebuff is outside token-saver parity.
+func (*freebuffAdapter) SkipsTokenSaver() bool { return true }
+
+func (*freebuffAdapter) runAttempt(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, body wire.Body, auth oauth.AuthResolution) {
+	r.freebuffAttempt(ctx, req, at, body, auth)
+}
+
 // freebuffManager returns the session manager for a provider+token, creating
 // it on first use. One token → one manager, so every turn on an account shares
 // a single upstream session instead of superseding each other's.
@@ -208,15 +218,15 @@ func (r *Runner) freebuffFailed(at *Attempt, provider config.Provider, err error
 			r.deps.Auth.Invalidate(string(provider.OAuthSource), provider.Login)
 		}
 	case freebuffprovider.KindWaitingRoom:
-		// The queue is a transient host condition: fail over without benching.
+		// The queue is a transient host condition: fail over without marking the
+		// account spent. Hold the breaker for the wait the host named so the next
+		// turn skips this provider instead of queueing behind it.
 		wait := fe.Retry
 		if wait <= 0 {
 			wait = quota.ProviderCooldown
 		}
 		at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
-		if r.deps.Quota != nil {
-			r.deps.Quota.MarkSpent(provider.Name, quota.MarkSpentOptions{Label: "waiting-room", ResetsAt: r.now().Add(min(wait, 2*time.Minute))})
-		}
+		at.HoldUntil = r.now().Add(min(wait, 2*time.Minute))
 	case freebuffprovider.KindModel:
 		at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
 		if r.deps.Quota != nil {

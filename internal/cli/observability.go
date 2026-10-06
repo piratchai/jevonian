@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -20,7 +21,36 @@ import (
 	"github.com/xinyao27/jevonian/internal/provider/multiacct"
 	"github.com/xinyao27/jevonian/internal/quota"
 	"github.com/xinyao27/jevonian/internal/routing"
+	"github.com/xinyao27/jevonian/internal/service"
 )
+
+// printServiceDoctor reports LaunchAgent health on macOS (stale Node entry after
+// the Go cutover, loaded-but-dead jobs).
+func (c commandContext) printServiceDoctor() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	m := service.Manager{}
+	s := m.Status()
+	fmt.Fprintf(c.out, "service: %s", s.Label)
+	switch {
+	case !s.PlistInstalled:
+		fmt.Fprintln(c.out, " — not installed (foreground only, or run bare `jevonian`)")
+		return
+	case s.Loaded && s.PID > 0:
+		fmt.Fprintf(c.out, " — running pid %d\n", s.PID)
+	case s.Loaded:
+		fmt.Fprintln(c.out, " — loaded but no pid (check serve.log or `jevonian restart`)")
+	default:
+		fmt.Fprintln(c.out, " — installed but not loaded (`jevonian start`)")
+	}
+	if entry := m.InspectEntry(); entry.Path != "" {
+		fmt.Fprintf(c.out, "         binary %s\n", entry.Path)
+		if entry.Missing {
+			fmt.Fprintln(c.out, "         warning: ProgramArguments path is missing — run `jevonian restart`")
+		}
+	}
+}
 
 // openLedger preserves the Go runtime's idempotent JSONL import-on-first-use.
 func openLedger() (*ledger.DB, error) {
@@ -262,6 +292,7 @@ func (c commandContext) doctor(a arguments) error {
 	if err != nil {
 		return err
 	}
+	c.printServiceDoctor()
 	db, err := openLedger()
 	if err != nil {
 		return err

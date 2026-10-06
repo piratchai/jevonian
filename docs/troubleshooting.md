@@ -79,6 +79,19 @@ A provider keeps its stale `rejected` window until the next successful live fetc
 
 `jevonian update` is registry-based. Source checkouts never self-update: pull and rebuild instead.
 
+## macOS service will not start after upgrading to Go (0.6+)
+
+The LaunchAgent may still point at the deleted Node entry `dist/cli.mjs`. Check with `jevonian status` (look for `binary:` / a missing-path warning). Then:
+
+```bash
+jevonian restart
+# or, on a build that still refuses takeover:
+jevonian stop --uninstall
+jevonian start
+```
+
+Do not leave the LaunchAgent pointed at a git checkout binary if you install via npm — `jevonian update` will not work from a source channel. Prefer the global `jevonian` on your PATH (the npm shim).
+
 ## Where to look first
 
 | Question                                  | Command / place                                       |

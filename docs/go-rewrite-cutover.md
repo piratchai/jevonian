@@ -50,30 +50,39 @@ Package layout follows responsibility layers — state/config at the bottom, HTT
 ```
 cmd/jevonian/main.go          # sole entrypoint → internal/cli
 internal/
-  cli/        serve.go keys.go doctor.go update.go tunnel.go lifecycle.go
+  cli/        command dispatch: serve.go lifecycle.go providers.go keycommands.go
+              observability.go (doctor/report) pricing.go catalog.go kev.go
   config/     JSONC load, TS-compatible
   paths/      XDG / dataDir
   ledger/     SQLite + JSONL import + rollups
   keys/       keys.json (sha256) + credit limit
-  quota/      window health + in-memory cooldown
-  server/     mux + handlers + middleware
-    chat.go anthropic.go responses.go models.go
-    probes.go localclient.go lan.go embed.go nativecodex.go
+  quota/      window health + in-memory cooldown (account spend only)
+  guard/      per-provider concurrency cap + circuit breaker (host health only)
+  server/     mux + handlers: route.go (attempt loop driver) chat.go streaming.go
+              gateway.go probes.go localclient.go nativecodex.go exposure.go
     admin/    /api/* dashboard endpoints
-  upstream/   one-egress: post.go retry.go timeout.go cooldown.go stream.go auth.go chat.go
-  routing/    plan.go narrow.go reason.go          # jevonian/auto candidate ordering
+  upstream/   one-egress: forward.go (Runner.Try) adapter.go classify.go post.go
+              retry.go timeout.go stream.go auth.go + per-family adapters
+              (providers.go = Connect-RPC, freebuff.go, gemini.go)
+  routing/    decide.go plan.go narrow.go phase.go reason.go   # candidate ordering
   brain/      client.go types.go                   # hand-rolled scorer (replaces @ai-sdk/gateway)
+  catalogsync/ models.dev capabilities + identity index, leaderboard refresh
+  modelsync/  provider model-list sync
+  clients/    client config writers (launch / kev)
+  saver/      RTK token saver
   wire/
     openai/ anthropic/ responses/
   provider/
-    cursor/ devin/ workbuddy/ freebuff/ gemini/ multiacct/
+    cursor/ devin/ workbuddy/ freebuff/ gemini/ multiacct/ parity/
   oauth/      credential import + refresh (Claude Code / Codex / Antigravity / Devin / Cursor)
   softstream/ soft-error SSE resume
+  service/    macOS LaunchAgent control
+  update/     registry check + npm / native install
   tunnel/     cloudflared lifecycle
   proxy/      system proxy detect
-  platform/darwin/ scutil + launchd glue
+  platform/darwin/ scutil glue
   compaction/ proactive + reactive context compaction
-web/          React+Vite SPA — dist/ embedded via embed.FS (dist not committed)
+web/          React+Vite SPA — dist/ embedded via web/embed.go (dist not committed)
 bin/jevonian.js  # sole JS — fetch+exec platform binary
 docs/ go.mod go.sum LICENSE README.md CHANGELOG.md
 ```
@@ -88,7 +97,7 @@ Found in review of the TS codebase; the Go port fixes them deliberately:
 
 | TS problem | Go rule |
 |---|---|
-| `upstream.ts` `forward()` — 1214 lines, 16 closures, `devinWire`/`cursorWire`/`workbuddyWire` flags | `upstream/forward.go` attempt loop over `Decision.Order` + per-provider `Adapter` (`RegisterAdapter`). New providers never touch the loop. |
+| `upstream.ts` `forward()` — 1214 lines, 16 closures, `devinWire`/`cursorWire`/`workbuddyWire` flags | `upstream/forward.go` attempt loop over `Decision.Order` + per-provider `Adapter`. `AdapterFor` is the only place that maps a provider to behavior; quirks are optional adapter interfaces (`attemptRunner`, `concurrencyLimiter`, `tokenSaverOptOut`, `exclusiveInputUsage`, `responseWrapper`). New providers never touch the loop. |
 | "Should we fail over?" spread over quota.ts, upstream.ts, cursor.ts, devin.ts | One classifier: `upstream.Classify(status, body, err) Outcome`. Provider packages map their errors onto `Outcome`. |
 | Transport failures, rate limits and quota mixed into one cooldown | Host failures (reset/timeout/5xx) → `internal/guard` breaker only. Quota/billing/rate-limit → `quota.MarkSpent` only. A flaky host must never show as "exhausted". |
 | No per-provider isolation in the hot path | `internal/guard`: per-provider concurrency cap + breaker with single half-open probe. Saturated/open → next candidate immediately, never queue. |

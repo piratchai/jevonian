@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -36,13 +38,30 @@ func call(h *Handler, method, path string) *httptest.ResponseRecorder {
 func TestHandlerInstallsWhileServingAndRejectsDuplicate(t *testing.T) {
 	var disk atomic.Value
 	disk.Store("0.0.1")
+	pkg, entry, packagePath, asset := npmPackageFixture(t)
 	started, release := make(chan struct{}), make(chan struct{})
-	manager := New(Options{Current: "0.0.1", Installation: &Installation{Channel: NPM}, FetchLatest: func(context.Context) (string, error) { return "0.0.2", nil }, ReadInstalledVersion: func() string { return disk.Load().(string) }, Run: func(context.Context, string, ...string) (string, error) {
-		close(started)
-		<-release
-		disk.Store("0.0.2")
-		return "", nil
-	}})
+	manager := New(Options{
+		Current: "0.0.1",
+		Installation: &Installation{
+			Channel: NPM, Bin: "npm", Entry: entry, PackagePath: packagePath,
+		},
+		Detection:   DetectionOptions{NodeExecutable: "node", Env: map[string]string{}},
+		FetchLatest: func(context.Context) (string, error) { return "0.0.2", nil },
+		ReadInstalledVersion: func() string { return disk.Load().(string) },
+		Run: func(_ context.Context, bin string, args ...string) (string, error) {
+			if bin == "npm" {
+				close(started)
+				<-release
+				disk.Store("0.0.2")
+				return "", nil
+			}
+			if len(args) > 0 && args[len(args)-1] == "--download-only" {
+				os.MkdirAll(filepath.Join(pkg, "native"), 0o755)
+				os.WriteFile(filepath.Join(pkg, "native", asset), []byte("bin"), 0o755)
+			}
+			return "", nil
+		},
+	})
 	life := &fakeLifecycle{restarted: make(chan struct{})}
 	h := NewHandler(HandlerOptions{Manager: manager, Lifecycle: life, Restart: func(context.Context) error { return nil }})
 	if w := call(h, "POST", "/api/update/check"); w.Code != 200 {

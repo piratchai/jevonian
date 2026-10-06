@@ -139,6 +139,17 @@ func (a *Attempt) End(ok bool) {
 	a.once.Do(func() { a.g.end(a.provider, ok) })
 }
 
+// Hold releases the slot and opens the breaker until `until`: the host said it
+// is busy for a known time (a queue, a waiting room). It is a host verdict, so
+// it stays in the guard and never marks the account spent. A zero or past
+// `until` is a plain host failure.
+func (a *Attempt) Hold(until time.Time) {
+	if a == nil {
+		return
+	}
+	a.once.Do(func() { a.g.hold(a.provider, until) })
+}
+
 // Release frees the slot without judging the host (e.g. the client hung up).
 func (a *Attempt) Release() {
 	if a == nil {
@@ -191,6 +202,23 @@ func (g *Guard) end(provider string, ok bool) {
 	s.failures++
 	if s.failures >= g.opts.FailureThreshold {
 		s.openUntil = g.opts.Now().Add(g.opts.Cooldown)
+	}
+}
+
+func (g *Guard) hold(provider string, until time.Time) {
+	if !until.After(g.opts.Now()) {
+		g.end(provider, false)
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	s := g.get(provider)
+	if s.inFlight > 0 {
+		s.inFlight--
+	}
+	s.probing = false
+	if until.After(s.openUntil) {
+		s.openUntil = until
 	}
 }
 

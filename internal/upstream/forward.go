@@ -73,6 +73,9 @@ type Attempt struct {
 	Response *http.Response
 	Retries  int
 	Blocked  guard.Block
+	// HoldUntil asks Try to open the guard breaker until a host-named deadline
+	// (a queue, a waiting room) rather than a fresh failure count.
+	HoldUntil time.Time
 	// SentEffort is the effort the outgoing body carried, for the ledger.
 	SentEffort  string
 	SavedTokens int
@@ -172,8 +175,8 @@ func (r *Runner) Try(ctx context.Context, req AttemptRequest, entry PlanEntry) A
 
 	var slot *guard.Attempt
 	if r.deps.Guard != nil {
-		if entry.Provider.OAuthSource == config.OAuthFreebuff {
-			r.deps.Guard.SetLimit(entry.Provider.Name, freebuffprovider.MaxConcurrent)
+		if l, ok := adapter.(concurrencyLimiter); ok {
+			r.deps.Guard.SetLimit(entry.Provider.Name, l.MaxConcurrent())
 		}
 		var block guard.Block
 		slot, block = r.deps.Guard.Begin(entry.Provider.Name)
@@ -203,8 +206,13 @@ func (r *Runner) Try(ctx context.Context, req AttemptRequest, entry PlanEntry) A
 		slot.Release()
 	default:
 		// Client errors, quota/rate-limit refusals and provider refusals are
-		// not verdicts about the host's health.
-		slot.End(true)
+		// not verdicts about the host's health. A host-named busy-until is a
+		// host verdict, so it holds the breaker instead of End(false)'s count.
+		if !at.HoldUntil.IsZero() {
+			slot.Hold(at.HoldUntil)
+		} else {
+			slot.End(true)
+		}
 	}
 	return at
 }
@@ -235,8 +243,8 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 		at.Err = err
 		return
 	}
-	// Run after every adapter's full wire assembly. Freebuff is outside parity.
-	if provider.OAuthSource != config.OAuthFreebuff {
+	// Run after every adapter's full wire assembly; some hosts opt out.
+	if o, ok := at.Adapter.(tokenSaverOptOut); !ok || !o.SkipsTokenSaver() {
 		saved := saver.SaveTokens(ctx, body, req.TokenSaver)
 		saver.WarnUnavailable(req.TokenSaver, saved.Stats.Unavailable)
 		if saved.Stats.SavedTokens > 0 {
@@ -252,12 +260,9 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 		at.Err = err
 		return
 	}
-	if rpc, ok := at.Adapter.(*rpcAdapter); ok {
-		r.rpcAttempt(ctx, req, at, rpc, body, auth.Token)
-		return
-	}
-	if _, ok := at.Adapter.(*freebuffAdapter); ok {
-		r.freebuffAttempt(ctx, req, at, body, auth)
+	// Adapters that own the whole exchange (Connect-RPC, session-bound hosts).
+	if own, ok := at.Adapter.(attemptRunner); ok {
+		own.runAttempt(r, ctx, req, at, body, auth)
 		return
 	}
 	headers := make(http.Header)

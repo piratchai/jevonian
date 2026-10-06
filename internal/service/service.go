@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/xinyao27/jevonian/internal/paths"
+	"github.com/xinyao27/jevonian/internal/wire"
 )
 
 const Label = "ai.jevonian.serve"
@@ -127,9 +128,7 @@ func (m Manager) Status() Status {
 		if s.Detail == "" {
 			s.Detail = "not loaded"
 		}
-		if len(s.Detail) > 200 {
-			s.Detail = s.Detail[:200]
-		}
+		s.Detail = wire.TruncateRunes(s.Detail, 200)
 		return s
 	}
 	s.Loaded = true
@@ -234,6 +233,13 @@ func (m Manager) env() map[string]string {
 			e[k] = v
 		}
 	}
+	// The shim's install-channel env lets a launchd-run binary keep updating and
+	// detecting its install without Node; only real values are baked in.
+	for _, k := range []string{"JEVONIAN_NPM_ENTRY", "JEVONIAN_NODE_EXECUTABLE", "JEVONIAN_INSTALL_CHANNEL", "JEVONIAN_INSTALL_GLOBAL", "JEVONIAN_NPM_REGISTRY"} {
+		if v := m.getenv(k); v != "" {
+			e[k] = v
+		}
+	}
 	// Never bake scratch config/data/ledger overrides into production.
 	return e
 }
@@ -275,24 +281,160 @@ func (m Manager) kick() error {
 	}
 	return nil
 }
-func (m Manager) Ensure() (Result, error) {
-	if err := m.AssertLive(); err != nil {
-		return Result{}, err
-	}
+// resolvedExecutable is the absolute, symlink-resolved path this Manager will
+// write into ProgramArguments (test Executable override, else os.Executable).
+func (m Manager) resolvedExecutable() (string, error) {
 	exe := m.Executable
 	if exe == "" {
 		var err error
 		exe, err = os.Executable()
 		if err != nil {
-			return Result{}, err
+			return "", err
 		}
 	}
 	exe, err := filepath.Abs(exe)
 	if err != nil {
-		return Result{}, err
+		return "", err
 	}
 	if resolved, e := filepath.EvalSymlinks(exe); e == nil {
 		exe = resolved
+	}
+	return exe, nil
+}
+
+// EntryState describes the installed LaunchAgent ProgramArguments path.
+type EntryState struct {
+	Path    string
+	Missing bool
+	Err     error
+}
+
+// InspectEntry reads the live plist entry and whether that path still exists.
+func (m Manager) InspectEntry() EntryState {
+	path, err := InstalledEntry(m.DefaultPlistPath())
+	if err != nil {
+		return EntryState{Err: err}
+	}
+	_, statErr := os.Stat(path)
+	return EntryState{Path: path, Missing: statErr != nil}
+}
+
+// sameInstall reports whether two ProgramArguments paths name the same binary
+// after Abs + EvalSymlinks (macOS /var vs /private/var).
+func sameInstall(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	na, errA := normalizeInstallPath(a)
+	nb, errB := normalizeInstallPath(b)
+	return errA == nil && errB == nil && na == nb
+}
+
+func normalizeInstallPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	if resolved, e := filepath.EvalSymlinks(abs); e == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+// npmPackageRoot returns the .../node_modules/jevonian directory for a path
+// inside a published package, or "" if the path is not under one.
+func npmPackageRoot(path string) string {
+	p := filepath.ToSlash(path)
+	const marker = "/node_modules/jevonian/"
+	if i := strings.LastIndex(p, marker); i >= 0 {
+		return filepath.FromSlash(p[:i+len("/node_modules/jevonian")])
+	}
+	if strings.HasSuffix(p, "/node_modules/jevonian") {
+		return filepath.FromSlash(p)
+	}
+	return ""
+}
+
+// nodeRuntimeEntry is a pre-cutover LaunchAgent ProgramArguments path
+// (node …/dist/cli.mjs serve).
+func nodeRuntimeEntry(path string) bool {
+	p := filepath.ToSlash(path)
+	return strings.HasSuffix(p, "/dist/cli.mjs") || strings.HasSuffix(p, "/dist/cli.js")
+}
+
+// allowTakeover reports whether Ensure may rewrite a different ProgramArguments
+// path onto exe without JEVONIAN_SERVICE_TAKEOVER.
+func allowTakeover(old, exe string) bool {
+	if old == "" || sameInstall(old, exe) {
+		return false
+	}
+	if _, err := os.Stat(old); err != nil {
+		return true // broken LaunchAgent; heal it
+	}
+	// Same npm package, Node entry → Go native: the Go cutover, not a hostile steal.
+	ro, re := npmPackageRoot(old), npmPackageRoot(exe)
+	return ro != "" && ro == re && nodeRuntimeEntry(old) && strings.Contains(filepath.ToSlash(exe), "/native/")
+}
+
+// HealIfNeeded rewrites a stale/missing LaunchAgent onto this binary when
+// allowTakeover applies. Returns true when it changed the agent. Safe to call
+// from any CLI command so an `npm i -g` cutover heals without a dedicated restart.
+func (m Manager) HealIfNeeded() (bool, error) {
+	if err := m.AssertLive(); err != nil {
+		return false, nil
+	}
+	if !m.Status().PlistInstalled {
+		return false, nil
+	}
+	exe, err := m.resolvedExecutable()
+	if err != nil {
+		return false, err
+	}
+	old, readErr := InstalledEntry(m.DefaultPlistPath())
+	if readErr != nil || old == "" || sameInstall(old, exe) {
+		return false, nil
+	}
+	if !allowTakeover(old, exe) {
+		return false, nil
+	}
+	if _, err := m.Ensure(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// RestartOntoCurrent kicks the LaunchAgent onto this binary. Same
+// ProgramArguments → kickstart. Different or missing entry → Ensure (auto-
+// rewrite when the old path is gone or is the same-package Node cutover;
+// refuse a live different install).
+// Use this from restart / update / dashboard relaunch — never bare Restart
+// alone, or a stale Node cli.mjs LaunchAgent stays broken after cutover.
+func (m Manager) RestartOntoCurrent() (Status, error) {
+	if err := m.AssertLive(); err != nil {
+		return Status{}, err
+	}
+	exe, err := m.resolvedExecutable()
+	if err != nil {
+		return Status{}, err
+	}
+	old, _ := InstalledEntry(m.DefaultPlistPath())
+	if sameInstall(old, exe) {
+		return m.Restart()
+	}
+	result, err := m.Ensure()
+	return result.Status, err
+}
+
+func (m Manager) Ensure() (Result, error) {
+	if err := m.AssertLive(); err != nil {
+		return Result{}, err
+	}
+	exe, err := m.resolvedExecutable()
+	if err != nil {
+		return Result{}, err
 	}
 	old, readErr := InstalledEntry(m.DefaultPlistPath())
 	installed := !os.IsNotExist(readErr)
@@ -300,10 +442,11 @@ func (m Manager) Ensure() (Result, error) {
 		return Result{}, fmt.Errorf("refusing to replace unrecognized LaunchAgent: %w; stop --uninstall first", readErr)
 	}
 	force := strings.ToLower(strings.TrimSpace(m.getenv("JEVONIAN_SERVICE_TAKEOVER")))
-	if old != "" && old != exe && force != "1" && force != "true" && force != "yes" && force != "on" {
+	forced := force == "1" || force == "true" || force == "yes" || force == "on"
+	if old != "" && !sameInstall(old, exe) && !allowTakeover(old, exe) && !forced {
 		return Result{}, fmt.Errorf("a Jevonian service points at a different install: %s (this run: %s). Refusing takeover. Run `jevonian stop --uninstall` first, or set JEVONIAN_SERVICE_TAKEOVER=1", old, exe)
 	}
-	if old == exe {
+	if sameInstall(old, exe) {
 		s := m.Status()
 		if s.Loaded && s.PID > 0 {
 			return Result{s, "running"}, nil

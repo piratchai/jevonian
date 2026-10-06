@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -180,6 +181,13 @@ func (m *Manager) Install(ctx context.Context) (Status, error) {
 			bin = string(m.installation.Channel)
 		}
 		_, err = m.options.Run(ctx, bin, InstallArgs(m.installation.Channel, status.Latest)...)
+		if err == nil {
+			// npm reinstall deletes the package dir, so the cached native binary
+			// under native/ and the LaunchAgent's ProgramArguments are gone. Re-
+			// download it before verify so `jevonian start` and launchd find a
+			// binary to exec.
+			err = m.refetchNative(ctx, status.Latest)
+		}
 	case Binary:
 		installer := m.options.Native
 		if installer == nil {
@@ -204,6 +212,69 @@ func (m *Manager) Install(ctx context.Context) (Status, error) {
 	m.lastError = ""
 	m.saveCache()
 	return m.status(), nil
+}
+
+// refetchNative re-downloads the native binary the npm shim caches. The package
+// reinstall wiped native/, and the running service points at that binary, so we
+// seed it for the next start before launchd (or the dashboard relaunch) needs it.
+// It runs the freshly installed shim with --download-only through the new Node.
+func (m *Manager) refetchNative(ctx context.Context, version string) error {
+	if m.installation.Entry == "" {
+		return fmt.Errorf("npm shim entry is unknown; cannot re-download the native binary")
+	}
+	node := m.options.Detection.NodeExecutable
+	if node == "" {
+		node = envValue(m.options.Detection.Env, "JEVONIAN_NODE_EXECUTABLE")
+	}
+	if node == "" {
+		node = "node"
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	out, err := m.options.Run(runCtx, node, m.installation.Entry, "--download-only")
+	if err != nil {
+		return fmt.Errorf("re-download native binary failed: %w%s", err, formatRunTail(out))
+	}
+	target, err := npmNativeBinaryPath(m.installation, version)
+	if err != nil {
+		return err
+	}
+	if st, err := os.Stat(target); err != nil || st.IsDir() {
+		return fmt.Errorf("native binary missing after re-download: %s", target)
+	}
+	return nil
+}
+
+func formatRunTail(out string) string {
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return ""
+	}
+	if len(out) > 240 {
+		out = out[len(out)-240:]
+	}
+	return ": " + out
+}
+
+// npmNativeBinaryPath is where the shim caches the Go binary for this install.
+func npmNativeBinaryPath(install Installation, version string) (string, error) {
+	root := ""
+	if install.PackagePath != "" {
+		root = filepath.Dir(install.PackagePath)
+	} else if install.Entry != "" {
+		// …/jevonian/bin/jevonian.js → package root
+		root = filepath.Dir(filepath.Dir(install.Entry))
+	}
+	if root == "" {
+		return "", fmt.Errorf("cannot resolve npm package root for native binary")
+	}
+	platform, arch := runtime.GOOS, runtime.GOARCH
+	asset, err := AssetName(platform, arch)
+	if err != nil {
+		return "", err
+	}
+	_ = version // version is pinned in package.json; the shim marker records it
+	return filepath.Join(root, "native", asset), nil
 }
 
 type cache struct {
