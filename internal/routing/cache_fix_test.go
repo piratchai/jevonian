@@ -24,6 +24,20 @@ func TestCacheReuseAcrossProviderSwitch(t *testing.T) {
 	}
 }
 
+func TestSessionStoreKeepsExplicitZeroReadAsNewestObservation(t *testing.T) {
+	store := NewSessionStore(600000)
+	store.Set("s", SessionState{Provider: "a", Model: "m", UpdatedAt: 1000})
+	store.ObserveCache("s", CacheObservation{Provider: "a", Model: "m", At: 1000, CacheReadTokens: 4096, Success: true, UsageKnown: true})
+	old, _ := store.Get("s", 1001)
+	store.ObserveCache("s", CacheObservation{Provider: "a", Model: "m", At: 1002, InputTokens: 100, UncachedInputTokens: 100, CacheReadTokens: 0, Success: true, UsageKnown: true})
+	old.UpdatedAt = 1003
+	store.Set("s", old)
+	got, _ := store.Get("s", 1004)
+	if got.Cache == nil || got.Cache.At != 1002 || got.Cache.CacheReadTokens != 0 {
+		t.Fatalf("new zero-read evidence lost: %+v", got.Cache)
+	}
+}
+
 func TestSessionStoreDoesNotLoseCacheOnMissingOrStaleSnapshot(t *testing.T) {
 	store := NewSessionStore(600000)
 	old := CacheObservation{Provider: "a", Model: "m", At: 1000, CacheReadTokens: 4096, Success: true, UsageKnown: true}

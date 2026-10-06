@@ -37,6 +37,64 @@ func capture(t *testing.T, p config.Provider, req AttemptRequest, model string, 
 	return
 }
 
+func TestPreviewCacheBodyUsesPreparedBodyWithoutMutatingInput(t *testing.T) {
+	provider := config.Provider{Name: "p", Type: config.ProviderTypeOpenAI, BaseURL: "https://example.test", Auth: config.AuthAPIKey}
+	body := wire.Body{
+		"model": "client-model",
+		"messages": []any{
+			wire.Body{"role": "system", "content": "You operate in Cursor."},
+			wire.Body{"role": "user", "content": "hello"},
+		},
+	}
+	before, _ := json.Marshal(body)
+	prepared, wireKind, known := PreviewCacheBody(provider, "upstream-model", KindOpenAI, body, config.PromptPolicyConfig{Builtins: true}, config.TokenSaverConfig{}, true)
+	if !known || wireKind != config.WireOpenAI {
+		t.Fatalf("known=%v wire=%q", known, wireKind)
+	}
+	if prepared["model"] != "upstream-model" || prepared["stream"] != true {
+		t.Fatalf("prepared body missed adapter mutations: %#v", prepared)
+	}
+	message := wire.AsRecord(wire.AsSlice(prepared["messages"])[0])
+	if message["role"] != "system" || message["content"] != "You work inside the user's code editor." {
+		t.Fatalf("prepared messages missed conversion or policy rewrite: %#v", prepared["messages"])
+	}
+	after, _ := json.Marshal(body)
+	if string(before) != string(after) {
+		t.Fatalf("preview mutated client body: before=%s after=%s", before, after)
+	}
+}
+
+func TestPreviewCacheBodyRejectsOpaqueAndSaverCases(t *testing.T) {
+	body := wire.Body{"messages": []any{wire.Body{"role": "user", "content": "hello"}}}
+	for _, provider := range []config.Provider{
+		{Name: "devin", Type: config.ProviderTypeDevin},
+		{Name: "cursor", Type: config.ProviderTypeCursor},
+		{Name: "gemini", Type: config.ProviderTypeGemini},
+		{Name: "freebuff", Type: config.ProviderTypeOpenAI, OAuthSource: config.OAuthFreebuff},
+		{Name: "workbuddy", Type: config.ProviderTypeOpenAI, OAuthSource: config.OAuthWorkbuddyAI},
+	} {
+		if _, _, known := PreviewCacheBody(provider, "m", KindOpenAI, body, config.PromptPolicyConfig{}, config.TokenSaverConfig{}, false); known {
+			t.Errorf("opaque provider %q claimed known cache evidence", provider.Name)
+		}
+	}
+	toolBody := wire.Body{"messages": []any{
+		wire.Body{"role": "user", "content": "hello"},
+		wire.Body{"role": "tool", "content": "tool output"},
+	}}
+	provider := config.Provider{Name: "p", Type: config.ProviderTypeOpenAI, BaseURL: "https://example.test"}
+	if _, _, known := PreviewCacheBody(provider, "m", KindOpenAI, toolBody, config.PromptPolicyConfig{}, config.TokenSaverConfig{Enabled: true}, false); known {
+		t.Fatal("enabled token saver with tool results claimed known evidence")
+	}
+	if _, _, known := PreviewCacheBody(provider, "m", KindOpenAI, body, config.PromptPolicyConfig{}, config.TokenSaverConfig{Enabled: true}, false); !known {
+		t.Fatal("enabled token saver without tool results should retain evidence")
+	}
+	responseProvider := config.Provider{Name: "responses", Type: config.ProviderTypeResponses, BaseURL: "https://example.test"}
+	responsesBody := wire.Body{"input": "hello"}
+	if _, _, known := PreviewCacheBody(responseProvider, "m", KindResponses, responsesBody, config.PromptPolicyConfig{}, config.TokenSaverConfig{}, false); known {
+		t.Fatal("native Responses input should remain unknown")
+	}
+}
+
 func TestClaudeSubscriptionNativeBodyAndIdentity(t *testing.T) {
 	dir := t.TempDir()
 	cred := filepath.Join(dir, "c.json")

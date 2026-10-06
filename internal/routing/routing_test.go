@@ -1298,6 +1298,7 @@ func TestDecideCacheAffinityObserved(t *testing.T) {
 		CacheReadTokens:     900,
 		CacheWriteTokens:    0,
 		Success:             true,
+		UsageKnown:          true,
 	})
 	next := route(t, deps, Input{
 		Config: input.Config, Body: planBody("auto"), Headers: map[string]string{"x-session-id": "cache-test"},
@@ -1335,7 +1336,7 @@ func TestSessionStoreCacheObservationIsolation(t *testing.T) {
 	store.Set("s", SessionState{Phase: "plan", Provider: "p", Model: "m", Turns: 1, UpdatedAt: 100})
 	obs := CacheObservation{
 		Provider: "p", Model: "m", At: 100,
-		UncachedInputTokens: 10, CacheReadTokens: 90, Success: true,
+		UncachedInputTokens: 10, CacheReadTokens: 90, Success: true, UsageKnown: true,
 	}
 	store.ObserveCache("s", obs)
 	// Older observation does not overwrite.

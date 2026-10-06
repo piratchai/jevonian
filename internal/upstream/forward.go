@@ -79,6 +79,10 @@ type Attempt struct {
 	// SentEffort is the effort the outgoing body carried, for the ledger.
 	SentEffort  string
 	SavedTokens int
+	// CacheBody is the prepared body used for conservative cache evidence.
+	// CacheEvidenceKnown is false for opaque adapters or unsupported shapes.
+	CacheBody          wire.Body
+	CacheEvidenceKnown bool
 }
 
 // Describe returns the human-readable failure for ledgers and soft errors.
@@ -217,6 +221,13 @@ func (r *Runner) Try(ctx context.Context, req AttemptRequest, entry PlanEntry) A
 	return at
 }
 
+func cacheBodyForEvidence(body wire.Body, req AttemptRequest) (wire.Body, bool) {
+	if req.TokenSaver.Enabled && containsToolResult(body) {
+		return nil, false
+	}
+	return cloneBody(body), true
+}
+
 func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 	entry := at.Entry
 	provider := entry.Provider
@@ -243,6 +254,13 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 		at.Err = err
 		return
 	}
+	if _, plainOpenAI := at.Adapter.(*openaiAdapter); plainOpenAI {
+		at.CacheBody, at.CacheEvidenceKnown = cacheBodyForEvidence(body, req)
+	} else if _, plainAnthropic := at.Adapter.(*anthropicAdapter); plainAnthropic {
+		at.CacheBody, at.CacheEvidenceKnown = cacheBodyForEvidence(body, req)
+	} else if _, plainResponses := at.Adapter.(*responsesAdapter); plainResponses {
+		at.CacheBody, at.CacheEvidenceKnown = cacheBodyForEvidence(body, req)
+	}
 	// Run after every adapter's full wire assembly; some hosts opt out.
 	if o, ok := at.Adapter.(tokenSaverOptOut); !ok || !o.SkipsTokenSaver() {
 		saved := saver.SaveTokens(ctx, body, req.TokenSaver)
@@ -253,6 +271,9 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 		}
 	}
 	at.SentEffort = sentEffort(body, at.Plan.Wire)
+	if at.CacheEvidenceKnown && at.SentEffort != sentEffort(at.CacheBody, at.Plan.Wire) {
+		at.CacheBody, at.CacheEvidenceKnown = nil, false
+	}
 	auth, err := r.deps.Auth.ResolveProviderAuth(ctx, provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session"))
 	if err != nil {
 		at.Outcome = Outcome{Kind: OutcomeProviderRefusal}

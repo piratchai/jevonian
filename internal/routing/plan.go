@@ -568,14 +568,18 @@ func (s *SessionStore) Set(key string, state SessionState) {
 				state.Caches[target] = cloneCacheObservation(observation)
 			}
 		}
-		if state.Cache == nil || (old.Cache != nil && state.Cache.At < old.Cache.At) {
-			if old.Cache != nil {
-				copied := cloneCacheObservation(*old.Cache)
-				state.Cache = &copied
-			}
+		if old.Cache != nil && (state.Cache == nil || state.Cache.At < old.Cache.At) {
+			copied := cloneCacheObservation(*old.Cache)
+			state.Cache = &copied
 		}
 		if state.Cache != nil {
 			if current, ok := state.Caches[PlanKey(state.Cache.Provider, state.Cache.Model)]; ok && current.At > state.Cache.At {
+				copied := cloneCacheObservation(current)
+				state.Cache = &copied
+			}
+		}
+		if state.Provider != "" && state.Model != "" {
+			if current, ok := state.Caches[PlanKey(state.Provider, state.Model)]; ok && (state.Cache == nil || state.Cache.Provider != state.Provider || state.Cache.Model != state.Model || state.Cache.At < current.At) {
 				copied := cloneCacheObservation(current)
 				state.Cache = &copied
 			}
@@ -1017,7 +1021,7 @@ type Deps struct {
 	// CacheTTL is the vendor cache TTL estimate; 0 uses the conservative
 	// default. src/routing.ts RouteInput.cacheTtlMs.
 	CacheTTL time.Duration
-	// CacheEvidence supplies conservative source-prefix evidence for a target.
+	// CacheEvidence supplies conservative prepared-body prefix evidence for a target.
 	// It does not prove the vendor has retained a cache entry.
 	CacheEvidence func(provider, model string) (string, CachePrefix)
 	// Sleep backs off between brain rounds; nil means a real sleep.

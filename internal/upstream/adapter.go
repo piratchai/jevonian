@@ -263,6 +263,80 @@ type PrepInput struct {
 	MaxOutput    int
 }
 
+// PreviewCacheBody prepares evidence for transparent static adapters only.
+// It has no auth, network, environment, or token-saver side effects. A false
+// result means the prepared body is not safe to use as cache evidence.
+func PreviewCacheBody(provider config.Provider, model string, clientKind ClientKind, clientBody wire.Body, policy config.PromptPolicyConfig, tokenSaver config.TokenSaverConfig, stream bool) (wire.Body, config.UpstreamWire, bool) {
+	if provider.Auth == config.AuthOAuth || provider.OAuthSource != "" ||
+		(provider.Type != config.ProviderTypeOpenAI && provider.Type != config.ProviderTypeAnthropic && provider.Type != config.ProviderTypeResponses && provider.Type != config.ProviderTypeBoth) {
+		return nil, "", false
+	}
+	plan, err := PlanUpstreamWire(provider, clientKind, model)
+	if err != nil || (plan.Wire != KindOpenAI && plan.Wire != KindAnthropic && plan.Wire != KindResponses) {
+		return nil, "", false
+	}
+	adapter, err := AdapterFor(provider, clientKind, plan)
+	if err != nil {
+		return nil, "", false
+	}
+	switch adapter.(type) {
+	case *openaiAdapter, *anthropicAdapter, *responsesAdapter:
+	default:
+		return nil, "", false
+	}
+	if tokenSaver.Enabled && containsToolResult(clientBody) {
+		return nil, "", false
+	}
+	clonedBody, ok := cloneAdapterBody(clientBody)
+	if !ok {
+		return nil, "", false
+	}
+	prepared, err := adapter.Prepare(PrepInput{
+		PromptPolicy: policy, Provider: provider, Model: model, ClientKind: clientKind,
+		ClientBody: clonedBody, UpstreamWire: plan.Wire, Bridge: plan.Bridge,
+		Stream: stream || adapter.AlwaysStreams(), ClientStream: stream,
+	})
+	if err != nil {
+		return nil, "", false
+	}
+	if _, ok := prepared["messages"].([]any); !ok {
+		return nil, "", false
+	}
+	return prepared, plan.Wire, true
+}
+
+func cloneAdapterBody(body wire.Body) (wire.Body, bool) {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return nil, false
+	}
+	var clone wire.Body
+	if err := json.Unmarshal(encoded, &clone); err != nil || clone == nil {
+		return nil, false
+	}
+	return clone, true
+}
+
+func containsToolResult(body wire.Body) bool {
+	for _, raw := range wire.AsSlice(body["messages"]) {
+		message := wire.AsRecord(raw)
+		if message["role"] == "tool" {
+			return true
+		}
+		for _, block := range wire.AsSlice(message["content"]) {
+			if wire.AsRecord(block)["type"] == "tool_result" {
+				return true
+			}
+		}
+	}
+	for _, raw := range wire.AsSlice(body["input"]) {
+		if wire.AsRecord(raw)["type"] == "function_call_output" {
+			return true
+		}
+	}
+	return false
+}
+
 // Adapter is one provider's egress: build the wire body, send it, read its
 // usage. The attempt loop stays protocol-blind: AdapterFor is the one place
 // that maps a provider to its adapter (tests and embedders add their own via

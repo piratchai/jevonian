@@ -76,7 +76,7 @@ func TestGoldenCacheEvidence(t *testing.T) {
 			store.Set("s1", SessionState{Phase: "plan", Model: c.Prev.Model, Provider: c.Prev.Provider, Turns: 1, UpdatedAt: c.Now})
 			if k := c.Prev.Cache; k != nil {
 				store.ObserveCache("s1", CacheObservation{Provider: k.Provider, Model: k.Model, At: c.Now - k.AgoMs,
-					UncachedInputTokens: k.Unc, CacheReadTokens: k.Read, CacheWriteTokens: k.Write, Success: k.Success})
+					UncachedInputTokens: k.Unc, CacheReadTokens: k.Read, CacheWriteTokens: k.Write, Success: k.Success, UsageKnown: true})
 			}
 		}
 		in := Input{Config: &cfg, Body: c.Body, Headers: map[string]string{"x-session-id": "s1"}, Store: store,

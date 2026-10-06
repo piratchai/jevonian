@@ -9,13 +9,15 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/routing"
 	"github.com/xinyao27/jevonian/internal/server"
+	"github.com/xinyao27/jevonian/internal/upstream"
+	"github.com/xinyao27/jevonian/internal/wire"
 )
 
 func TestServerRecordsCachePrefixEvidence(t *testing.T) {
 	up := &recordingUpstream{}
 	upstreamServer := up.serve(t, okResponder)
 	cfg := baseCfg(upstreamServer.URL, "m")
-	cfg.TokenSaver = config.TokenSaverConfig{}
+	cfg.TokenSaver = config.TokenSaverConfig{Enabled: true, Command: "rtk", TimeoutMs: 3000}
 	cfg.Routing.Mode = "auto"
 	cfg.Routing.Brains = []config.BrainConfig{{Channel: "typesafe", APIKeyEnv: "WIRING_TEST_BRAIN_KEY"}}
 	cfg.Routing.Routings[0].Models = []string{"m"}
@@ -42,8 +44,14 @@ func TestServerRecordsCachePrefixEvidence(t *testing.T) {
 		t.Fatal("cache evidence contains raw prompt text")
 	}
 	provider := cfg.Providers[0]
-	// No keys are configured, so authorize() labels the turn "unauthenticated".
-	wantScope := routing.CacheScope(provider, string(server.KindOpenAI)+"\x00"+"unauthenticated"+"\x00"+promptAndSaverJSON(cfg.PromptPolicy, cfg.TokenSaver), config.ResolveAPIKey(provider))
+	prepared, wireKind, known := upstream.PreviewCacheBody(provider, "m", upstream.KindOpenAI, wire.Body(body), cfg.PromptPolicy, cfg.TokenSaver, false)
+	if !known {
+		t.Fatal("expected transparent adapter preview")
+	}
+	if routing.CompareCachePrefix(state.Cache.Prefix, routing.BuildCachePrefix(prepared)) != "same" {
+		t.Fatal("recorded evidence differs from adapter-prepared body")
+	}
+	wantScope := routing.CacheScope(provider, string(server.KindOpenAI)+"\x00"+"unauthenticated"+"\x00"+promptAndSaverJSON(cfg.PromptPolicy, cfg.TokenSaver)+"\x00"+string(wireKind)+"\x00adapter-v1\x00wire-v1", config.ResolveAPIKey(provider))
 	if state.Cache.Scope == "" || state.Cache.Scope != wantScope {
 		t.Fatal("cache observation has wrong provider/protocol/policy scope")
 	}

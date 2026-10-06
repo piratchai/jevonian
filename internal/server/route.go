@@ -28,6 +28,9 @@ import (
 )
 
 const (
+	cacheAdapterVersion   = "adapter-v1"
+	cacheConverterVersion = "wire-v1"
+
 	// KindOpenAI etc. alias upstream's client-wire constants.
 	KindOpenAI    = upstream.KindOpenAI
 	KindAnthropic = upstream.KindAnthropic
@@ -66,6 +69,10 @@ type turn struct {
 	stream      bool
 	decision    *routing.Decision
 	body        wire.Body
+	cacheBody   wire.Body
+	cacheScope  string
+	cacheKnown  bool
+	cacheWire   config.UpstreamWire
 	headers     map[string]string
 	retries     int
 	failovers   int
@@ -214,6 +221,11 @@ func (t *turn) run(w http.ResponseWriter, r *http.Request) {
 		}
 		switch attempt.Outcome.Kind {
 		case upstream.OutcomeSuccess:
+			t.cacheBody, t.cacheKnown, t.cacheWire = attempt.CacheBody, attempt.CacheEvidenceKnown, attempt.Plan.Wire
+			t.cacheScope = ""
+			if attempt.CacheEvidenceKnown {
+				t.cacheScope = t.cacheScopeFor(cand.Provider, cand.Model, attempt.Plan.Wire)
+			}
 			// A folded 200 can still hide a `response.failed` quota verdict;
 			// deliver reports it so the turn moves to the next provider.
 			if t.deliver(w, r, attempt) && t.failover() {
@@ -309,6 +321,10 @@ func (t *turn) cacheScopeKind() string {
 	return string(t.kind) + "\x00" + t.keyID + "\x00" + string(policy)
 }
 
+func (t *turn) cacheScopeFor(provider config.Provider, model string, wireKind config.UpstreamWire) string {
+	return routing.CacheScope(provider, fmt.Sprintf("%s\x00%s\x00%s\x00%s", t.cacheScopeKind(), wireKind, cacheAdapterVersion, cacheConverterVersion), config.ResolveAPIKey(provider))
+}
+
 func (t *turn) routingDeps(bodies ...wire.Body) routing.Deps {
 	deps := t.srv.deps.Routing
 	if deps.Quota == nil && t.srv.deps.Quota != nil {
@@ -326,9 +342,18 @@ func (t *turn) routingDeps(bodies ...wire.Body) routing.Deps {
 	}
 	deps.CacheEvidence = func(provider, model string) (string, routing.CachePrefix) {
 		for i := range t.cfg.Providers {
-			if t.cfg.Providers[i].Name == provider {
-				return routing.CacheScope(t.cfg.Providers[i], t.cacheScopeKind(), config.ResolveAPIKey(t.cfg.Providers[i])), routing.BuildCachePrefix(evidenceBody)
+			p := t.cfg.Providers[i]
+			if p.Name != provider {
+				continue
 			}
+			prepared, wireKind, known := upstream.PreviewCacheBody(p, model, t.kind, evidenceBody, t.cfg.PromptPolicy, t.cfg.TokenSaver, t.stream)
+			if !known || prepared == nil {
+				return "", routing.CachePrefix{}
+			}
+			if p.Type == config.ProviderTypeResponses {
+				return "", routing.CachePrefix{}
+			}
+			return t.cacheScopeFor(p, model, wireKind), routing.BuildCachePrefix(prepared)
 		}
 		return "", routing.CachePrefix{}
 	}
@@ -601,7 +626,13 @@ func (t *turn) bridgeStream(body io.ReadCloser, attempt upstream.Attempt, tracke
 		return wire.TranslateReader(body, toResponses), getUsage
 	case upstreamWire == upstream.KindOpenAI && bridge == "to-openai" && clientKind == upstream.KindAnthropic:
 		toAnthropic := anthropicwire.NewChatToStream(d.Model, anthropicwire.ChatToStreamOptions{
-			Usage: func() *wire.Usage { u := getUsage(); return &u },
+			Usage: func() *wire.Usage {
+				u := getUsage()
+				if u == (wire.Usage{}) {
+					return nil
+				}
+				return &u
+			},
 			OnFinish: func(u wire.Usage) {
 				setUsage(u)
 				tracker.Feed(wire.StreamEvent{Kind: wire.StreamUsage, Usage: u})
@@ -1013,6 +1044,12 @@ func (t *turn) record(status int, usage wire.Usage, costUSD *float64, pricingKno
 			}
 		}
 		if providerConfig != nil {
+			prefix := routing.CachePrefix{}
+			scope := ""
+			if t.cacheKnown && t.cacheBody != nil && providerConfig.Type != config.ProviderTypeResponses && t.cacheWire != config.WireResponses {
+				prefix = routing.BuildCachePrefix(t.cacheBody)
+				scope = t.cacheScope
+			}
 			s.deps.Store.ObserveCache(d.Session, routing.CacheObservation{
 				Provider:            d.Provider,
 				Model:               d.Model,
@@ -1023,8 +1060,8 @@ func (t *turn) record(status int, usage wire.Usage, costUSD *float64, pricingKno
 				CacheWriteTokens:    usage.CacheWrite,
 				Success:             true,
 				UsageKnown:          t.hasUsage,
-				Prefix:              routing.BuildCachePrefix(t.body),
-				Scope:               routing.CacheScope(*providerConfig, t.cacheScopeKind(), config.ResolveAPIKey(*providerConfig)),
+				Prefix:              prefix,
+				Scope:               scope,
 			})
 		}
 	}

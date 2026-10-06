@@ -11,11 +11,12 @@ func TestDecideReusesHistoricalTargetWithPrefixEvidence(t *testing.T) {
 	body := map[string]any{"model": "m", "messages": []any{map[string]any{"role": "user", "content": "hello"}}}
 	prefix := BuildCachePrefix(body)
 	for _, test := range []struct {
-		name                string
-		changed, stale, off bool
-		want                string
+		name                               string
+		changed, stale, off, appendMessage bool
+		want                               string
 	}{
-		{name: "pinned model does not switch for cache", want: "b"},
+		{name: "same prefix does not move provider", want: "b"},
+		{name: "appended conversation reuses warm provider", appendMessage: true, want: "a"},
 		{name: "changed prefix", changed: true, want: "b"},
 		{name: "expired cache", stale: true, want: "b"},
 		{name: "affinity disabled", off: true, want: "b"},
@@ -27,6 +28,9 @@ func TestDecideReusesHistoricalTargetWithPrefixEvidence(t *testing.T) {
 			store.Retarget("s", "b", "m", 1001)
 			cfg := &config.Config{Providers: []config.Provider{{Name: "b", Type: config.ProviderTypeOpenAI, Models: []config.ModelEntry{{ID: "m"}}}, {Name: "a", Type: config.ProviderTypeOpenAI, Models: []config.ModelEntry{{ID: "m"}}}}}
 			current := body
+			if test.appendMessage {
+				current = map[string]any{"model": "m", "messages": []any{map[string]any{"role": "user", "content": "hello"}, map[string]any{"role": "assistant", "content": "reply"}}}
+			}
 			if test.changed {
 				current = map[string]any{"model": "m", "messages": []any{map[string]any{"role": "user", "content": "different"}}}
 			}

@@ -19,7 +19,7 @@ type CachePrefix struct {
 
 const maxCachePrefixMessages = 128
 
-// BuildCachePrefix hashes conservative source-request evidence. It stores no
+// BuildCachePrefix hashes conservative prepared-body evidence. It stores no
 // prompt text. Only model, stream, and output token limits are omitted.
 func BuildCachePrefix(body map[string]any) CachePrefix {
 	if body == nil {
