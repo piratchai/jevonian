@@ -58,7 +58,10 @@ test("auto-derived assignment needs explicit conversion and keeps derived order"
 test("canonical assignment respects exclusions saved under raw variant ids", () => {
   const input = state([route("plan", ["first"], { "gpt-5.6": [] })]);
   const result = assignProviderModels(
-    { ...input, canonicals: [{ id: "gpt-5-6", variants: [{ provider: "new", model: "gpt-5.6" }] }] },
+    {
+      ...input,
+      canonicals: [{ id: "gpt-5-6", variants: [{ provider: "new", model: "gpt-5.6" }] }],
+    },
     ["plan"],
     ["gpt-5-6"],
     "new",

@@ -281,6 +281,20 @@ func TestClassifyPhaseFreshIsPlan(t *testing.T) {
 	}
 }
 
+func TestClassifyPhaseNewUserMessageEndsPriorToolTurn(t *testing.T) {
+	body := map[string]any{"messages": []any{
+		map[string]any{"role": "user", "content": "implement the change"},
+		map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"function": map[string]any{"name": "edit", "arguments": "{}"}}}},
+		map[string]any{"role": "tool", "content": "done"},
+		map[string]any{"role": "assistant", "content": "implementation finished"},
+		map[string]any{"role": "user", "content": "Plan the next change. Do not edit files."},
+	}}
+	signals := ClassifyPhase(body, KindOpenAI)
+	if signals.Phase != "plan" || signals.HasToolResults || signals.WithinTurn {
+		t.Fatalf("new user turn inherited old tool results: %+v", signals)
+	}
+}
+
 func TestClassifyPhaseOpenAIToolResults(t *testing.T) {
 	signals := ClassifyPhase(executeBody("auto", 0), KindOpenAI)
 	if signals.Phase != "execute" || !signals.HasToolResults {

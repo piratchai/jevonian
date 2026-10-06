@@ -22,13 +22,20 @@ func ParseChatRequest(body []byte) (ChatRequest, error) {
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	CacheRead        int `json:"-"`
 }
 
 // CompletionUsage extracts usage from a Chat Completions JSON body.
 func CompletionUsage(body []byte) Usage {
 	var envelope struct {
-		Usage Usage `json:"usage"`
+		Usage struct {
+			PromptTokens        int `json:"prompt_tokens"`
+			CompletionTokens    int `json:"completion_tokens"`
+			PromptTokensDetails struct {
+				CachedTokens int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
+		} `json:"usage"`
 	}
 	_ = json.Unmarshal(body, &envelope)
-	return envelope.Usage
+	return Usage{PromptTokens: envelope.Usage.PromptTokens, CompletionTokens: envelope.Usage.CompletionTokens, CacheRead: envelope.Usage.PromptTokensDetails.CachedTokens}
 }

@@ -504,6 +504,12 @@ type CacheObservation struct {
 	// A successful request is required: failed usage cannot establish a
 	// reusable prefix.
 	Success bool
+	// UsageKnown distinguishes an explicit zero cache count from missing usage.
+	UsageKnown  bool
+	InputTokens int
+	// Scope separates provider configuration and client protocol generations.
+	Scope  string
+	Prefix CachePrefix
 }
 
 // SessionState is what one conversation remembers between turns.
@@ -515,6 +521,8 @@ type SessionState struct {
 	Turns     int
 	UpdatedAt int64 // epoch ms
 	Cache     *CacheObservation
+	// Caches retains the latest successful observation for each serving target.
+	Caches map[string]CacheObservation
 }
 
 // SessionStore keeps per-session routing memory with a TTL.
@@ -542,14 +550,38 @@ func (s *SessionStore) Get(key string, now int64) (SessionState, bool) {
 		delete(s.sessions, key)
 		return SessionState{}, false
 	}
-	return state, true
+	return cloneSessionState(state), true
 }
 
 // Set records the session state.
 func (s *SessionStore) Set(key string, state SessionState) {
+	state = cloneSessionState(state)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions[key] = state
+	// Merge history under the lock so an in-flight completion is not lost.
+	if old, ok := s.sessions[key]; ok && (s.ttlMs <= 0 || state.UpdatedAt-old.UpdatedAt <= s.ttlMs) {
+		if state.Caches == nil {
+			state.Caches = map[string]CacheObservation{}
+		}
+		for target, observation := range old.Caches {
+			if current, exists := state.Caches[target]; !exists || current.At < observation.At {
+				state.Caches[target] = cloneCacheObservation(observation)
+			}
+		}
+		if state.Cache == nil || (old.Cache != nil && state.Cache.At < old.Cache.At) {
+			if old.Cache != nil {
+				copied := cloneCacheObservation(*old.Cache)
+				state.Cache = &copied
+			}
+		}
+		if state.Cache != nil {
+			if current, ok := state.Caches[PlanKey(state.Cache.Provider, state.Cache.Model)]; ok && current.At > state.Cache.At {
+				copied := cloneCacheObservation(current)
+				state.Cache = &copied
+			}
+		}
+	}
+	s.sessions[key] = cloneSessionState(state)
 }
 
 // Retarget re-points a session at the target a failover moved the turn to.
@@ -570,8 +602,8 @@ func (s *SessionStore) Retarget(key string, provider, model string, now int64) {
 	s.sessions[key] = state
 }
 
-// ObserveCache attaches a cache observation when it still belongs to the
-// session's target and is newer than the stored one.
+// ObserveCache retains successful usage by serving target. A delayed
+// completion updates only that target's history, not the active target.
 // src/routing.ts SessionStore.observeCache.
 func (s *SessionStore) ObserveCache(key string, obs CacheObservation) {
 	s.mu.Lock()
@@ -580,15 +612,71 @@ func (s *SessionStore) ObserveCache(key string, obs CacheObservation) {
 	if !ok || !obs.Success {
 		return
 	}
-	if state.Provider != obs.Provider || state.Model != obs.Model {
+	if obs.At-state.UpdatedAt > s.ttlMs || obs.Provider == "" || obs.Model == "" {
 		return
 	}
-	if state.Cache != nil && state.Cache.At > obs.At {
+	if !obs.UsageKnown && obs.InputTokens == 0 && obs.UncachedInputTokens == 0 && obs.CacheReadTokens == 0 && obs.CacheWriteTokens == 0 {
+		// No token usage is different from a reported cache miss. A missing-
+		// usage snapshot refreshes metadata of the target's existing evidence
+		// without overwriting its token counts; with no evidence yet, the
+		// observation is still recorded so the target reads as "warm".
+		if old, exists := state.Caches[PlanKey(obs.Provider, obs.Model)]; exists {
+			if obs.At >= old.At {
+				old.At, old.Prefix, old.Scope = obs.At, obs.Prefix, obs.Scope
+				state.Caches[PlanKey(obs.Provider, obs.Model)] = old
+				if state.Provider == obs.Provider && state.Model == obs.Model && state.Cache != nil {
+					c := cloneCacheObservation(old)
+					state.Cache = &c
+				}
+				s.sessions[key] = cloneSessionState(state)
+			}
+			return
+		}
+	}
+	if state.Caches == nil {
+		state.Caches = map[string]CacheObservation{}
+	}
+	target := PlanKey(obs.Provider, obs.Model)
+	if old, exists := state.Caches[target]; exists && old.At > obs.At {
 		return
 	}
-	o := obs
-	state.Cache = &o
-	s.sessions[key] = state
+	state.Caches[target] = cloneCacheObservation(obs)
+	// Bound memory even when a conversation visits many targets.
+	if len(state.Caches) > 32 {
+		oldest := ""
+		var at int64
+		for key, observation := range state.Caches {
+			if key != target && (oldest == "" || observation.At < at) {
+				oldest, at = key, observation.At
+			}
+		}
+		delete(state.Caches, oldest)
+	}
+	if state.Provider == obs.Provider && state.Model == obs.Model && (state.Cache == nil || state.Cache.At <= obs.At) {
+		o := cloneCacheObservation(state.Caches[target])
+		state.Cache = &o
+	}
+	s.sessions[key] = cloneSessionState(state)
+}
+
+func cloneCacheObservation(c CacheObservation) CacheObservation {
+	c.Prefix.MessageHash = append([]string(nil), c.Prefix.MessageHash...)
+	return c
+}
+
+func cloneSessionState(state SessionState) SessionState {
+	if state.Cache != nil {
+		c := cloneCacheObservation(*state.Cache)
+		state.Cache = &c
+	}
+	if state.Caches != nil {
+		copied := make(map[string]CacheObservation, len(state.Caches))
+		for key, observation := range state.Caches {
+			copied[key] = cloneCacheObservation(observation)
+		}
+		state.Caches = copied
+	}
+	return state
 }
 
 // Size reports live session count (diagnostics).
@@ -929,6 +1017,9 @@ type Deps struct {
 	// CacheTTL is the vendor cache TTL estimate; 0 uses the conservative
 	// default. src/routing.ts RouteInput.cacheTtlMs.
 	CacheTTL time.Duration
+	// CacheEvidence supplies conservative source-prefix evidence for a target.
+	// It does not prove the vendor has retained a cache entry.
+	CacheEvidence func(provider, model string) (string, CachePrefix)
 	// Sleep backs off between brain rounds; nil means a real sleep.
 	Sleep func(time.Duration)
 }
@@ -1005,7 +1096,22 @@ func Decide(ctx context.Context, deps Deps, input Input) (*Decision, error) {
 	}
 
 	if !virtual {
-		return decidePinned(deps, input, cfg, requestedRaw, requestedModel, requestID, session, now, resetOrder, standCache)
+		previous, hadPrevious := SessionState{}, false
+		if input.Store != nil {
+			previous, hadPrevious = input.Store.Get(session, now)
+		}
+		d, err := decidePinned(deps, input, cfg, requestedRaw, requestedModel, requestID, session, now, resetOrder, standCache)
+		if err == nil && input.Store != nil {
+			state := SessionState{}
+			if hadPrevious {
+				state = previous
+			}
+			state.Provider, state.Model, state.Phase = d.Provider, d.Model, d.Phase
+			state.UpdatedAt = now
+			state.Turns++
+			input.Store.Set(session, state)
+		}
+		return d, err
 	}
 	if cfg.Routing.Mode == "off" {
 		return nil, &RouteError{

@@ -807,13 +807,73 @@ func cacheCostAffinity(deps Deps, candidate TierPick, affinity CacheAffinity, at
 	return affinity
 }
 
+// candidateCacheAffinity uses evidence from this target, never another provider.
+func candidateCacheAffinity(deps Deps, previous *SessionState, candidate TierPick, now, tokens, ttl int64) CacheAffinity {
+	if deps.CacheEvidence == nil {
+		return cacheAffinity(previous, candidate, now, tokens, ttl)
+	}
+	var observation *CacheObservation
+	if previous != nil {
+		if c, ok := previous.Caches[PlanKey(candidate.Provider, candidate.Model)]; ok {
+			observation = &c
+		} else if previous.Cache != nil && previous.Cache.Provider == candidate.Provider && previous.Cache.Model == candidate.Model {
+			observation = previous.Cache
+		}
+	}
+	state := &SessionState{Cache: observation}
+	// Cache affinity is target-local. Do not use a different target's legacy
+	// Cache field as a fallback when history exists.
+	if observation != nil && (observation.Provider != candidate.Provider || observation.Model != candidate.Model) {
+		state.Cache = nil
+	}
+	match := "unknown"
+	if deps.CacheEvidence != nil && observation != nil {
+		scope, prefix := deps.CacheEvidence(candidate.Provider, candidate.Model)
+		if scope == "" || scope != observation.Scope {
+			state.Cache = nil
+		} else {
+			match = CompareCachePrefix(observation.Prefix, prefix)
+			if match == "changed" || match == "unknown" {
+				state.Cache = nil
+			}
+		}
+	}
+	affinity := cacheAffinity(state, candidate, now, tokens, ttl)
+	affinity.PrefixMatch = match
+	return affinity
+}
+
+// orderReusableCache preserves configured order except for targets with
+// successful cache reads and matching source-prefix evidence. Unknown entries
+// do not receive a new preference. Health filtering still applies afterwards.
+func orderReusableCache(deps Deps, previous *SessionState, picks []TierPick, now, ttl int64) []TierPick {
+	if deps.CacheEvidence == nil || previous == nil || len(picks) < 2 {
+		return picks
+	}
+	out := append([]TierPick(nil), picks...)
+	scores := map[string]int{}
+	for _, pick := range picks {
+		a := candidateCacheAffinity(deps, previous, pick, now, int64(^uint(0)>>1), ttl)
+		// "extends" proves the live conversation still contains the cached
+		// prefix and grew past it. A bare "same" does not justify moving the
+		// turn back to a target the session already left.
+		if a.PrefixMatch == "extends" && a.State == CacheHot && a.ExpectedReadTokens >= CacheWorthTokens {
+			scores[PlanKey(pick.Provider, pick.Model)] = a.ExpectedReadTokens
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return scores[PlanKey(out[i].Provider, out[i].Model)] > scores[PlanKey(out[j].Provider, out[j].Model)]
+	})
+	return out
+}
+
 // cacheCandidates measures every candidate against the stored observation.
 // src/routing.ts cacheCandidates.
 func cacheCandidates(deps Deps, candidates []TierPick, previous *SessionState, now, estimatedTokens, cacheTTLMs int64) []CacheCandidateView {
 	out := make([]CacheCandidateView, 0, len(candidates))
 	at := time.UnixMilli(now).UTC()
 	for _, candidate := range candidates {
-		base := cacheAffinity(previous, candidate, now, estimatedTokens, cacheTTLMs)
+		base := candidateCacheAffinity(deps, previous, candidate, now, estimatedTokens, cacheTTLMs)
 		out = append(out, CacheCandidateView{
 			Model:     candidate.Model,
 			Provider:  candidate.Provider,

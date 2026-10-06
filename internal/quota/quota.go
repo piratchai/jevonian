@@ -302,6 +302,38 @@ func windowsContain(ws []Window, id string) bool {
 	return false
 }
 
+// ModelHealth reports only model-scoped exhaustion. It never treats account
+// exhaustion as a model-specific diagnostic.
+type ModelHealth struct {
+	Model    string
+	Status   Status
+	Reason   string
+	ResetsAt time.Time
+}
+
+// ProviderModelHealth exposes active model cooldowns and exhausted model windows.
+func (t *Tracker) ModelHealth(provider config.Provider, model string) ModelHealth {
+	health := ModelHealth{Model: model, Status: StatusOK}
+	if model == "" {
+		return health
+	}
+	now := t.now()
+	if until, reason, ok := t.activeSpent(provider.Name, model, now); ok {
+		return ModelHealth{Model: model, Status: StatusExhausted, Reason: reason, ResetsAt: until}
+	}
+	for _, w := range t.HeaderWindows(provider.Name) {
+		if w.Model == model && activeWindow(w, now) && (w.Status == "rejected" || w.UsedPercent >= 100) {
+			reset, _ := parseISO(w.ResetsAt)
+			reason := w.Status
+			if reason == "" || reason == "allowed" {
+				reason = "model quota window exhausted"
+			}
+			return ModelHealth{Model: model, Status: StatusExhausted, Reason: reason, ResetsAt: reset}
+		}
+	}
+	return health
+}
+
 // ProviderModelExhausted is true when the account is exhausted, this model
 // has an active cooldown, or a recorded model-scoped window is spent.
 func (t *Tracker) ProviderModelExhausted(provider config.Provider, model string, opts HealthOptions) bool {

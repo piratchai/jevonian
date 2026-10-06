@@ -93,6 +93,24 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 	if guard.Enabled && guard.ResetAware {
 		ordered = orderProvidersByReset(matches, requestedModel, cfg, deps, orderOptions{now: now, cache: standCache})
 	}
+	if input.Store != nil && firstHeader(input.Headers, RequestHeaderAffinity) != string(AffinityOff) {
+		if previous, ok := input.Store.Get(session, now); ok {
+			picks := make([]TierPick, len(ordered))
+			byName := map[string]config.Provider{}
+			for i, p := range ordered {
+				picks[i] = TierPick{Provider: p.Name, Model: requestedModel}
+				byName[p.Name] = p
+			}
+			ttl := input.CacheTTL
+			if ttl == 0 {
+				ttl = deps.CacheTTL
+			}
+			picks = orderReusableCache(deps, &previous, picks, now, ttl.Milliseconds())
+			for i, pick := range picks {
+				ordered[i] = byName[pick.Provider]
+			}
+		}
+	}
 	var byWire *config.Provider
 	for i := range ordered {
 		if CanServeClient(ordered[i], input.Kind) {
@@ -139,6 +157,15 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 		variants = append(variants, TierPick{Provider: v.Provider, Model: v.Model})
 	}
 	variants = resetOrder(variants)
+	if input.Store != nil && firstHeader(input.Headers, RequestHeaderAffinity) != string(AffinityOff) {
+		if previous, ok := input.Store.Get(session, now); ok {
+			ttl := input.CacheTTL
+			if ttl == 0 {
+				ttl = deps.CacheTTL
+			}
+			variants = orderReusableCache(deps, &previous, variants, now, ttl.Milliseconds())
+		}
+	}
 	if len(variants) > 0 {
 		var chosen *TierPick
 		if guard.Enabled {
@@ -234,7 +261,23 @@ type turnCtx struct {
 }
 
 func (t *turnCtx) keepOrder(picks []TierPick) []TierPick {
-	verdict := cacheAffinityKeep(t.previous, t.affinity, t.signals.WithinTurn, picks, t.now, t.cacheTTLMs)
+	previous := t.previous
+	if t.affinity == AffinityAuto {
+		picks = orderReusableCache(t.deps, previous, picks, t.now, t.cacheTTLMs)
+		if previous != nil && t.deps.CacheEvidence != nil {
+			activeProvider, activeModel := previous.Provider, previous.Model
+			if previous.Cache != nil {
+				activeProvider, activeModel = previous.Cache.Provider, previous.Cache.Model
+			}
+			a := candidateCacheAffinity(t.deps, previous, TierPick{Provider: activeProvider, Model: activeModel}, t.now, int64(CompactionEstimate(t.input.Body)), t.cacheTTLMs)
+			if a.PrefixMatch == "changed" || a.PrefixMatch == "unknown" || a.State == CacheUnknown {
+				copy := *previous
+				copy.Cache = nil
+				previous = &copy
+			}
+		}
+	}
+	verdict := cacheAffinityKeep(previous, t.affinity, t.signals.WithinTurn, picks, t.now, t.cacheTTLMs)
 	if verdict.Keep {
 		t.keepApplied = true
 	}
@@ -317,9 +360,15 @@ func (t *turnCtx) commit(session, phase string, picked TierPick, turns int) {
 		return
 	}
 	state := SessionState{Phase: phase, Model: picked.Model, Provider: picked.Provider, Turns: turns, UpdatedAt: t.now}
-	if t.previous != nil && t.previous.Cache != nil {
-		c := *t.previous.Cache
-		state.Cache = &c
+	if t.previous != nil {
+		previous := cloneSessionState(*t.previous)
+		if previous.Provider == picked.Provider && previous.Model == picked.Model {
+			state.Cache = previous.Cache
+		}
+		state.Caches = previous.Caches
+		if state.Caches != nil {
+			delete(state.Caches, PlanKey(picked.Provider, picked.Model))
+		}
 	}
 	t.input.Store.Set(session, state)
 }

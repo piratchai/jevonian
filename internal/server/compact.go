@@ -27,7 +27,7 @@ func (t *turn) remoteCompaction() bool {
 // provider, never touching the brain; every other turn goes through Decide.
 func (t *turn) initialDecision(ctx context.Context) (*routing.Decision, error) {
 	if t.remoteCompaction() {
-		return routing.RemoteCompactionDecision(t.cfg, t.routingDeps(), t.body, t.headers, t.requestID)
+		return routing.RemoteCompactionDecision(t.cfg, t.routingDeps(t.body), t.body, t.headers, t.requestID)
 	}
 	return t.decide(ctx)
 }

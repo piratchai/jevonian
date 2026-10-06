@@ -20,6 +20,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/keys"
 	"github.com/xinyao27/jevonian/internal/ledger"
 	"github.com/xinyao27/jevonian/internal/provider/multiacct"
+	"github.com/xinyao27/jevonian/internal/quota"
 	"github.com/xinyao27/jevonian/internal/routing"
 	"github.com/xinyao27/jevonian/internal/server/admin"
 )
@@ -316,6 +317,28 @@ func TestProviderDiscoveryAndWirePins(t *testing.T) {
 		t.Fatal("defaultProvider not cleared")
 	}
 }
+func TestQuotaAPIIncludesConfiguredModelHealth(t *testing.T) {
+	x := setup(t, nil)
+	cfg := x.config
+	cfg.Providers = []config.Provider{{Name: "devin", Billing: config.BillingSubscription, Models: []config.ModelEntry{{ID: "swe-2-max"}, {ID: "swe-2"}}}}
+	tracker := quota.New(nil)
+	now := time.Date(2026, 10, 6, 1, 0, 0, 0, time.UTC)
+	tracker.SetClock(func() time.Time { return now })
+	tracker.MarkSpent("devin", quota.MarkSpentOptions{Model: "swe-2-max", Label: "Reached free model rate limit", ResetsAt: now.Add(45 * time.Second)})
+	x.h = admin.New(admin.Deps{Config: func() *config.Config { return cfg }, Quota: tracker, Quotas: func(context.Context, *config.Config, bool) ([]map[string]any, error) { return nil, nil }})
+	code, out := request(t, x.h, "GET", "/quota", nil)
+	checkStatus(t, code, 200, out)
+	row := out["health"].([]any)[0].(map[string]any)
+	models := row["modelHealth"].([]any)
+	if len(models) != 1 {
+		t.Fatalf("model health rows = %#v", models)
+	}
+	model := models[0].(map[string]any)
+	if model["model"] != "swe-2-max" || model["status"] != "exhausted" || model["reason"] != "Reached free model rate limit" || model["resetsAt"] == nil {
+		t.Fatalf("model health = %#v", model)
+	}
+}
+
 func TestLoopbackAndMissingDependencies(t *testing.T) {
 	x := setup(t, nil)
 	req := httptest.NewRequest("GET", "/state", nil)

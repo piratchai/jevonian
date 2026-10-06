@@ -253,6 +253,7 @@ func TestResetHints(t *testing.T) {
 		want time.Duration
 	}{
 		{"Your limit will reset in 45 minutes.", 45 * time.Minute},
+		{"Your limit will reset in 45 seconds.", 45 * time.Second},
 		{"limit resets in 1 hour and 5 minutes", 65 * time.Minute},
 		{"resets in 2 days", 2 * 24 * time.Hour},
 		{"Rate limit reached. Resets in: 3h0m0s", 3 * time.Hour},
@@ -263,6 +264,16 @@ func TestResetHints(t *testing.T) {
 		if got <= c.want-5*time.Second || got > c.want {
 			t.Fatalf("%q → %v (want %v)", c.text, got, c.want)
 		}
+	}
+}
+
+func TestFreeModelLimitTrailerIsModelScopedRateLimit(t *testing.T) {
+	err := ClassifyError(0, `{"error":{"code":"unavailable","message":"Reached free model rate limit. Your limit will reset in 45 seconds."}}`, "")
+	if err.Kind != KindRateLimit || !ModelScoped(err) {
+		t.Fatalf("trailer classification = %+v", err)
+	}
+	if remaining := time.Until(err.ResetsAt); remaining <= 40*time.Second || remaining > 45*time.Second {
+		t.Fatalf("reset delay = %v, want about 45s", remaining)
 	}
 }
 

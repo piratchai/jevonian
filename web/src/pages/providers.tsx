@@ -200,11 +200,11 @@ export function ProvidersPage({
     return presets.find((preset) => preset.baseUrl.replace(/\/+$/, "") === normalized);
   }, [presetId, activePreset, presets, name, baseUrl]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refreshQuota = false) => {
     try {
       const [nextState, nextQuotas, nextSync] = await Promise.all([
         api.state(),
-        api.quota(),
+        api.quota(refreshQuota),
         api.modelSync(),
       ]);
       setState(nextState);
@@ -219,6 +219,11 @@ export function ProvidersPage({
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void load(false), 5_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
 
   const applyPreset = useCallback((preset: PresetView | undefined) => {
     if (!preset) return;
@@ -515,9 +520,7 @@ export function ProvidersPage({
   async function refreshQuota() {
     setBusy(true);
     try {
-      const result = await api.quota(true);
-      setQuotas(result.quotas);
-      setHealth(result.health);
+      await load(true);
     } catch (cause) {
       setError(String(cause));
     } finally {

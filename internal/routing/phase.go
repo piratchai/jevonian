@@ -227,6 +227,24 @@ func ClassifyPhase(body map[string]any, kind RequestKind) PhaseSignals {
 	input := asArray(body["input"])
 	tools := asArray(body["tools"])
 	toolResults := []string{}
+	latestUserMessage := -1
+	for i, raw := range messages {
+		message := asRecord(raw)
+		if message["role"] != "user" {
+			continue
+		}
+		if kind == KindAnthropic {
+			for _, rawBlock := range asArray(message["content"]) {
+				block := asRecord(rawBlock)
+				if block["type"] == "text" && strings.TrimSpace(stringField(block, "text")) != "" {
+					latestUserMessage = i
+					break
+				}
+			}
+		} else {
+			latestUserMessage = i
+		}
+	}
 
 	if kind == KindResponses {
 		for _, raw := range input {
@@ -259,17 +277,54 @@ func ClassifyPhase(body map[string]any, kind RequestKind) PhaseSignals {
 	}
 
 	consecutive := 0
+	if kind == KindResponses {
+		latestUserMessage = -1
+		for i, raw := range input {
+			if item := asRecord(raw); item["type"] == "message" && item["role"] == "user" {
+				latestUserMessage = i
+			}
+		}
+	}
+	activeToolResults := []string{}
+	if latestUserMessage < 0 {
+		activeToolResults = toolResults
+	} else if kind == KindResponses {
+		for i, raw := range input {
+			item := asRecord(raw)
+			if i > latestUserMessage && item["type"] == "function_call_output" {
+				activeToolResults = append(activeToolResults, stringifyContent(item["output"]))
+			}
+		}
+	} else {
+		for i := latestUserMessage + 1; i < len(messages); i++ {
+			message := asRecord(messages[i])
+			if kind == KindOpenAI && message["role"] == "tool" {
+				activeToolResults = append(activeToolResults, stringifyContent(message["content"]))
+			} else if kind == KindAnthropic {
+				for _, rawBlock := range asArray(message["content"]) {
+					block := asRecord(rawBlock)
+					if block["type"] == "tool_result" {
+						activeToolResults = append(activeToolResults, stringifyContent(block["content"]))
+					}
+				}
+			}
+		}
+	}
+	// Phase, hasToolResults and withinTurn are turn-scoped: a fresh user
+	// message after tool results reopens the plan phase. Failure streaks and
+	// the recent-results window stay conversation-wide — work that was just
+	// failing is still struggling work for the brain's board focus.
+	hasToolResults := len(activeToolResults) > 0
+	phase := "plan"
+	if hasToolResults {
+		phase = "execute"
+	}
 	for i := len(toolResults) - 1; i >= 0; i-- {
 		if failurePattern.MatchString(toolResults[i]) {
 			consecutive++
 		} else {
 			break
 		}
-	}
-	hasToolResults := len(toolResults) > 0
-	phase := "plan"
-	if hasToolResults {
-		phase = "execute"
 	}
 	// Keep signal, not harness boilerplate: when the tail is failing, drop the
 	// trailing successes instead of the failures. src/routing.ts.

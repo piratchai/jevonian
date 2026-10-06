@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,7 +83,7 @@ func devinChat(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, 
 	if failure.Kind == devin.KindContentPolicy {
 		out.outcome.Kind = OutcomeClientError
 	}
-	if failure.Kind == devin.KindQuota || failure.Kind == devin.KindRateLimit {
+	if failure.Kind == devin.KindQuota || failure.Kind == devin.KindRateLimit || failure.RateLimit {
 		out.outcome.Kind = OutcomeQuotaRefusal
 		model := ""
 		if devin.ModelScoped(failure) {
@@ -93,7 +94,11 @@ func devinChat(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, 
 			reset = r.now().Add(quota.ProviderCooldown)
 		}
 		if r.deps.Quota != nil {
-			r.deps.Quota.MarkSpent(at.Entry.Provider.Name, quota.MarkSpentOptions{Label: "limit", Model: model, ResetsAt: reset})
+			reason := strings.TrimSpace(failure.Message)
+			if reason == "" {
+				reason = string(failure.Kind)
+			}
+			r.deps.Quota.MarkSpent(at.Entry.Provider.Name, quota.MarkSpentOptions{Label: reason, Model: model, ResetsAt: reset})
 		}
 	}
 	return out, err

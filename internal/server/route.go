@@ -79,6 +79,7 @@ type turn struct {
 	// exclusiveInput is set by deliver from the answering adapter: its usage
 	// input already excludes cache reads.
 	exclusiveInput bool
+	hasUsage       bool
 }
 
 // handleChat is the routing-driven inference flow for every /v1 inference path.
@@ -295,10 +296,20 @@ func (t *turn) decideBody(ctx context.Context, body wire.Body) (*routing.Decisio
 		KeyID:     t.keyID,
 		KeyName:   t.keyName,
 	}
-	return routing.Decide(ctx, t.routingDeps(), input)
+	deps := t.routingDeps(body)
+	return routing.Decide(ctx, deps, input)
 }
 
-func (t *turn) routingDeps() routing.Deps {
+// cacheScopeKind invalidates source evidence when outgoing prompt policy changes.
+func (t *turn) cacheScopeKind() string {
+	policy, _ := json.Marshal(struct {
+		Prompt     config.PromptPolicyConfig
+		TokenSaver config.TokenSaverConfig
+	}{t.cfg.PromptPolicy, t.cfg.TokenSaver})
+	return string(t.kind) + "\x00" + t.keyID + "\x00" + string(policy)
+}
+
+func (t *turn) routingDeps(bodies ...wire.Body) routing.Deps {
 	deps := t.srv.deps.Routing
 	if deps.Quota == nil && t.srv.deps.Quota != nil {
 		deps.Quota = routing.QuotaSourceFunc(t.srv.quotaStanding)
@@ -308,6 +319,18 @@ func (t *turn) routingDeps() routing.Deps {
 	}
 	if deps.RecordBrainCall == nil {
 		deps.RecordBrainCall = BrainRecorder(t.srv.deps.Ledger, deps.Prices)
+	}
+	evidenceBody := t.body
+	if len(bodies) > 0 {
+		evidenceBody = bodies[0]
+	}
+	deps.CacheEvidence = func(provider, model string) (string, routing.CachePrefix) {
+		for i := range t.cfg.Providers {
+			if t.cfg.Providers[i].Name == provider {
+				return routing.CacheScope(t.cfg.Providers[i], t.cacheScopeKind(), config.ResolveAPIKey(t.cfg.Providers[i])), routing.BuildCachePrefix(evidenceBody)
+			}
+		}
+		return "", routing.CachePrefix{}
 	}
 	return deps
 }
@@ -403,7 +426,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 			return finishJSON(chat, t.kind, d.Model, u, t), u
 		case upstreamWire == upstream.KindOpenAI && bridge == "to-openai":
 			u := openaiwire.CompletionUsage(body)
-			usage2 := wire.Usage{Input: u.PromptTokens, Output: u.CompletionTokens}
+			usage2 := wire.Usage{Input: u.PromptTokens, Output: u.CompletionTokens, CacheRead: u.CacheRead}
 			return finishJSON(resp, t.kind, d.Model, usage2, t), usage2
 		case upstreamWire == upstream.KindResponses:
 			u := responseswire.Usage(resp["usage"])
@@ -442,6 +465,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 			OnClientCancel: func() { canceled.Store(true) },
 		})
 		usage = usageFn()
+		t.hasUsage = usage != (wire.Usage{})
 		if canceled.Load() || r.Context().Err() != nil {
 			st, u, errText := tracker.CancelOutcome()
 			t.record(st, u, t.costOf(u), true, errText)
@@ -466,6 +490,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 	if attempt.Stream && !t.stream {
 		var failure string
 		raw, usage, failure = foldStreamToJSON(raw, attempt, d, t.kind)
+		t.hasUsage = usage != (wire.Usage{})
 		if failure != "" {
 			// The folded stream carries a `response.failed` rather than an HTTP
 			// error, so the refusal hides inside a 200. A quota verdict still
@@ -488,6 +513,7 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 		}
 	} else {
 		raw, usage = fold(raw)
+		t.hasUsage = usage != (wire.Usage{})
 	}
 	for k, v := range headers {
 		w.Header().Set(k, v)
@@ -501,6 +527,22 @@ func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.
 
 // bridgeStream translates the upstream SSE body into the client wire when the
 // plan bridged, else passes it through with usage tracking.
+func mergeUsage(previous, next wire.Usage) wire.Usage {
+	if next.Input != 0 {
+		previous.Input = next.Input
+	}
+	if next.Output != 0 {
+		previous.Output = next.Output
+	}
+	if next.CacheRead != 0 {
+		previous.CacheRead = next.CacheRead
+	}
+	if next.CacheWrite != 0 {
+		previous.CacheWrite = next.CacheWrite
+	}
+	return previous
+}
+
 func (t *turn) bridgeStream(body io.ReadCloser, attempt upstream.Attempt, tracker *wire.StreamTracker) (io.ReadCloser, func() wire.Usage) {
 	d := t.decision
 	bridge := attempt.Plan.Bridge
@@ -511,7 +553,9 @@ func (t *turn) bridgeStream(body io.ReadCloser, attempt upstream.Attempt, tracke
 	var usageMu sync.Mutex
 	setUsage := func(u wire.Usage) {
 		usageMu.Lock()
-		usage = u
+		if u.Input != 0 || u.Output != 0 || u.CacheRead != 0 || u.CacheWrite != 0 {
+			usage = mergeUsage(usage, u)
+		}
 		usageMu.Unlock()
 		tracker.Feed(wire.StreamEvent{Kind: wire.StreamUsage, Usage: u})
 	}
@@ -570,7 +614,7 @@ func (t *turn) bridgeStream(body io.ReadCloser, attempt upstream.Attempt, tracke
 		passthrough := wire.TranslateReader(body, &usageTracker{
 			kind:    upstreamWire,
 			tracker: tracker,
-			onUsage: setUsage,
+			onUsage: func(u wire.Usage) { setUsage(u) },
 		})
 		return passthrough, getUsage
 	}
@@ -588,13 +632,17 @@ type usageTracker struct {
 	kind    config.UpstreamWire
 	tracker *wire.StreamTracker
 	onUsage func(wire.Usage)
+	usage   wire.Usage
 }
 
 func (u *usageTracker) Handle(event wire.Body, sink wire.EventSink) {
 	e := eventFromBody(event)
 	u.tracker.Feed(e)
-	if e.Usage != (wire.Usage{}) && u.onUsage != nil {
-		u.onUsage(e.Usage)
+	if e.Usage != (wire.Usage{}) {
+		u.usage = mergeUsage(u.usage, e.Usage)
+		if u.onUsage != nil {
+			u.onUsage(u.usage)
+		}
 	}
 	if u.kind == config.WireAnthropic || u.kind == config.WireResponses {
 		sink.EmitEvent(event)
@@ -801,9 +849,13 @@ func eventFromBody(e wire.Body) wire.StreamEvent {
 				CacheRead:  int(wire.Number(raw["cache_read_input_tokens"])),
 				CacheWrite: int(wire.Number(raw["cache_creation_input_tokens"])),
 			}
-			if ev.Usage.Input == 0 {
+			if _, hasInput := raw["input_tokens"]; !hasInput {
 				ev.Usage.Input = int(wire.Number(raw["prompt_tokens"]))
+			}
+			if _, hasOutput := raw["output_tokens"]; !hasOutput {
 				ev.Usage.Output = int(wire.Number(raw["completion_tokens"]))
+			}
+			if ev.Usage.CacheRead == 0 {
 				ev.Usage.CacheRead = int(wire.Number(nested(raw, "prompt_tokens_details", "cached_tokens")))
 			}
 			if ev.Kind == 0 && ev.Usage != (wire.Usage{}) {
@@ -953,15 +1005,28 @@ func (t *turn) record(status int, usage wire.Usage, costUSD *float64, pricingKno
 		_ = s.deps.Ledger.Append(rec)
 	}
 	if s.deps.Store != nil && status >= 200 && status < 300 && d != nil && d.Session != "" {
-		s.deps.Store.ObserveCache(d.Session, routing.CacheObservation{
-			Provider:            d.Provider,
-			Model:               d.Model,
-			At:                  time.Now().UnixMilli(),
-			UncachedInputTokens: uncachedInput(t, usage),
-			CacheReadTokens:     usage.CacheRead,
-			CacheWriteTokens:    usage.CacheWrite,
-			Success:             true,
-		})
+		var providerConfig *config.Provider
+		for i := range t.cfg.Providers {
+			if t.cfg.Providers[i].Name == d.Provider {
+				providerConfig = &t.cfg.Providers[i]
+				break
+			}
+		}
+		if providerConfig != nil {
+			s.deps.Store.ObserveCache(d.Session, routing.CacheObservation{
+				Provider:            d.Provider,
+				Model:               d.Model,
+				At:                  time.Now().UnixMilli(),
+				UncachedInputTokens: uncachedInput(t, usage),
+				InputTokens:         usage.Input,
+				CacheReadTokens:     usage.CacheRead,
+				CacheWriteTokens:    usage.CacheWrite,
+				Success:             true,
+				UsageKnown:          t.hasUsage,
+				Prefix:              routing.BuildCachePrefix(t.body),
+				Scope:               routing.CacheScope(*providerConfig, t.cacheScopeKind(), config.ResolveAPIKey(*providerConfig)),
+			})
+		}
 	}
 }
 

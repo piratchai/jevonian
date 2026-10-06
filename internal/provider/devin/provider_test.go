@@ -320,6 +320,18 @@ func TestProviderFreeModelLimitIsModelScoped(t *testing.T) {
 	}
 }
 
+func TestProviderFreeModelTrailerIsModelScoped(t *testing.T) {
+	trailer := EncodeFrame([]byte(`{"error":{"code":"unavailable","message":"Reached free model rate limit. Upgrade to Max for higher limits. Your limit will reset in 45 seconds."}}`), 2)
+	p, _ := newProvider(t, func(w http.ResponseWriter, _ *http.Request) { writeChunked(w, trailer) })
+	result, err := p.Chat(testCtx(), ChatRequest{Body: wire.Body{"messages": []any{wire.Body{"role": "user", "content": "hi"}}}, Model: routedModel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error == nil || result.Error.Kind != KindRateLimit || !ModelScoped(result.Error) || result.Error.ResetsAt.IsZero() {
+		t.Fatalf("free-model trailer = %+v", result.Error)
+	}
+}
+
 func TestProviderModelsAndQuota(t *testing.T) {
 	row := func(id string, disabled bool) []byte {
 		d := uint64(0)

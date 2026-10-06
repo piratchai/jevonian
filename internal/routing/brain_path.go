@@ -82,6 +82,7 @@ func (t *turnCtx) decideBrain(ctx context.Context, requestedRaw, requestID, sess
 
 	allSkipped := []RouteSkip{}
 	offers := []routingOffer{}
+	executeQuotaFiltered := false
 	buildOffer := func(entry config.RoutingEntry, pool []TierPick) {
 		capable := CapableCandidates(cfg, deps, pool)
 		usable, skipped := PartitionByCapability(capable, conversationTokens, minEffort, true)
@@ -115,6 +116,9 @@ func (t *turnCtx) decideBrain(ctx context.Context, requestedRaw, requestID, sess
 		}
 		// Skip a routing whose every provider is spent while others have room.
 		if len(healthy) == 0 {
+			if entry.ID == "execute" && len(declared) > 0 && guard.Enabled {
+				executeQuotaFiltered = true
+			}
 			continue
 		}
 		buildOffer(entry, healthy)
@@ -490,6 +494,13 @@ func (t *turnCtx) decideBrain(ctx context.Context, requestedRaw, requestID, sess
 		}
 	}
 	phase := offer.id
+	if t.signals.HasToolResults && t.signals.Phase == "execute" && offer.id != "execute" && executeQuotaFiltered {
+		phase = "execute"
+		if source == BrainHeuristic {
+			reason = ReasonBrainFallback(phase)
+		}
+		reason = AppendReason(reason, SuffixQuotaFallback)
+	}
 	if len(offer.candidates) == 0 {
 		return nil, &RouteError{Status: 502, Message: fmt.Sprintf("Routing %q has no available models.", offer.id)}
 	}

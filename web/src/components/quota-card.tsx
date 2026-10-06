@@ -1,7 +1,14 @@
+import { useEffect, useState } from "react";
+
 import { ProviderLogo } from "@/components/provider-logo";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ModelQuotaHealthView, ProviderQuotaView, QuotaHealthView, QuotaWindow } from "@/lib/api";
+import type {
+  ModelQuotaHealthView,
+  ProviderQuotaView,
+  QuotaHealthView,
+  QuotaWindow,
+} from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
 import { cn, formatTime, money } from "@/lib/utils";
 
@@ -21,17 +28,28 @@ function remainingLabel(usage: QuotaWindow): string | undefined {
   return undefined;
 }
 
-function resetLabel(iso: string | undefined): string | undefined {
+function resetLabel(iso: string | undefined, now: number): string | undefined {
   if (!iso) return undefined;
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return undefined;
-  const diff = at.getTime() - Date.now();
-  if (diff <= 0) return "resetting";
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
+  const diff = at.getTime() - now;
+  if (diff <= 0) return "reset time passed · refresh status";
+  const seconds = Math.ceil(diff / 1_000);
+  if (seconds < 60) return `resets in ${seconds}s`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `resets in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
   if (hours >= 24) return `resets in ${Math.floor(hours / 24)}d ${hours % 24}h`;
-  if (hours > 0) return `resets in ${hours}h ${minutes}m`;
-  return `resets in ${minutes}m`;
+  return `resets in ${hours}h ${minutes % 60}m`;
+}
+
+function useResetClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
 }
 
 export function balanceLabel(balance: { amount: number; currency: string }): string {
@@ -48,10 +66,11 @@ const SOURCE_LABEL: Record<ProviderQuotaView["source"], string> = {
 };
 
 export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
+  const now = useResetClock();
   const used = window.usedPercent ?? 0;
   const width = Math.min(100, Math.max(0, used));
   const tone = used >= 90 ? "bg-destructive" : used >= 70 ? "bg-amber-500" : "bg-emerald-500";
-  const reset = resetLabel(window.resetsAt);
+  const reset = resetLabel(window.resetsAt, now);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between text-xs">
@@ -83,10 +102,11 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
   );
 }
 
-function ModelCooldownRow({ model }: { model: ModelQuotaHealthView }) {
-  const reset = resetLabel(model.resetsAt);
+function ModelCooldownRow({ model, now }: { model: ModelQuotaHealthView; now: number }) {
+  const reset = resetLabel(model.resetsAt, now);
   const status = model.status.toLowerCase();
-  const exhausted = status.includes("exhaust") || status.includes("cooldown") || status.includes("rate");
+  const exhausted =
+    status.includes("exhaust") || status.includes("cooldown") || status.includes("rate");
   return (
     <div className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -107,6 +127,7 @@ export function ProviderQuotaCard({
   health?: QuotaHealthView;
 }) {
   const spend = quota.spend;
+  const now = useResetClock();
   const payPerToken = quota.billing === "api" && quota.windows.length === 0;
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-xs">
@@ -163,7 +184,7 @@ export function ProviderQuotaCard({
             </p>
           </div>
           {health.modelHealth.map((model) => (
-            <ModelCooldownRow key={model.model} model={model} />
+            <ModelCooldownRow key={model.model} model={model} now={now} />
           ))}
         </section>
       ) : null}

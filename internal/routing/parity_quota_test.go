@@ -306,3 +306,35 @@ func TestQuotaCrossesTiers(t *testing.T) {
 		t.Fatalf("decision = %s %s %q", r.d.Provider, r.d.Phase, r.d.Reason)
 	}
 }
+
+func TestHeuristicToolResultKeepsExecutePhaseWhenCooldownRoutesElsewhere(t *testing.T) {
+	cfg := qcfg(t, "sub-a", []any{
+		withSub(qprov("sub-a", "openai", "http://127.0.0.1:1/v1", "model-execute")),
+		qprov("fallback", "openai", "http://127.0.0.1:2/v1", "model-plan"),
+	}, tiersOf([]any{"model-plan"}, []any{"model-execute"}, nil), nil)
+	body := map[string]any{
+		"model": "auto",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "implement this"},
+			map[string]any{"role": "tool", "tool_call_id": "call-1", "content": "done"},
+		},
+	}
+	d, err := Decide(context.Background(), Deps{Quota: spend("sub-a")}, Input{
+		Config: cfg, Body: body, Headers: map[string]string{}, Store: NewSessionStore(60_000), Kind: KindOpenAI, Now: 1_000,
+	})
+	if err != nil {
+		t.Fatalf("decide: %v", err)
+	}
+	if d.Phase != "execute" {
+		t.Fatalf("phase = %q, want execute", d.Phase)
+	}
+	if d.Provider != "fallback" || d.Model != "model-plan" {
+		t.Fatalf("fallback = %s/%s, want fallback/model-plan", d.Provider, d.Model)
+	}
+	if d.Brain != BrainHeuristic {
+		t.Fatalf("brain = %q, want heuristic", d.Brain)
+	}
+	if !strings.Contains(d.Reason, "execute") {
+		t.Fatalf("reason = %q, want execute heuristic", d.Reason)
+	}
+}

@@ -28,10 +28,11 @@ const (
 // StreamError is a classified Devin failure: the HTTP status to surface, the
 // routing kind, a credential-free message, and (for limits) the reset time.
 type StreamError struct {
-	Status   int
-	Kind     ErrorKind
-	Message  string
-	ResetsAt time.Time // zero when the upstream named no reset
+	Status    int
+	Kind      ErrorKind
+	Message   string
+	ResetsAt  time.Time // zero when the upstream named no reset
+	RateLimit bool      // true when the provider classified this as a rate limit
 }
 
 func (e *StreamError) Error() string { return string(e.Kind) + ": " + e.Message }
@@ -89,7 +90,7 @@ const maxReset = 7 * 24 * time.Hour
 var (
 	resetCompact = regexp.MustCompile(`(?i)resets? in[:\s]+((?:\d+(?:\.\d+)?(?:h|ms|m|s))+)`)
 	compactUnit  = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)(h|ms|m|s)`)
-	resetProse   = regexp.MustCompile(`(?i)resets? in[:\s]+((?:\d+\s*(?:days?|hours?|hrs?|minutes?|mins?|seconds?|secs?)[\s,]*(?:and\s+)?)+)`)
+	resetProse   = regexp.MustCompile(`(?i)(?:resets? in|will reset in)[:\s]+((?:\d+\s*(?:days?|hours?|hrs?|minutes?|mins?|seconds?|secs?)[\s,]*(?:and\s+)?)+)`)
 	proseDays    = regexp.MustCompile(`(?i)(\d+)\s*days?`)
 	proseHours   = regexp.MustCompile(`(?i)(\d+)\s*(?:hours?|hrs?)`)
 	proseMinutes = regexp.MustCompile(`(?i)(\d+)\s*(?:minutes?|mins?)`)
@@ -169,23 +170,27 @@ func errorParts(text string) (code, message string) {
 }
 
 var (
-	reRateLimitWord    = regexp.MustCompile(`rate limit`)
-	reResetsIn         = regexp.MustCompile(`resets? in[:\s]`)
-	reQuota            = regexp.MustCompile(`insufficient.*(credit|quota|balance|funds)|out of (credits?|quota)|quota.*exceeded|exceeded.*quota|(credit|quota|balance|funds).*(exhausted|depleted|spent|used up)|exhausted.*(credit|quota|balance|funds)|quota has been|usage quota has been|daily usage|usage (cap|allowance|limit).*(reached|hit|exceeded)`)
-	reCapacity         = regexp.MustCompile(`high demand|try again later|currently (busy|overloaded|at capacity)|overloaded|temporarily (busy|unavailable)|server is busy|(service|backend|model|server) (is )?(temporarily )?unavailable|at capacity`)
-	reInternal         = regexp.MustCompile(`internal error occurred`)
-	reContentPolicy    = regexp.MustCompile(`blocked by (our |the )?content policy|remove (sensitive|unsafe) content|content[_ ]policy`)
-	reModelBlocked     = regexp.MustCompile(`/upgrade|upgrade to (access|pro|a paid)|insufficient.*entitlement|requires? (a )?(paid|pro|team|teams|enterprise)`)
-	reMCPConfig        = regexp.MustCompile(`mcp configuration issue`)
-	reAuth             = regexp.MustCompile(`permission_denied|unauthenticated|invalid.*token|token.*(expired|invalid|revoked)`)
-	reRateLimitLoose   = regexp.MustCompile(`rate.?limit|too many requests|resource_exhausted`)
-	reCredentialLabel  = regexp.MustCompile(`(?i)devin-session-token\$|\bBasic\s+`)
-	modelScopedPattern = regexp.MustCompile(`(?i)\b(?:for this model|for the model|free model rate limit)\b`)
+	reRateLimitWord            = regexp.MustCompile(`rate limit`)
+	reResetsIn                 = regexp.MustCompile(`resets? in[:\s]`)
+	reQuota                    = regexp.MustCompile(`insufficient.*(credit|quota|balance|funds)|out of (credits?|quota)|quota.*exceeded|exceeded.*quota|(credit|quota|balance|funds).*(exhausted|depleted|spent|used up)|exhausted.*(credit|quota|balance|funds)|quota has been|usage quota has been|daily usage|usage (cap|allowance|limit).*(reached|hit|exceeded)`)
+	reCapacity                 = regexp.MustCompile(`high demand|try again later|currently (busy|overloaded|at capacity)|overloaded|temporarily (busy|unavailable)|server is busy|(service|backend|model|server) (is )?(temporarily )?unavailable|at capacity`)
+	reInternal                 = regexp.MustCompile(`internal error occurred`)
+	reContentPolicy            = regexp.MustCompile(`blocked by (our |the )?content policy|remove (sensitive|unsafe) content|content[_ ]policy`)
+	reModelBlocked             = regexp.MustCompile(`/upgrade|upgrade to (access|pro|a paid)|insufficient.*entitlement|requires? (a )?(paid|pro|team|teams|enterprise)`)
+	reMCPConfig                = regexp.MustCompile(`mcp configuration issue`)
+	reAuth                     = regexp.MustCompile(`permission_denied|unauthenticated|invalid.*token|token.*(expired|invalid|revoked)`)
+	reRateLimitLoose           = regexp.MustCompile(`rate.?limit|too many requests|resource_exhausted`)
+	reCredentialLabel          = regexp.MustCompile(`(?i)devin-session-token\$|\bBasic\s+`)
+	modelScopedPattern         = regexp.MustCompile(`(?i)\b(?:for this model|for the model|free model rate limit)\b`)
+	reModelScopedFreeRateLimit = regexp.MustCompile(`(?i)\breached free model rate limit\b`)
 )
 
 func classifyKind(status int, code, lc string) ErrorKind {
 	// A hard per-model limit carries its reset window; it beats the "try again later" capacity arm.
 	if reRateLimitWord.MatchString(lc) && reResetsIn.MatchString(lc) {
+		return KindRateLimit
+	}
+	if status == 0 && code == "unavailable" && reModelScopedFreeRateLimit.MatchString(lc) {
 		return KindRateLimit
 	}
 	if reQuota.MatchString(lc) {
@@ -261,8 +266,8 @@ func classifyAt(status int, text, token string, now time.Time) *StreamError {
 	}
 	message = redactCredentials(message, kind, token)
 	message = wire.TruncateRunes(message, 2000)
-	out := &StreamError{Status: kindStatus[kind], Kind: kind, Message: message}
-	if kind == KindRateLimit || kind == KindQuota {
+	out := &StreamError{Status: kindStatus[kind], Kind: kind, Message: message, RateLimit: kind == KindRateLimit}
+	if kind == KindRateLimit || kind == KindQuota || (status == 0 && reModelScopedFreeRateLimit.MatchString(lc)) {
 		if d := resetDuration(message); d > 0 {
 			out.ResetsAt = now.Add(d).UTC()
 		}

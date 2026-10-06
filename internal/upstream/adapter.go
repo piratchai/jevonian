@@ -376,7 +376,7 @@ func (a *openaiAdapter) Prepare(in PrepInput) (wire.Body, error) {
 
 func (a *openaiAdapter) UsageFrom(body []byte) wire.Usage {
 	u := openaiwire.CompletionUsage(body)
-	return wire.Usage{Input: u.PromptTokens, Output: u.CompletionTokens}
+	return wire.Usage{Input: u.PromptTokens, Output: u.CompletionTokens, CacheRead: u.CacheRead}
 }
 func (a *openaiAdapter) EndpointURL(p config.Provider) string { return "" }
 func (a *openaiAdapter) Headers(p config.Provider, base http.Header) http.Header {

@@ -145,6 +145,29 @@ func TestModelScopedSpentDoesNotExhaustAccount(t *testing.T) {
 	}
 }
 
+func TestModelHealthDiagnosesCooldownExpiryAndIsolation(t *testing.T) {
+	now := time.Date(2026, 10, 6, 1, 0, 0, 0, time.UTC)
+	tracker := New(nil)
+	tracker.SetClock(func() time.Time { return now })
+	provider := config.Provider{Name: "devin"}
+	reset := now.Add(45 * time.Second)
+	tracker.MarkSpent("devin", MarkSpentOptions{Model: "swe-2-max", Label: "Reached free model rate limit", ResetsAt: reset})
+	if got := tracker.ProviderHealth(provider, HealthOptions{}).Status; got != StatusUnknown {
+		t.Fatalf("account status = %s; model refusal must not exhaust account", got)
+	}
+	health := tracker.ModelHealth(provider, "swe-2-max")
+	if health.Status != StatusExhausted || health.Reason != "Reached free model rate limit" || !health.ResetsAt.Equal(reset) {
+		t.Fatalf("model health = %+v", health)
+	}
+	if tracker.ModelHealth(provider, "swe-2").Status != StatusOK {
+		t.Fatal("sibling model should remain healthy")
+	}
+	now = reset
+	if health := tracker.ModelHealth(provider, "swe-2-max"); health.Status != StatusOK {
+		t.Fatalf("expired model health = %+v", health)
+	}
+}
+
 func TestAnthropicWindowsFromHeaders(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-5h-utilization", "0.62")

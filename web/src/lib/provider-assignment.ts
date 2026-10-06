@@ -2,7 +2,9 @@ import type { RoutingEntryView, StateResponse } from "./api";
 
 /** Append backup models without changing saved priorities or provider allow-lists. */
 export function assignProviderModels(
-  state: StateResponse & { canonicals?: Array<{ id: string; variants: Array<{ provider: string; model: string }> }> },
+  state: StateResponse & {
+    canonicals?: Array<{ id: string; variants: Array<{ provider: string; model: string }> }>;
+  },
   taskIds: string[],
   models: string[],
   provider: string,
@@ -22,8 +24,7 @@ export function assignProviderModels(
       const matchingKeys = Object.keys(entry.providers ?? {}).filter((key) =>
         state.canonicals?.some(
           (canonical) =>
-            canonical.id === model &&
-            canonical.variants.some((variant) => variant.model === key),
+            canonical.id === model && canonical.variants.some((variant) => variant.model === key),
         ),
       );
       const keysToCheck = [...new Set([model, ...matchingKeys])];
