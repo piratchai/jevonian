@@ -4,7 +4,6 @@ import {
   MonitorSmartphoneIcon,
   RouteIcon,
   ScrollTextIcon,
-  ServerIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
@@ -49,8 +48,7 @@ const linkGroups = [
   {
     label: "Configuration",
     links: [
-      { to: "/providers", label: "Providers", icon: ServerIcon },
-      { to: "/routing", label: "Routing", icon: RouteIcon },
+      { to: "/models", label: "Models & Routing", icon: RouteIcon },
       { to: "/clients", label: "Clients", icon: MonitorSmartphoneIcon },
       { to: "/keys", label: "API keys", icon: KeyRoundIcon },
     ],
@@ -59,8 +57,7 @@ const linkGroups = [
 
 const pageNames: Record<string, string> = {
   "/": "Overview",
-  "/providers": "Providers",
-  "/routing": "Routing",
+  "/models": "Models & Routing",
   "/keys": "API keys",
   "/clients": "Clients",
   "/logs": "Logs",

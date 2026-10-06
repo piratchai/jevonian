@@ -1,992 +1,352 @@
 import {
   closestCenter,
   DndContext,
-  type DragEndEvent,
-  type DragOverEvent,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
+  type DragEndEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
-  rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, X } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { RoutingSkeleton } from "@/components/page-skeletons";
 import { ProviderLogo } from "@/components/provider-logo";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   api,
+  type QuotaGuardView,
+  type RoutingEntryView,
+  type StateResponse,
   type CanonicalModelView,
   type ModelView,
-  type QuotaGuardView,
   type QuotaHealthView,
-  type QuotaStatusView,
-  type RoutingEntryView,
-  type RoutingView,
-  type StateResponse,
   type TokenSaverConfigView,
 } from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
-import { cn } from "@/lib/utils";
 
-const BUILTIN_IDS = new Set(["plan", "execute", "utility", "chat"]);
+import {
+  allowedProviders,
+  BUILTIN_ROUTING_IDS,
+  mergeRoutingDrafts,
+  routeSavePayload,
+  validRoutingId,
+} from "./routing-state";
+
 const GUARD_FALLBACK: QuotaGuardView = { enabled: true, lowPercent: 10, resetAware: true };
+const NEW_ROUTE = "__new_route__";
 
-/**
- * What actually decides a turn. The brain picks the routing; each card is a scenario pool
- * it can choose from.
- */
-const BEHAVIOUR: Array<{ signal: string; decision: string }> = [
-  {
-    signal: "Every auto request",
-    decision: "one Jev call picks the routing and the thinking level",
-  },
-  {
-    signal: "Exhausted provider",
-    decision: "removed before the brain is asked; a mid-turn 429 re-routes once",
-  },
-  {
-    signal: "Conversation too large for a model",
-    decision: "withheld, and listed in x-jevonian-skipped",
-  },
-  {
-    signal: "Nothing fits the context",
-    decision: "the history is compacted, then routing runs again",
-  },
-  { signal: "Explicit routing or model", decision: "routed without consulting the brain" },
-];
-
-/** A routing's models, plus whether they were derived from the price table instead of pinned. */
-function routingEntries(
-  models: string[],
-  derived: string[] | undefined,
-): { entries: string[]; auto: boolean } {
-  if (models.length > 0) return { entries: models, auto: false };
-  if (derived && derived.length > 0) return { entries: derived, auto: true };
-  return { entries: [], auto: false };
+export interface RoutingPageProps {
+  embedded?: boolean;
+  refreshKey?: number;
+  onChanged?: () => void;
+  onEditingChange?: (editing: boolean) => void;
+  settingsOnly?: boolean;
 }
 
-function slugify(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-}
-
-function isValidRoutingId(value: string): boolean {
-  return /^[a-z][a-z0-9-]{0,63}$/.test(value) && value !== "auto";
-}
-
-function ProviderChipFace({
-  provider,
-  rank,
-  isNext,
-  status,
-  official,
-  showRank,
+function OrderedRow({
+  id,
+  index,
+  count,
+  onMove,
+  children,
 }: {
-  provider: string;
-  rank: number;
-  isNext: boolean;
-  status?: QuotaStatusView;
-  official?: boolean;
-  showRank?: boolean;
+  id: string;
+  index: number;
+  count: number;
+  onMove: (from: number, to: number) => void;
+  children: ReactNode;
 }) {
-  return (
-    <>
-      {showRank ? (
-        <span className="tabular-nums text-[10px] font-medium text-muted-foreground">{rank}</span>
-      ) : null}
-      <ProviderLogo id={provider} className="size-3.5" />
-      <span>{providerDisplayName(provider)}</span>
-      {official ? (
-        <span className="rounded-full bg-muted px-1 text-[9px] uppercase tracking-wide">
-          vendor
-        </span>
-      ) : null}
-      {isNext ? <span className="text-[9px] uppercase tracking-wide opacity-70">next</span> : null}
-      {status === "exhausted" ? (
-        <span className="text-[9px] uppercase tracking-wide text-destructive">spent</span>
-      ) : status === "low" ? (
-        <span className="text-[9px] uppercase tracking-wide text-amber-600">low</span>
-      ) : null}
-    </>
-  );
-}
-
-function SortableProviderChip({
-  provider,
-  rank,
-  isNext,
-  status,
-  official,
-  onRemove,
-}: {
-  provider: string;
-  rank: number;
-  isNext: boolean;
-  status?: QuotaStatusView;
-  official?: boolean;
-  onRemove?: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: provider });
-  return (
-    <span
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={cn(
-        "relative flex items-center gap-1 rounded-md border bg-background px-1.5 py-1 text-[11px]",
-        isNext && "border-foreground/30 font-medium text-foreground",
-        !isNext && "text-muted-foreground",
-        status === "exhausted" && "opacity-60",
-        status === "low" && "border-amber-500/40",
-        isDragging && "z-10 opacity-40 shadow-md ring-1 ring-foreground/20",
-      )}
-      title="Drag to set preference order"
-    >
-      <button
-        ref={setActivatorNodeRef}
-        type="button"
-        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-        aria-label={`Reorder ${providerDisplayName(provider)}`}
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="size-3.5" />
-      </button>
-      <ProviderChipFace
-        provider={provider}
-        rank={rank}
-        isNext={isNext}
-        status={status}
-        official={official}
-        showRank
-      />
-      {onRemove ? (
-        <button
-          type="button"
-          className="shrink-0 rounded text-muted-foreground hover:text-destructive"
-          aria-label={`Remove ${providerDisplayName(provider)} from this model`}
-          title={`Stop routing this model through ${providerDisplayName(provider)}`}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={onRemove}
-        >
-          <X className="size-3" />
-        </button>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * The provider(s) behind a model id. Drag to set preference order; with `onChangeProviders` the
- * chips become an allow-list — each chip can be removed, and a removed provider is offered back
- * below. An empty list withholds the model, which the caller shows as an empty state.
- */
-function ProviderChips({
-  providers,
-  excluded,
-  stale,
-  statuses,
-  officials,
-  editable,
-  onChangeProviders,
-}: {
-  /** Providers routing may use, in preference order. */
-  providers: string[];
-  /** Providers that could serve this model but are currently removed. */
-  excluded?: string[];
-  /** Saved names no provider serves any more — kept visible so they can be deleted. */
-  stale?: string[];
-  statuses?: Map<string, QuotaStatusView>;
-  officials?: Set<string>;
-  editable?: boolean;
-  onChangeProviders?: (next: string[]) => void;
-}) {
-  // Local order so chips swap as you drag; commit to the parent on drop.
-  const [items, setItems] = useState(providers);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
-  useEffect(() => {
-    setItems(providers);
-  }, [providers]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const next = items.find((provider) => {
-    const status = statuses?.get(provider);
-    return status !== "low" && status !== "exhausted";
-  });
-
-  function moveActive(activeId: string, overId: string) {
-    setItems((current) => {
-      const from = current.indexOf(activeId);
-      const to = current.indexOf(overId);
-      if (from < 0 || to < 0 || from === to) return current;
-      return arrayMove(current, from, to);
-    });
-  }
-
-  function handleDragOver(event: DragOverEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    moveActive(String(active.id), String(over.id));
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      moveActive(String(active.id), String(over.id));
-    }
-    // Defer so the last moveActive flush is included.
-    queueMicrotask(() => {
-      const nextOrder = itemsRef.current;
-      if (!sameOrder(nextOrder, providers)) onChangeProviders?.(nextOrder);
-    });
-  }
-
-  function handleDragCancel() {
-    setItems(providers);
-  }
-
-  function remove(provider: string) {
-    onChangeProviders?.(items.filter((item) => item !== provider));
-  }
-
-  function restore(provider: string) {
-    onChangeProviders?.([...items, provider]);
-  }
-
-  if (!editable) {
-    if (providers.length === 0 && (stale?.length ?? 0) === 0) {
-      return <span className="text-[11px] text-muted-foreground">Customize to set providers</span>;
-    }
-    return (
-      <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-        {[...items, ...(stale ?? [])].map((provider, index) => {
-          const status = statuses?.get(provider);
-          const missing = stale?.includes(provider) ?? false;
-          return (
-            <span
-              key={provider}
-              title={
-                missing ? "not configured for this model" : status ? `quota: ${status}` : undefined
-              }
-              className={cn(
-                "flex items-center gap-1 rounded-md border px-1.5 py-0.5",
-                provider === next && "border-foreground/20 font-medium text-foreground",
-                status === "exhausted" && "opacity-60 line-through",
-                status === "low" && "text-amber-600",
-                missing && "opacity-60",
-              )}
-            >
-              <ProviderChipFace
-                provider={provider}
-                rank={index + 1}
-                isNext={provider === next}
-                status={status}
-                official={officials?.has(provider)}
-                showRank={items.length + (stale?.length ?? 0) > 1}
-              />
-            </span>
-          );
-        })}
-      </span>
-    );
-  }
-
-  const draggable = items.length > 1;
-
-  return (
-    <span className="flex flex-col gap-1">
-      {items.length === 0 ? (
-        <span className="text-[11px] text-muted-foreground">
-          No provider — routing will not use this model.
-        </span>
-      ) : draggable ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragCancel}
-        >
-          <SortableContext items={items} strategy={rectSortingStrategy}>
-            <span className="flex flex-wrap items-center gap-1.5">
-              {items.map((provider, index) => (
-                <SortableProviderChip
-                  key={provider}
-                  provider={provider}
-                  rank={index + 1}
-                  isNext={provider === next}
-                  status={statuses?.get(provider)}
-                  official={officials?.has(provider)}
-                  onRemove={() => remove(provider)}
-                />
-              ))}
-            </span>
-          </SortableContext>
-        </DndContext>
-      ) : (
-        <span className="flex flex-wrap items-center gap-1.5">
-          {items.map((provider, index) => (
-            <span
-              key={provider}
-              className={cn(
-                "flex items-center gap-1 rounded-md border bg-background px-1.5 py-1 text-[11px]",
-                provider === next ? "font-medium text-foreground" : "text-muted-foreground",
-                statuses?.get(provider) === "exhausted" && "opacity-60",
-                statuses?.get(provider) === "low" && "border-amber-500/40",
-              )}
-            >
-              <ProviderChipFace
-                provider={provider}
-                rank={index + 1}
-                isNext={provider === next}
-                status={statuses?.get(provider)}
-                official={officials?.has(provider)}
-                showRank={false}
-              />
-              <button
-                type="button"
-                className="shrink-0 rounded text-muted-foreground hover:text-destructive"
-                aria-label={`Remove ${providerDisplayName(provider)} from this model`}
-                title={`Stop routing this model through ${providerDisplayName(provider)}`}
-                onClick={() => remove(provider)}
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-        </span>
-      )}
-      {stale && stale.length > 0 ? (
-        <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          {stale.map((provider) => (
-            <span
-              key={provider}
-              title="Saved provider name that no longer serves this model"
-              className="flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-muted-foreground"
-            >
-              <ProviderChipFace provider={provider} rank={0} isNext={false} />
-              <button
-                type="button"
-                className="shrink-0 rounded text-muted-foreground hover:text-destructive"
-                aria-label={`Remove stale provider ${provider}`}
-                title="Forget this provider name"
-                onClick={() => onChangeProviders?.(items)}
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
-        </span>
-      ) : null}
-      {excluded && excluded.length > 0 ? (
-        <span className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="text-muted-foreground">Removed:</span>
-          {excluded.map((provider) => (
-            <button
-              key={provider}
-              type="button"
-              className="flex items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-muted-foreground hover:border-foreground/30 hover:text-foreground"
-              title={`Route this model through ${providerDisplayName(provider)} again`}
-              onClick={() => restore(provider)}
-            >
-              <ProviderLogo id={provider} className="size-3.5" />
-              <span>{providerDisplayName(provider)}</span>
-              <span aria-hidden>+</span>
-            </button>
-          ))}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-function ModelRow({
-  model,
-  rank,
-  showRank,
-  providers,
-  excluded,
-  stale,
-  statuses,
-  officials,
-  catalogName,
-  onRemove,
-  editableProviders,
-  onChangeProviders,
-  dragHandle,
-}: {
-  model: string;
-  rank?: number;
-  showRank?: boolean;
-  providers: string[];
-  excluded?: string[];
-  stale?: string[];
-  statuses?: Map<string, QuotaStatusView>;
-  officials?: Set<string>;
-  catalogName?: string;
-  onRemove?: () => void;
-  editableProviders?: boolean;
-  onChangeProviders?: (next: string[]) => void;
-  /** When set, the row can be dragged to change fallback order within the routing. */
-  dragHandle?: {
-    attributes: ReturnType<typeof useSortable>["attributes"];
-    listeners: ReturnType<typeof useSortable>["listeners"];
-    setActivatorNodeRef: ReturnType<typeof useSortable>["setActivatorNodeRef"];
-  };
-}) {
-  return (
-    <div className="flex items-start justify-between gap-2 rounded-md border bg-background px-2 py-1.5">
-      <span className="flex min-w-0 flex-1 items-start gap-1.5">
-        {dragHandle ? (
-          <button
-            ref={dragHandle.setActivatorNodeRef}
-            type="button"
-            className="mt-0.5 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing"
-            aria-label={`Reorder ${model}`}
-            title="Drag to set model fallback order"
-            {...dragHandle.attributes}
-            {...dragHandle.listeners}
-          >
-            <GripVertical className="size-3.5" />
-          </button>
-        ) : null}
-        {showRank && rank !== undefined ? (
-          <span className="mt-0.5 w-3 shrink-0 text-center tabular-nums text-[10px] font-medium text-muted-foreground">
-            {rank}
-          </span>
-        ) : null}
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="truncate text-xs font-medium">{model}</span>
-          {catalogName ? (
-            <span className="truncate text-[10px] text-muted-foreground">{catalogName}</span>
-          ) : null}
-          <ProviderChips
-            providers={providers}
-            excluded={excluded}
-            stale={stale}
-            statuses={statuses}
-            officials={officials}
-            editable={editableProviders}
-            onChangeProviders={onChangeProviders}
-          />
-        </span>
-      </span>
-      {onRemove ? (
-        <button
-          type="button"
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label={`Remove ${model}`}
-          onClick={onRemove}
-        >
-          <X className="size-3.5" />
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function SortableModelRow({
-  model,
-  rank,
-  showRank,
-  ...rest
-}: {
-  model: string;
-  rank: number;
-  showRank: boolean;
-} & Omit<Parameters<typeof ModelRow>[0], "model" | "rank" | "showRank" | "dragHandle">) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: model });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } =
+    useSortable({ id });
   return (
     <div
       ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={cn(isDragging && "z-10 opacity-40 shadow-md ring-1 ring-foreground/20")}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className="flex items-start gap-2 rounded-lg border bg-background p-3"
     >
-      <ModelRow
-        model={model}
-        rank={rank}
-        showRank={showRank}
-        dragHandle={{ attributes, listeners, setActivatorNodeRef }}
-        {...rest}
-      />
+      <div className="flex shrink-0 flex-col gap-1">
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={`Drag ${id}`}
+          className="touch-none rounded p-1 hover:bg-muted"
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label={`Move ${id} up`}
+          disabled={index === 0}
+          onClick={() => onMove(index, index - 1)}
+          className="rounded p-1 hover:bg-muted disabled:opacity-30"
+        >
+          <ArrowUp className="size-4" />
+        </button>
+        <button
+          type="button"
+          aria-label={`Move ${id} down`}
+          disabled={index === count - 1}
+          onClick={() => onMove(index, index + 1)}
+          className="rounded p-1 hover:bg-muted disabled:opacity-30"
+        >
+          <ArrowDown className="size-4" />
+        </button>
+      </div>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }
 
-/**
- * Models in one routing, preferred-first. Dragging reorders the fallback chain: the first
- * model with a healthy provider is used; later ones wait until earlier ones are unavailable.
- */
-function ModelList({
-  models,
-  editable,
-  renderRow,
-  onReorder,
+function OrderedList({
+  items,
+  onChange,
+  children,
 }: {
-  models: string[];
-  editable: boolean;
-  renderRow: (model: string, index: number, draggable: boolean) => ReactNode;
-  onReorder?: (next: string[]) => void;
+  items: string[];
+  onChange: (items: string[]) => void;
+  children: (id: string, index: number) => ReactNode;
 }) {
-  const [items, setItems] = useState(models);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
-  useEffect(() => {
-    setItems(models);
-  }, [models]);
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-
-  function moveActive(activeId: string, overId: string) {
-    setItems((current) => {
-      const from = current.indexOf(activeId);
-      const to = current.indexOf(overId);
-      if (from < 0 || to < 0 || from === to) return current;
-      return arrayMove(current, from, to);
-    });
+  function move(from: number, to: number) {
+    onChange(arrayMove(items, from, to));
   }
-
-  function handleDragOver(event: DragOverEvent) {
-    const { active, over } = event;
+  function drop({ active, over }: DragEndEvent) {
     if (!over || active.id === over.id) return;
-    moveActive(String(active.id), String(over.id));
+    const from = items.indexOf(String(active.id));
+    const to = items.indexOf(String(over.id));
+    if (from >= 0 && to >= 0) move(from, to);
   }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      moveActive(String(active.id), String(over.id));
-    }
-    queueMicrotask(() => {
-      const nextOrder = itemsRef.current;
-      if (!sameOrder(nextOrder, models)) onReorder?.(nextOrder);
-    });
-  }
-
-  function handleDragCancel() {
-    setItems(models);
-  }
-
-  const draggable = editable && items.length > 1 && Boolean(onReorder);
-
-  if (!draggable) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        {items.map((model, index) => renderRow(model, index, false))}
-      </div>
-    );
-  }
-
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={drop}>
       <SortableContext items={items} strategy={verticalListSortingStrategy}>
-        <div className="flex flex-col gap-1.5">
-          {items.map((model, index) => renderRow(model, index, true))}
+        <div className="flex flex-col gap-2">
+          {items.map((id, index) => (
+            <OrderedRow key={id} id={id} index={index} count={items.length} onMove={move}>
+              {children(id, index)}
+            </OrderedRow>
+          ))}
         </div>
       </SortableContext>
     </DndContext>
   );
 }
 
-/** Human label for a brain channel id, falling back to the raw id. */
-function channelLabel(id: string): string {
-  const CHANNELS: Record<string, string> = {
-    typesafe: "TypeSafe",
-    openrouter: "OpenRouter",
-    "opencode-zen": "OpenCode Zen",
-    vercel: "Vercel AI Gateway",
-    cloudflare: "Cloudflare Workers AI",
-  };
-  return CHANNELS[id] ?? id;
-}
-
-function ensureRoutings(routing: RoutingView, fallback: RoutingEntryView[]): RoutingEntryView[] {
-  if (routing.routings && routing.routings.length > 0) return routing.routings;
-  return fallback;
-}
-
-/**
- * The providers a routing allows for one model, in saved preference order.
- *
- * Mirrors the router: no saved list means every provider that serves the model, while a saved
- * list is an allow-list — so a provider the user removed is gone here too, and an emptied list
- * shows no provider rather than silently restoring all of them.
- */
-function allowedProviders(discovered: string[], preferred: string[] | undefined): string[] {
-  if (preferred === undefined) return discovered;
-  const remaining = [...discovered];
-  const ordered: string[] = [];
-  for (const name of preferred) {
-    const index = remaining.indexOf(name);
-    if (index < 0) continue;
-    ordered.push(remaining.splice(index, 1)[0]!);
-  }
-  return ordered;
-}
-
-function sameOrder(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-export function RoutingPage() {
-  const [saved, setSaved] = useState<RoutingView | null>(null);
+export function RoutingPage({
+  embedded = false,
+  refreshKey = 0,
+  onChanged,
+  onEditingChange,
+  settingsOnly = false,
+}: RoutingPageProps = {}) {
   const [state, setState] = useState<StateResponse | null>(null);
-  const [guard, setGuard] = useState<QuotaGuardView>(GUARD_FALLBACK);
-  const [health, setHealth] = useState<QuotaHealthView[]>([]);
   const [models, setModels] = useState<ModelView[]>([]);
   const [canonicals, setCanonicals] = useState<CanonicalModelView[]>([]);
+  const [health, setHealth] = useState<QuotaHealthView[]>([]);
   const [drafts, setDrafts] = useState<RoutingEntryView[]>([]);
-  const [picker, setPicker] = useState<Record<string, string>>({});
+  const [guard, setGuard] = useState<QuotaGuardView>(GUARD_FALLBACK);
   const [saver, setSaver] = useState<TokenSaverConfigView | null>(null);
-  const [saverBusy, setSaverBusy] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  /** Which routing card is expanded for editing — one at a time. */
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [newId, setNewId] = useState("");
-  const [newLabel, setNewLabel] = useState("");
-  const [newDescription, setNewDescription] = useState("");
+  const [newRoute, setNewRoute] = useState<RoutingEntryView>({
+    id: "",
+    label: "",
+    description: "",
+    models: [],
+  });
+  const [fixedNew, setFixedNew] = useState(false);
+  const [fixedEmpty, setFixedEmpty] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saverBusy, setSaverBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const savedRef = useRef<RoutingEntryView[]>([]);
+  const guardRef = useRef<QuotaGuardView>(GUARD_FALLBACK);
+  const loadVersion = useRef(0);
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     try {
-      const [state, modelList, quota] = await Promise.all([api.state(), api.models(), api.quota()]);
-      setSaved(state.config.routing);
-      setState(state);
-      setGuard(state.config.routing.quotaGuard ?? GUARD_FALLBACK);
-      setSaver(state.config.tokenSaver ?? null);
-      setDrafts(ensureRoutings(state.config.routing, state.routings ?? []));
+      const [next, catalog, quota] = await Promise.all([api.state(), api.models(), api.quota()]);
+      if (version !== loadVersion.current) return;
+      // Config routes retain empty model pools. State routes contain the derived pools.
+      const fresh = next.config.routing.routings.length
+        ? next.config.routing.routings
+        : next.routings;
+      const previous = savedRef.current;
+      setDrafts((current) => mergeRoutingDrafts(fresh, current, previous));
+      savedRef.current = fresh;
+      const nextGuard = next.config.routing.quotaGuard ?? GUARD_FALLBACK;
+      const previousGuard = guardRef.current;
+      setGuard((current) =>
+        JSON.stringify(current) === JSON.stringify(previousGuard) ? nextGuard : current,
+      );
+      guardRef.current = nextGuard;
+      setState(next);
+      setModels(catalog.models);
+      setCanonicals(catalog.canonicals ?? []);
       setHealth(quota.health);
-      setModels(modelList.models);
-      setCanonicals(modelList.canonicals ?? []);
+      setSaver(next.config.tokenSaver ?? null);
     } catch (cause) {
-      setError(String(cause));
+      if (version === loadVersion.current) setError(String(cause));
     }
   }, []);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
+  useEffect(() => {
+    onEditingChange?.(editingId !== null);
+  }, [editingId, onEditingChange]);
+  useEffect(
+    () => () => {
+      onEditingChange?.(false);
+    },
+    [onEditingChange],
+  );
 
-  const subscriptionHealth = health.filter((item) => item.billing !== "api");
-
-  /**
-   * Every provider that serves a routing entry. Canonical ids resolve through their variants; raw
-   * model ids resolve through the providers that list them.
-   */
   const providersByModel = useMemo(() => {
     const map = new Map<string, string[]>();
-    const push = (key: string, provider: string) => {
-      const list = map.get(key) ?? [];
+    const add = (id: string, provider: string) => {
+      const list = map.get(id) ?? [];
       if (!list.includes(provider)) list.push(provider);
-      map.set(key, list);
+      map.set(id, list);
     };
-    for (const model of models) push(model.id, model.provider);
-    for (const entry of canonicals) {
-      for (const variant of entry.variants) push(entry.id, variant.provider);
-    }
+    for (const model of models) add(model.id, model.provider);
+    for (const model of canonicals)
+      for (const variant of model.variants) add(model.id, variant.provider);
     return map;
   }, [models, canonicals]);
-
-  /** Quota status per provider, so a chip can show who serves the next turn and who is thin. */
-  const statusByProvider = useMemo(
-    () => new Map(health.map((item) => [item.provider, item.status])),
+  const names = useMemo(
+    () => new Map(canonicals.map((entry) => [entry.id, entry.name])),
+    [canonicals],
+  );
+  const statuses = useMemo(
+    () => new Map(health.map((entry) => [entry.provider, entry.status])),
     [health],
   );
-
-  /** Which providers are the vendor that owns a model, and the catalog's label for it. */
-  const { officialsByModel, catalogNames } = useMemo(() => {
-    const officials = new Map<string, Set<string>>();
-    const names = new Map<string, string>();
-    for (const entry of canonicals) {
-      if (entry.name) names.set(entry.id, entry.name);
-      for (const variant of entry.variants) {
-        if (!variant.official) continue;
-        const set = officials.get(entry.id) ?? new Set();
-        set.add(variant.provider);
-        officials.set(entry.id, set);
-      }
-    }
-    return { officialsByModel: officials, catalogNames: names };
-  }, [canonicals]);
-
-  const derivedById = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const entry of state?.routings ?? []) map.set(entry.id, entry.models);
-    return map;
-  }, [state]);
-
-  /**
-   * One searchable row per model a routing could take. The search text covers the id, the
-   * catalog's display name, every serving provider's label, and the price — so "opus",
-   * "openrouter", or "$3" all land on the right row even when the model id would not.
-   */
-  const modelOptions = useCallback(
-    (routingId: string) => {
-      const used = drafts.find((entry) => entry.id === routingId)?.models ?? [];
-      const providerBadges = (modelId: string) =>
-        (providersByModel.get(modelId) ?? []).map((provider) => {
-          const status = statusByProvider.get(provider);
-          const official = officialsByModel.get(modelId)?.has(provider) ?? false;
-          const label = providerDisplayName(provider);
-          const text = `${label}${official ? " ✦" : ""}${status === "exhausted" ? " spent" : status === "low" ? " low" : ""}`;
-          return {
-            text,
-            tone:
-              status === "exhausted"
-                ? ("bad" as const)
-                : status === "low"
-                  ? ("warn" as const)
-                  : ("muted" as const),
-          };
-        });
-      return [
-        ...canonicals
-          .filter((entry) => !used.includes(entry.id))
-          .map((entry) => {
-            const catalogName = catalogNames.get(entry.id);
-            const keywords = [
-              catalogName,
-              ...(providersByModel.get(entry.id) ?? []).map(providerDisplayName),
-            ]
-              .filter(Boolean)
-              .join(" ");
-            return {
-              value: entry.id,
-              label: entry.id,
-              hint: catalogName,
-              keywords,
-              meta: providerBadges(entry.id),
-            };
-          }),
-        ...models
-          .filter(
-            (model) =>
-              !used.includes(model.id) &&
-              model.canonical !== undefined &&
-              model.canonical !== model.id,
-          )
-          .map((model) => ({
-            value: model.id,
-            label: model.id,
-            hint: model.price ? `$${model.price.input}/$${model.price.output}` : undefined,
-            keywords: providerDisplayName(model.provider),
-            meta: providerBadges(model.id),
-          })),
-      ];
-    },
-    [
-      canonicals,
-      catalogNames,
-      drafts,
-      models,
-      officialsByModel,
-      providersByModel,
-      statusByProvider,
-    ],
+  const derived = useMemo(
+    () => new Map((state?.routings ?? []).map((entry) => [entry.id, entry.models])),
+    [state],
   );
+  const route = editingId === NEW_ROUTE ? newRoute : drafts.find((entry) => entry.id === editingId);
+  const fixed =
+    editingId === NEW_ROUTE ? fixedNew : Boolean(route?.models.length || fixedEmpty === editingId);
+  const routeDirty = Boolean(
+    route &&
+    (editingId === NEW_ROUTE
+      ? route.id || route.label || route.description || route.models.length || fixedNew
+      : JSON.stringify(route) !==
+          JSON.stringify(savedRef.current.find((entry) => entry.id === editingId)) ||
+        fixedEmpty === editingId),
+  );
+  const guardDirty = JSON.stringify(guard) !== JSON.stringify(guardRef.current);
+  const dirty = routeDirty || guardDirty;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
-  const dirty = useMemo(() => {
-    if (!saved) return false;
-    const persisted = ensureRoutings(saved, state?.routings ?? []);
-    const current = { routings: drafts, guard };
-    const previous = { routings: persisted, guard: saved.quotaGuard ?? GUARD_FALLBACK };
-    return JSON.stringify(current) !== JSON.stringify(previous);
-  }, [saved, drafts, guard, state]);
-
-  const persistedById = useMemo(() => {
-    const map = new Map<string, RoutingEntryView>();
-    for (const entry of saved ? ensureRoutings(saved, state?.routings ?? []) : []) {
-      map.set(entry.id, entry);
-    }
-    return map;
-  }, [saved, state]);
-
-  /** Whether one card's drafts differ from what's persisted — drives "Save" vs "Done". */
-  function routingDirty(id: string): boolean {
-    const persisted = persistedById.get(id);
-    const current = drafts.find((entry) => entry.id === id);
-    if (!persisted || !current) return persisted !== current;
-    return JSON.stringify(persisted) !== JSON.stringify(current);
+  function updateRoute(patch: Partial<RoutingEntryView>) {
+    if (editingId === NEW_ROUTE) setNewRoute((current) => ({ ...current, ...patch }));
+    else
+      setDrafts((current) =>
+        current.map((entry) => (entry.id === editingId ? { ...entry, ...patch } : entry)),
+      );
   }
-
-  function updateRouting(id: string, patch: Partial<RoutingEntryView>) {
-    setDrafts((current) =>
-      current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
-    );
-  }
-
-  /**
-   * Append a model by id. The Combobox hands back the picked value on Enter/click, so adding is
-   * one keystroke — no separate commit button, and the input clears itself for the next pick.
-   */
-  function addModel(routingId: string, value: string) {
-    if (!value) return;
-    setDrafts((current) =>
-      current.map((entry) =>
-        entry.id === routingId && !entry.models.includes(value)
-          ? { ...entry, models: [...entry.models, value] }
-          : entry,
-      ),
-    );
-    setPicker((current) => ({ ...current, [routingId]: "" }));
-  }
-
-  function removeModel(routingId: string, model: string) {
-    setDrafts((current) =>
-      current.map((entry) => {
-        if (entry.id !== routingId) return entry;
-        const models = entry.models.filter((item) => item !== model);
-        const providers = { ...entry.providers };
-        delete providers[model];
-        const { providers: _drop, ...rest } = entry;
-        return Object.keys(providers).length > 0
-          ? { ...rest, models, providers }
-          : { ...rest, models };
-      }),
-    );
-  }
-
-  function reorderModels(routingId: string, next: string[]) {
-    setDrafts((current) =>
-      current.map((entry) => (entry.id === routingId ? { ...entry, models: next } : entry)),
-    );
-  }
-
-  /**
-   * Save the provider allow-list for one model. A list matching discovery in order carries no
-   * information, so it is dropped rather than stored — that keeps configs free of pins nobody
-   * asked for while a genuine removal (or an empty list) is persisted.
-   */
-  function setModelProviders(routingId: string, model: string, next: string[]) {
-    const discovered = providersByModel.get(model) ?? [];
-    setDrafts((current) =>
-      current.map((entry) => {
-        if (entry.id !== routingId) return entry;
-        const providers = { ...entry.providers };
-        if (sameOrder(next, discovered)) delete providers[model];
-        else providers[model] = next;
-        const { providers: _drop, ...rest } = entry;
-        return Object.keys(providers).length > 0 ? { ...rest, providers } : rest;
-      }),
-    );
-  }
-
-  async function removeRouting(id: string) {
-    if (BUILTIN_IDS.has(id)) return;
-    const previous = drafts;
-    const next = drafts.filter((entry) => entry.id !== id);
-    setDrafts(next);
-    if (editingId === id) setEditingId(null);
-    const ok = await save({ routings: next });
-    if (!ok) {
-      setDrafts(previous);
-      setEditingId(id);
-    }
-  }
-
-  function createRouting() {
-    const id = slugify(newId || newLabel);
-    if (!isValidRoutingId(id)) {
-      setError("Routing id must be a slug: lowercase letters, digits, hyphens (not “auto”).");
+  function closeEditor(discard = false) {
+    if (busy) return;
+    if (routeDirty && !discard) {
+      setConfirmClose(true);
       return;
     }
-    if (drafts.some((entry) => entry.id === id)) {
-      setError(`Routing id "${id}" already exists.`);
-      return;
+    if (editingId !== NEW_ROUTE) {
+      const saved = savedRef.current.find((entry) => entry.id === editingId);
+      setDrafts((current) =>
+        current.flatMap((entry) => (entry.id !== editingId ? [entry] : saved ? [saved] : [])),
+      );
     }
-    const label = newLabel.trim() || id;
-    setDrafts((current) => [
-      ...current,
-      { id, label, description: newDescription.trim(), models: [] },
-    ]);
-    setNewId("");
-    setNewLabel("");
-    setNewDescription("");
-    setAdding(false);
-    setEditingId(id);
-    setError("");
+    setEditingId(null);
+    setConfirmClose(false);
+    setConfirmDelete(false);
+    setFixedEmpty(null);
   }
-
-  async function save(options?: {
-    routings?: RoutingEntryView[];
-    quotaGuard?: QuotaGuardView;
-  }): Promise<boolean> {
-    if (!saved) return false;
+  function setProviders(model: string, preferred: string[] | undefined) {
+    if (!route) return;
+    const providers = { ...route.providers };
+    if (preferred === undefined) delete providers[model];
+    else providers[model] = preferred;
+    updateRoute({ providers: Object.keys(providers).length ? providers : undefined });
+  }
+  function removeModel(model: string) {
+    if (!route) return;
+    const providers = { ...route.providers };
+    delete providers[model];
+    updateRoute({
+      models: route.models.filter((id) => id !== model),
+      providers: Object.keys(providers).length ? providers : undefined,
+    });
+    setFixedEmpty(editingId);
+  }
+  async function persist(routes: RoutingEntryView[], quotaGuard?: QuotaGuardView) {
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      await api.saveRouting({
-        routings: options?.routings ?? drafts,
-        quotaGuard: options?.quotaGuard ?? guard,
+      const result = await api.saveRouting({
+        routings: routes,
+        ...(quotaGuard ? { quotaGuard } : {}),
       });
+      const previous = savedRef.current;
+      const fresh = result.routing.routings;
+      savedRef.current = fresh;
+      setDrafts((current) => mergeRoutingDrafts(fresh, current, previous));
+      if (quotaGuard) {
+        guardRef.current = result.routing.quotaGuard ?? quotaGuard;
+        setGuard(guardRef.current);
+      }
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              config: { ...current.config, routing: result.routing },
+              routings: result.routings,
+            }
+          : current,
+      );
       setMessage("Routing saved");
-      await load();
+      onChanged?.();
       return true;
     } catch (cause) {
       setError(String(cause));
@@ -995,629 +355,641 @@ export function RoutingPage() {
       setBusy(false);
     }
   }
-
-  async function saveSaver(patch: Partial<TokenSaverConfigView>): Promise<void> {
+  async function saveRoute() {
+    if (!route) return;
+    if (!validRoutingId(route.id)) {
+      setError(
+        "Use a lowercase task id with letters, digits, or hyphens. Start with a letter. Do not use auto.",
+      );
+      return;
+    }
+    if (editingId === NEW_ROUTE && drafts.some((entry) => entry.id === route.id)) {
+      setError("This task id already exists.");
+      return;
+    }
+    if (fixed && route.models.length === 0) {
+      setError("Choose at least one model for a fixed fallback chain, or choose automatic mode.");
+      return;
+    }
+    const committed = {
+      ...route,
+      label: route.label.trim() || route.id,
+      description: route.description.trim(),
+    };
+    if (await persist(routeSavePayload(savedRef.current, committed))) {
+      setDrafts((current) =>
+        current.map((entry) => (entry.id === committed.id ? committed : entry)),
+      );
+      setEditingId(null);
+      setFixedEmpty(null);
+      setConfirmClose(false);
+      setConfirmDelete(false);
+    }
+  }
+  async function deleteRoute() {
+    if (!route || BUILTIN_ROUTING_IDS.has(route.id) || editingId === NEW_ROUTE) return;
+    const id = route.id;
+    if (await persist(savedRef.current.filter((entry) => entry.id !== id))) {
+      setDrafts((current) => current.filter((entry) => entry.id !== id));
+      setEditingId(null);
+      setConfirmDelete(false);
+    }
+  }
+  async function saveSaver(patch: Partial<TokenSaverConfigView>) {
     if (!saver) return;
+    const previous = state?.config.tokenSaver ?? saver;
     setSaverBusy(true);
     setError("");
-    setSaver({ ...saver, ...patch });
     try {
       await api.saveTokenSaver(patch);
+      const next = { ...saver, ...patch };
+      setSaver(next);
+      setState((current) =>
+        current ? { ...current, config: { ...current.config, tokenSaver: next } } : current,
+      );
     } catch (cause) {
+      setSaver(previous);
       setError(String(cause));
-      await load();
     } finally {
       setSaverBusy(false);
     }
   }
+  const options = useMemo(() => {
+    const entries = new Map<
+      string,
+      { value: string; label: string; hint?: string; keywords: string }
+    >();
+    for (const model of models)
+      entries.set(model.id, {
+        value: model.id,
+        label: model.id,
+        keywords: providerDisplayName(model.provider),
+      });
+    for (const model of canonicals)
+      entries.set(model.id, {
+        value: model.id,
+        label: model.id,
+        hint: model.name,
+        keywords: (providersByModel.get(model.id) ?? []).map(providerDisplayName).join(" "),
+      });
+    return [...entries.values()].filter((entry) => !route?.models.includes(entry.value));
+  }, [models, canonicals, providersByModel, route]);
 
-  /**
-   * Leave customize mode. A dirty card hard-blocks the switch — the click is already
-   * pointer-events-none'd by the card's opacity, so this only fires from the focused card's
-   * own buttons. Save commits and closes; Cancel reverts via {@link cancelEditing}.
-   */
-  async function commitEditing(nextEditingId: string | null = null): Promise<boolean> {
-    if (dirty) {
-      const ok = await save();
-      if (!ok) return false;
-    }
-    setEditingId(nextEditingId);
-    return true;
-  }
+  if (!state)
+    return (
+      <div>
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}{" "}
+            <Button variant="outline" onClick={() => void load()}>
+              Retry
+            </Button>
+          </p>
+        ) : (
+          <RoutingSkeleton />
+        )}
+      </div>
+    );
 
-  /** Drop the edit in place: revert this card's drafts to the saved shape and collapse it. */
-  function cancelEditing(nextEditingId: string | null = null) {
-    if (!saved) return;
-    const persisted = ensureRoutings(saved, state?.routings ?? []);
-    setDrafts(persisted);
-    setGuard(saved.quotaGuard ?? GUARD_FALLBACK);
-    setEditingId(nextEditingId);
-    setError("");
-  }
-
-  /** Keep the last committed edits from vanishing on an accidental close or navigation. */
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
-  if (!saved || !state) return <RoutingSkeleton />;
-
-  const brains = saved.brains ?? [];
-  const primaryBrain = brains[0];
-  const brainCount = brains.length;
-  const needsAttention = subscriptionHealth.filter(
-    (item) => item.status === "low" || item.status === "exhausted",
+  const settings = (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Quota guard</CardTitle>
+          <CardDescription>
+            Skip exhausted providers when an alternative exists. Keep context checks active.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={guard.enabled}
+              onChange={(event) => setGuard({ ...guard, enabled: event.target.checked })}
+            />
+            Enable quota guard
+          </label>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="routing-guard-low">Low quota threshold (%)</Label>
+            <Input
+              id="routing-guard-low"
+              type="number"
+              min={0}
+              max={100}
+              value={guard.lowPercent}
+              onChange={(event) => setGuard({ ...guard, lowPercent: Number(event.target.value) })}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={guard.resetAware}
+              onChange={(event) => setGuard({ ...guard, resetAware: event.target.checked })}
+            />
+            Prefer the allowance that resets first
+          </label>
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {health
+              .filter((entry) => entry.billing !== "api")
+              .map((entry) => (
+                <p key={entry.provider}>
+                  {providerDisplayName(entry.provider)}: {entry.status}
+                  {entry.note ? ` · ${entry.note}` : ""}
+                  {entry.resetsAt ? ` · resets ${new Date(entry.resetsAt).toLocaleString()}` : ""}
+                </p>
+              ))}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              disabled={
+                busy ||
+                !guardDirty ||
+                !Number.isFinite(guard.lowPercent) ||
+                guard.lowPercent < 0 ||
+                guard.lowPercent > 100
+              }
+              onClick={() => void persist(savedRef.current, guard)}
+            >
+              Save guard
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy || !guardDirty}
+              onClick={() => setGuard(guardRef.current)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Token saver</CardTitle>
+          <CardDescription>
+            Compress tool results with rtk before requests leave. Install with brew install rtk.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {saver ? (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={saver.enabled}
+                  disabled={saverBusy}
+                  onChange={(event) => void saveSaver({ enabled: event.target.checked })}
+                />
+                Enable token saver
+              </label>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="routing-saver-command">rtk command</Label>
+                <Input
+                  id="routing-saver-command"
+                  value={saver.command}
+                  disabled={saverBusy}
+                  onChange={(event) => setSaver({ ...saver, command: event.target.value })}
+                  onBlur={() => void saveSaver({ command: saver.command })}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="routing-saver-timeout">Timeout (ms)</Label>
+                <Input
+                  id="routing-saver-timeout"
+                  type="number"
+                  min={0}
+                  value={saver.timeoutMs}
+                  disabled={saverBusy}
+                  onChange={(event) =>
+                    setSaver({ ...saver, timeoutMs: Number(event.target.value) })
+                  }
+                  onBlur={() => {
+                    if (Number.isFinite(saver.timeoutMs) && saver.timeoutMs >= 0)
+                      void saveSaver({ timeoutMs: saver.timeoutMs });
+                  }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Token saver settings are unavailable.</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">Routing</h1>
-        <p className="text-sm text-muted-foreground">
-          Each card is a scenario Jev can choose. Open{" "}
-          <span className="font-medium">Customize</span> on a card to edit its description, models,
-          model fallback order, and provider preference. Changes save when you click{" "}
-          <span className="font-medium">Done</span>.
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader className="flex-row items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <CardTitle>Model routing</CardTitle>
-            <CardDescription>
-              {guard.enabled
-                ? "Healthy providers win first. Drag models within a routing for fallback order; drag providers under a model so your preferred reseller is tried earlier."
-                : "Drag models within a routing for fallback order; drag providers under a model for reseller preference."}
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAdding((current) => !current);
-              setError("");
-            }}
-          >
-            {adding ? "Cancel" : "Add routing"}
-          </Button>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {adding ? (
-            <div className="flex flex-col gap-3 rounded-md border p-3">
-              <p className="text-sm font-medium">New routing</p>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="newLabel">Name</Label>
-                  <Input
-                    id="newLabel"
-                    value={newLabel}
-                    placeholder="Frontend"
-                    onChange={(event) => {
-                      setNewLabel(event.target.value);
-                      if (!newId) setNewId(slugify(event.target.value));
-                    }}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="newId">Id (jevonian/…)</Label>
-                  <Input
-                    id="newId"
-                    value={newId}
-                    placeholder="frontend"
-                    onChange={(event) => setNewId(slugify(event.target.value))}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5 md:col-span-1">
-                  <Label htmlFor="newDescription">Description</Label>
-                  <Input
-                    id="newDescription"
-                    value={newDescription}
-                    placeholder="React, CSS, UI polish"
-                    onChange={(event) => setNewDescription(event.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={createRouting} disabled={!newLabel.trim() && !newId}>
-                  Create
-                </Button>
-                <span className="text-[11px] text-muted-foreground">
-                  Alias will be <code>jevonian/{newId || "…"}</code>
-                </span>
-              </div>
+    <section
+      className="flex flex-col gap-4"
+      aria-label={settingsOnly ? "Routing settings" : "Task routing"}
+    >
+      {!settingsOnly ? (
+        <>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              {embedded ? (
+                <h2 className="font-semibold">Task routing</h2>
+              ) : (
+                <h1 className="text-lg font-semibold">Routing</h1>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Describe the task. Set a short model fallback chain.
+              </p>
             </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {drafts.map((routing) => {
-              const { entries, auto } = routingEntries(routing.models, derivedById.get(routing.id));
-              const builtin = BUILTIN_IDS.has(routing.id);
-              const expanded = editingId === routing.id;
-              const modelList = expanded ? routing.models : entries;
-
+            <Button
+              variant="outline"
+              disabled={busy || editingId !== null}
+              onClick={() => {
+                setNewRoute({ id: "", label: "", description: "", models: [] });
+                setFixedNew(false);
+                setEditingId(NEW_ROUTE);
+              }}
+            >
+              Add task
+            </Button>
+          </div>
+          <div className="divide-y rounded-lg border">
+            {drafts.map((entry) => {
+              const automatic = entry.models.length === 0;
+              const chain = automatic ? (derived.get(entry.id) ?? []) : entry.models;
               return (
                 <div
-                  key={routing.id}
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border p-3 transition-[opacity,box-shadow,background-color]",
-                    expanded &&
-                      "border-foreground/25 bg-muted/30 shadow-sm ring-1 ring-foreground/10",
-                    editingId && !expanded && "pointer-events-none opacity-50",
-                  )}
+                  key={entry.id}
+                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      {expanded ? (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-col gap-1">
-                            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                              Name
-                            </Label>
-                            <Input
-                              value={routing.label}
-                              className="h-8 text-sm font-medium"
-                              onChange={(event) =>
-                                updateRouting(routing.id, { label: event.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                              When Jev should pick this
-                            </Label>
-                            <Input
-                              value={routing.description}
-                              className="h-8 text-[12px]"
-                              placeholder="e.g. React, CSS, UI polish"
-                              onChange={(event) =>
-                                updateRouting(routing.id, { description: event.target.value })
-                              }
-                            />
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] text-muted-foreground">
-                              <code>jevonian/{routing.id}</code>
-                              {builtin ? " · builtin" : " · custom"}
-                            </span>
-                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-600">
-                              editing{routingDirty(routing.id) ? " · unsaved" : ""}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-sm font-medium">{routing.label}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {routing.description || "No description"}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                    {!expanded ? (
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => {
-                            setAdding(false);
-                            void commitEditing(routing.id);
-                          }}
-                        >
-                          Customize
-                        </Button>
-                      </div>
-                    ) : null}
+                  <div className="min-w-0 space-y-1">
+                    <h3 className="text-sm font-medium">
+                      {entry.label}{" "}
+                      <span className="font-normal text-muted-foreground">· {entry.id}</span>
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {entry.description || "No task description"}
+                    </p>
+                    <p className="break-words text-xs">
+                      <span className="text-muted-foreground">
+                        {automatic ? "Automatic" : "Fixed"} ·{" "}
+                      </span>
+                      {chain
+                        .slice(0, 3)
+                        .map((id) => names.get(id) || id)
+                        .join(" → ") || "No models available"}
+                      {chain.length > 3 ? ` → +${chain.length - 3} more` : ""}
+                    </p>
                   </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Models
-                      </span>
-                      {expanded && routing.models.length > 1 ? (
-                        <span className="text-[10px] text-muted-foreground">
-                          Drag models = fallback order
-                        </span>
-                      ) : expanded && routing.models.length > 0 ? (
-                        <span className="text-[10px] text-muted-foreground">× = stop using</span>
-                      ) : null}
-                    </div>
-
-                    {modelList.length === 0 ? (
-                      <span className="text-[11px] text-muted-foreground">
-                        {expanded ? "None yet — search to add." : "None — customize to add"}
-                      </span>
-                    ) : (
-                      <>
-                        {!expanded && auto ? (
-                          <span className="text-[11px] text-muted-foreground">
-                            Auto — derived from the price table
-                          </span>
-                        ) : null}
-                        <ModelList
-                          models={modelList}
-                          editable={expanded}
-                          onReorder={
-                            expanded ? (next) => reorderModels(routing.id, next) : undefined
-                          }
-                          renderRow={(model, index, draggable) => {
-                            const discovered = providersByModel.get(model) ?? [];
-                            const allow = routing.providers?.[model];
-                            const editableProviders = expanded && routing.models.includes(model);
-                            const showRank = modelList.length > 1;
-                            const rowProps = {
-                              providers: allowedProviders(discovered, allow),
-                              excluded:
-                                editableProviders && allow
-                                  ? discovered.filter((provider) => !allow.includes(provider))
-                                  : undefined,
-                              stale:
-                                editableProviders && allow
-                                  ? allow.filter((provider) => !discovered.includes(provider))
-                                  : undefined,
-                              statuses: statusByProvider,
-                              officials: officialsByModel.get(model),
-                              catalogName: catalogNames.get(model),
-                              onRemove: expanded ? () => removeModel(routing.id, model) : undefined,
-                              editableProviders,
-                              onChangeProviders: editableProviders
-                                ? (next: string[]) => setModelProviders(routing.id, model, next)
-                                : undefined,
-                            };
-                            if (draggable) {
-                              return (
-                                <SortableModelRow
-                                  key={model}
-                                  model={model}
-                                  rank={index + 1}
-                                  showRank={showRank}
-                                  {...rowProps}
-                                />
-                              );
-                            }
-                            return (
-                              <ModelRow
-                                key={model}
-                                model={model}
-                                rank={index + 1}
-                                showRank={showRank}
-                                {...rowProps}
-                              />
-                            );
-                          }}
-                        />
-                      </>
-                    )}
-                  </div>
-
-                  {expanded ? (
-                    <div className="flex flex-col gap-1.5 border-t pt-3">
-                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        Add model
-                      </Label>
-                      <Combobox
-                        value={picker[routing.id] ?? ""}
-                        onChange={(value) => addModel(routing.id, value)}
-                        options={modelOptions(routing.id)}
-                        placeholder="Search by id, name, provider, or price…"
-                        emptyText="No model matches — check that a provider serves it."
-                      />
-                      <span className="text-[10px] text-muted-foreground">
-                        Enter to add — search matches id, catalog name, provider, price.
-                      </span>
-                      {routingDirty(routing.id) ? (
-                        <span className="text-[10px] font-medium text-amber-600">
-                          Unsaved — Save or Cancel to switch cards.
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {expanded ? (
-                    <div className="flex items-center justify-between gap-2 border-t pt-3">
-                      {!builtin ? (
-                        <button
-                          type="button"
-                          className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => void removeRouting(routing.id)}
-                        >
-                          Delete routing
-                        </button>
-                      ) : (
-                        <span />
-                      )}
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => cancelEditing(null)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button size="sm" onClick={() => void commitEditing(null)} disabled={busy}>
-                          {busy ? "Saving…" : routingDirty(routing.id) ? "Save" : "Done"}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
+                  <Button
+                    className="self-start shrink-0"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || editingId !== null}
+                    onClick={() => {
+                      setEditingId(entry.id);
+                      setConfirmClose(false);
+                      setConfirmDelete(false);
+                    }}
+                  >
+                    Customize
+                  </Button>
                 </div>
               );
             })}
           </div>
-
-          <details className="rounded-md border">
-            <summary className="cursor-pointer select-none px-3 py-2 text-xs text-muted-foreground">
-              How a turn is routed
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+              How routing works
             </summary>
-            <div className="flex flex-col gap-1.5 border-t p-3 text-xs">
-              {BEHAVIOUR.map((row) => (
-                <div key={row.signal} className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">{row.signal}</span>
-                  <span className="text-right">{row.decision}</span>
-                </div>
-              ))}
+            <div className="space-y-2 border-t p-3 text-sm text-muted-foreground">
+              <p>
+                The brain selects a task and thinking level. An explicit task or model skips the
+                brain.
+              </p>
+              <p>
+                The first healthy model in the fallback chain serves the request. Context checks
+                withhold models that cannot fit the conversation. Skipped models appear in
+                x-jevonian-skipped.
+              </p>
+              <p>
+                If no model fits, routing compacts the history and tries again. A mid-turn quota
+                error can route to another provider once.
+              </p>
             </div>
           </details>
-
-          {error ? <span className="text-xs text-destructive">{error}</span> : null}
-          {!error && message ? (
-            <span className="text-xs text-muted-foreground">{message}</span>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Decisions</CardTitle>
-            <CardDescription>What picks the routing on each turn.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            {primaryBrain ? (
-              <>
-                <span className="flex items-center gap-2">
-                  <Badge variant="default">Jev</Badge>
-                  <span>
-                    {`${channelLabel(primaryBrain.channel)}${primaryBrain.model ? ` · ${primaryBrain.model}` : ""}`}
-                    {brainCount > 1 ? ` · ${brainCount - 1} fallback` : ""}
-                  </span>
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  One call per routed turn lists the routings with their descriptions; the first
-                  confident answer picks the scenario, then the first healthy model in that pool.
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                No routing brain configured — <code>jevonian/auto</code> stays disabled until you
-                add one.
-              </span>
-            )}
-            <a
-              href="/providers#routing-brain"
-              className="text-xs font-medium text-foreground underline underline-offset-4"
-            >
-              Configure on the Providers page
-            </a>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div className="flex flex-col gap-1">
-              <CardTitle>Token saver</CardTitle>
-              <CardDescription>
-                {saver?.enabled
-                  ? "Compresses prior tool results before each request leaves — fewer prompt tokens upstream."
-                  : "Off — tool outputs are sent to the provider verbatim."}
-              </CardDescription>
-            </div>
-            <Badge variant={saver?.enabled ? "default" : "outline"}>
-              {saver?.enabled ? "on" : "off"}
-            </Badge>
-          </CardHeader>
-          {saver ? (
-            <CardContent className="flex flex-col gap-3 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">
-                  Pipes each tool result through{" "}
-                  <a
-                    href="https://github.com/rtk-ai/rtk"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-foreground underline underline-offset-4"
-                  >
-                    rtk
-                  </a>{" "}
-                  — its filters compress test logs, git output, grep hits, and more. Install with{" "}
-                  <code>brew install rtk</code>.
-                </span>
-                <Select
-                  value={saver.enabled ? "on" : "off"}
-                  onValueChange={(value) => void saveSaver({ enabled: value === "on" })}
-                  disabled={saverBusy}
-                >
-                  <SelectTrigger className="w-32">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="on">on</SelectItem>
-                    <SelectItem value="off">off</SelectItem>
-                  </SelectContent>
-                </Select>
+        </>
+      ) : null}
+      {settingsOnly ? (
+        settings
+      ) : embedded ? null : (
+        <details className="rounded-lg border">
+          <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+            Routing settings · quota guard and token saver
+          </summary>
+          <div className="border-t p-3">{settings}</div>
+        </details>
+      )}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {message ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
+      <Sheet
+        open={editingId !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditor();
+        }}
+      >
+        <SheetContent className="w-full sm:w-full sm:max-w-xl" showCloseButton={!busy}>
+          <SheetHeader>
+            <SheetTitle>
+              {editingId === NEW_ROUTE ? "Add task" : `Customize ${route?.label ?? "task"}`}
+            </SheetTitle>
+            <SheetDescription>Changes apply only when you select Save route.</SheetDescription>
+          </SheetHeader>
+          {route ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
+              <div className="space-y-2">
+                <Label htmlFor="routing-task-id">Task id (jevonian/…)</Label>
+                <Input
+                  id="routing-task-id"
+                  value={route.id}
+                  disabled={editingId !== NEW_ROUTE || busy}
+                  placeholder="frontend"
+                  onChange={(event) => updateRoute({ id: event.target.value })}
+                />
               </div>
-              {saver.enabled ? (
-                <div className="grid grid-cols-2 gap-2 border-t pt-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      rtk binary
-                    </span>
-                    <Input
-                      type="text"
-                      value={saver.command}
-                      disabled={saverBusy}
-                      onChange={(event) => setSaver({ ...saver, command: event.target.value })}
-                      onBlur={() => void saveSaver({ command: saver.command })}
-                      className="h-8 font-mono text-xs"
-                      placeholder="rtk"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      timeout (ms)
-                    </span>
-                    <Input
-                      type="number"
-                      min={0}
-                      step={500}
-                      value={saver.timeoutMs}
-                      disabled={saverBusy}
-                      onChange={(event) =>
-                        setSaver({ ...saver, timeoutMs: Number(event.target.value) })
-                      }
-                      onBlur={() => void saveSaver({ timeoutMs: saver.timeoutMs })}
-                      className="h-8 text-xs"
-                    />
-                  </label>
+              <div className="space-y-2">
+                <Label htmlFor="routing-task-name">Task name</Label>
+                <Input
+                  id="routing-task-name"
+                  value={route.label}
+                  disabled={busy}
+                  onChange={(event) => updateRoute({ label: event.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="routing-task-description">When to use this task</Label>
+                <Input
+                  id="routing-task-description"
+                  value={route.description}
+                  disabled={busy}
+                  placeholder="React, CSS, and UI changes"
+                  onChange={(event) => updateRoute({ description: event.target.value })}
+                />
+              </div>
+              <fieldset disabled={busy} className="space-y-3">
+                <legend className="mb-2 text-sm font-medium">Model selection</legend>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="routing-model-mode"
+                    checked={!fixed}
+                    onChange={() => {
+                      updateRoute({ models: [] });
+                      if (editingId === NEW_ROUTE) setFixedNew(false);
+                      setFixedEmpty(null);
+                    }}
+                  />
+                  Automatic · derive models from the price table
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="routing-model-mode"
+                    checked={fixed}
+                    onChange={() => {
+                      updateRoute({
+                        models: route.models.length
+                          ? route.models
+                          : [...(derived.get(route.id) ?? [])],
+                      });
+                      if (editingId === NEW_ROUTE) setFixedNew(true);
+                      else setFixedEmpty(editingId);
+                    }}
+                  />
+                  Fixed · choose and order models
+                </label>
+                {!fixed ? (
+                  <div className="rounded-lg bg-muted p-3 text-sm">
+                    <p className="mb-2 text-muted-foreground">
+                      These models are derived. Select Fixed to copy and change this chain.
+                    </p>
+                    <p className="break-words">
+                      {(derived.get(route.id) ?? []).join(" → ") ||
+                        "No derived models are available for this task yet."}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Models run from top to bottom. Expand sources to set provider order.
+                    </p>
+                    <OrderedList
+                      items={route.models}
+                      onChange={(next) => updateRoute({ models: next })}
+                    >
+                      {(model, index) => {
+                        const discovered = providersByModel.get(model) ?? [];
+                        const preferred = route.providers?.[model];
+                        const sources = allowedProviders(discovered, preferred);
+                        const stale = (preferred ?? []).filter(
+                          (provider) => !discovered.includes(provider),
+                        );
+                        return (
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="break-words text-sm font-medium">
+                                  {index + 1}. {names.get(model) || model}
+                                </p>
+                                {names.get(model) ? (
+                                  <p className="break-words text-xs text-muted-foreground">
+                                    {model}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                aria-label={`Remove ${model}`}
+                                className="rounded p-1 hover:bg-muted"
+                                onClick={() => removeModel(model)}
+                              >
+                                <X className="size-4" />
+                              </button>
+                            </div>
+                            <details>
+                              <summary className="cursor-pointer text-xs text-muted-foreground">
+                                Sources ·{" "}
+                                {preferred === undefined
+                                  ? "All providers (automatic)"
+                                  : `${sources.length} allowed (explicit)`}
+                              </summary>
+                              <div className="mt-3 space-y-3">
+                                <p className="text-xs text-muted-foreground">
+                                  An explicit empty list blocks this model. All providers includes
+                                  new providers automatically.
+                                </p>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setProviders(
+                                      model,
+                                      preferred === undefined ? [...discovered] : undefined,
+                                    )
+                                  }
+                                >
+                                  {preferred === undefined
+                                    ? "Choose providers explicitly"
+                                    : "Use all providers automatically"}
+                                </Button>
+                                {preferred === undefined ? (
+                                  <div className="text-xs text-muted-foreground">
+                                    {discovered.map(providerDisplayName).join(" · ") ||
+                                      "No provider serves this model."}
+                                  </div>
+                                ) : (
+                                  <>
+                                    <OrderedList
+                                      items={preferred}
+                                      onChange={(next) => setProviders(model, next)}
+                                    >
+                                      {(provider) => (
+                                        <div className="flex items-center justify-between gap-2 text-xs">
+                                          <span className="flex items-center gap-2">
+                                            <ProviderLogo id={provider} />
+                                            {providerDisplayName(provider)} ·{" "}
+                                            {stale.includes(provider)
+                                              ? "not available"
+                                              : (statuses.get(provider) ?? "quota unknown")}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            aria-label={`Remove ${provider} from ${model}`}
+                                            className="rounded p-1 hover:bg-muted"
+                                            onClick={() =>
+                                              setProviders(
+                                                model,
+                                                preferred.filter((id) => id !== provider),
+                                              )
+                                            }
+                                          >
+                                            <X className="size-4" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </OrderedList>
+                                    {sources.length === 0 ? (
+                                      <p className="text-xs text-destructive">
+                                        No available provider. Routing will not use this model.
+                                      </p>
+                                    ) : null}
+                                    <div className="flex flex-wrap gap-2">
+                                      {discovered
+                                        .filter((provider) => !preferred.includes(provider))
+                                        .map((provider) => (
+                                          <Button
+                                            key={provider}
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() =>
+                                              setProviders(model, [...preferred, provider])
+                                            }
+                                          >
+                                            Add {providerDisplayName(provider)}
+                                          </Button>
+                                        ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </details>
+                          </div>
+                        );
+                      }}
+                    </OrderedList>
+                    <div className="space-y-2">
+                      <Label>Add model</Label>
+                      <Combobox
+                        value=""
+                        onChange={(model) => {
+                          if (model) updateRoute({ models: [...route.models, model] });
+                        }}
+                        options={options}
+                        placeholder="Search model id, name, or provider…"
+                        emptyText="No matching model is available."
+                      />
+                    </div>
+                  </>
+                )}
+              </fieldset>
+              {error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
+              {confirmClose ? (
+                <div role="alert" className="space-y-3 rounded-lg border p-3 text-sm">
+                  <p>Discard unsaved route changes?</p>
+                  <div className="flex gap-2">
+                    <Button variant="destructive" onClick={() => closeEditor(true)}>
+                      Discard changes
+                    </Button>
+                    <Button variant="outline" onClick={() => setConfirmClose(false)}>
+                      Keep editing
+                    </Button>
+                  </div>
                 </div>
               ) : null}
-            </CardContent>
-          ) : null}
-        </Card>
-
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div className="flex flex-col gap-1">
-              <CardTitle>Quota guard</CardTitle>
-              <CardDescription>
-                {needsAttention.length === 0
-                  ? guard.enabled
-                    ? "Every provider has room; the guard is on."
-                    : "Off — providers are used in listed order, even when spent."
-                  : guard.enabled
-                    ? `${needsAttention.length} provider${needsAttention.length === 1 ? "" : "s"} thin on quota — the guard routes around them when it can.`
-                    : `${needsAttention.length} provider${needsAttention.length === 1 ? "" : "s"} thin on quota, but the guard is off.`}
-              </CardDescription>
-            </div>
-            <a
-              href="/providers"
-              className="text-xs font-medium text-foreground underline underline-offset-4"
-            >
-              Manage providers
-            </a>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {subscriptionHealth.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {subscriptionHealth.map((item) => (
-                  <div
-                    key={item.provider}
-                    className="flex items-center justify-between gap-3 text-xs"
-                  >
-                    <span className="flex items-center gap-2">
-                      <ProviderLogo id={item.provider} />
-                      <span className="font-medium">{providerDisplayName(item.provider)}</span>
-                    </span>
-                    <span className="truncate text-muted-foreground">
-                      {item.resetsAt
-                        ? `resets ${new Date(item.resetsAt).toLocaleTimeString()}`
-                        : ""}
-                      {item.note ? ` · ${item.note}` : ""}
-                    </span>
+              {confirmDelete ? (
+                <div role="alert" className="space-y-3 rounded-lg border p-3 text-sm">
+                  <p>
+                    Delete this task? Clients that use jevonian/{route.id} will need another route.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() => void deleteRoute()}
+                    >
+                      Confirm delete
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setConfirmDelete(false)}
+                    >
+                      Keep task
+                    </Button>
                   </div>
-                ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <SheetFooter className="border-t">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {route && editingId !== NEW_ROUTE && !BUILTIN_ROUTING_IDS.has(route.id) ? (
+                <Button variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
+                  Delete task
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {editingId !== NEW_ROUTE ? "Built-in task" : "New task"}
+                </span>
+              )}
+              <div className="flex gap-2">
+                <Button variant="outline" disabled={busy} onClick={() => closeEditor()}>
+                  Cancel
+                </Button>
+                <Button disabled={busy || !route} onClick={() => void saveRoute()}>
+                  {busy ? "Saving…" : "Save route"}
+                </Button>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No quota data yet. Connect a subscription provider, or declare caps on the Providers
-                page.
-              </p>
-            )}
-            <details className="rounded-md border">
-              <summary className="cursor-pointer select-none px-3 py-2 text-xs text-muted-foreground">
-                Guard settings
-              </summary>
-              <div className="flex flex-col gap-4 border-t p-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="guardEnabled">Guard</Label>
-                  <Select
-                    value={guard.enabled ? "on" : "off"}
-                    onValueChange={(value) => setGuard({ ...guard, enabled: value === "on" })}
-                  >
-                    <SelectTrigger id="guardEnabled" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="on">on — route around thin quota</SelectItem>
-                      <SelectItem value="off">off — ignore quota</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="guardLow">Low threshold (% remaining)</Label>
-                  <Input
-                    id="guardLow"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={guard.lowPercent}
-                    onChange={(event) =>
-                      setGuard({ ...guard, lowPercent: Number(event.target.value) })
-                    }
-                  />
-                  <span className="text-[11px] text-muted-foreground">
-                    Below this share a provider is treated as thin; spent providers are skipped only
-                    when an alternative exists.
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="guardResetAware">Reset-aware order</Label>
-                  <Select
-                    value={guard.resetAware ? "on" : "off"}
-                    onValueChange={(value) => setGuard({ ...guard, resetAware: value === "on" })}
-                  >
-                    <SelectTrigger id="guardResetAware" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="on">
-                        on — spend the soonest-renewing allowance first
-                      </SelectItem>
-                      <SelectItem value="off">off — keep the configured order</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span className="text-[11px] text-muted-foreground">
-                    What an account has left is lost when its window resets, so the one renewing
-                    soonest goes first. Off keeps prompt caches warm by never reordering.
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void save()}
-                    disabled={busy || !dirty}
-                  >
-                    Save guard
-                  </Button>
-                  {dirty ? (
-                    <span className="text-xs font-medium text-amber-600">unsaved changes</span>
-                  ) : null}
-                </div>
-              </div>
-            </details>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </section>
   );
 }

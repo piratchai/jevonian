@@ -251,7 +251,7 @@ export function OverviewPage() {
             cost — without switching models by hand.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
-            <Button size="sm" render={<Link to="/routing" />}>
+            <Button size="sm" render={<Link to="/models#task-routes" />}>
               <Layers3 className="size-3.5" /> Explore routing <ArrowUpRight className="size-3.5" />
             </Button>
             <Button variant="outline" size="sm" render={<Link to="/logs" />}>

@@ -106,6 +106,7 @@ type CredentialStore interface {
 type QuotaSource interface {
 	ProviderHealth(config.Provider, quota.HealthOptions) quota.Health
 	HeaderWindows(string) []quota.Window
+	ModelHealth(config.Provider, string) quota.ModelHealth
 }
 type TunnelManager interface {
 	Update(config.TunnelConfig, int)

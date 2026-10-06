@@ -30,7 +30,7 @@ func request(h http.Handler, method, target string) *httptest.ResponseRecorder {
 
 func TestStaticAssetsAndSPA(t *testing.T) {
 	h := staticHandler(dashboardFixture())
-	for _, target := range []string{"/", "/index.html", "/providers", "/logs/request-123", "/keys?tab=new", "/routing/"} {
+	for _, target := range []string{"/", "/index.html", "/models", "/models?source=legacy", "/providers", "/logs/request-123", "/keys?tab=new", "/routing/"} {
 		rr := request(h, "GET", target)
 		if rr.Code != 200 || !strings.Contains(rr.Body.String(), `id="root"`) || !strings.HasPrefix(rr.Header().Get("Content-Type"), "text/html") {
 			t.Fatalf("GET %s: %d %s %q", target, rr.Code, rr.Header().Get("Content-Type"), rr.Body.String())

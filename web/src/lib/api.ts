@@ -462,10 +462,18 @@ export interface ProviderQuotaView {
 
 export type QuotaStatusView = "ok" | "low" | "exhausted" | "unknown";
 
+export interface ModelQuotaHealthView {
+  model: string;
+  status: string;
+  reason?: string;
+  resetsAt?: string;
+}
+
 export interface QuotaHealthView {
   provider: string;
   billing?: ProviderBillingView;
   status: QuotaStatusView;
+  modelHealth?: ModelQuotaHealthView[];
   usedPercent?: number;
   remainingPercent?: number;
   window?: string;

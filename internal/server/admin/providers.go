@@ -223,13 +223,16 @@ func (h *Handler) providers(w http.ResponseWriter, r *http.Request) {
 		if c.DefaultProvider == "" {
 			c.DefaultProvider = name
 		}
+		// Provider catalog changes must not pin auto-derived route model lists. Keep
+		// empty Models in configuration; routingPayload derives its live preview.
 		derived := deriveRoutings(&c, h.deps.Prices)
-		for i, e := range c.Routing.Routings {
-			if len(e.Models) == 0 {
-				c.Routing.Routings[i] = derived[i]
+		materialized := append([]config.RoutingEntry(nil), c.Routing.Routings...)
+		for i, entry := range materialized {
+			if len(entry.Models) == 0 && i < len(derived) {
+				materialized[i] = derived[i]
 			}
 		}
-		c.Routing.Tiers = tiers(c.Routing.Routings)
+		c.Routing.Tiers = tiers(materialized)
 		if c.Routing.BaselineModel == "" && len(c.Routing.Tiers.Plan) > 0 {
 			c.Routing.BaselineModel = c.Routing.Tiers.Plan[0]
 		}
@@ -738,6 +741,22 @@ func (h *Handler) quotaAPI(w http.ResponseWriter, r *http.Request) {
 		if h.deps.Quota != nil {
 			q := h.deps.Quota.ProviderHealth(p, quota.HealthOptions{LowPercent: &c.Routing.QuotaGuard.LowPercent})
 			row["status"] = q.Status
+			modelHealth := []any{}
+			for _, model := range p.Models {
+				q := h.deps.Quota.ModelHealth(p, model.ID)
+				if q.Status == quota.StatusOK {
+					continue
+				}
+				modelRow := map[string]any{"model": q.Model, "status": q.Status}
+				if q.Reason != "" {
+					modelRow["reason"] = q.Reason
+				}
+				if !q.ResetsAt.IsZero() {
+					modelRow["resetsAt"] = q.ResetsAt.UTC().Format(time.RFC3339Nano)
+				}
+				modelHealth = append(modelHealth, modelRow)
+			}
+			row["modelHealth"] = modelHealth
 			if q.Status != quota.StatusUnknown {
 				row["usedPercent"] = q.UsedPercent
 				row["remainingPercent"] = q.RemainingPercent

@@ -3,6 +3,7 @@ package admin_test
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -286,6 +287,21 @@ func TestProviderDiscoveryAndWirePins(t *testing.T) {
 	checkStatus(t, code, 200, out)
 	if len(x.config.Providers[0].Models[0].Wire) != 1 || len(x.config.Providers[0].ExcludeModels) != 1 {
 		t.Fatal("lost wire or exclusion")
+	}
+	// Saving a provider must refresh computed tiers without pinning an automatic
+	// routing's derived model list into the saved configuration.
+	cfg := *x.config
+	cfg.Providers = nil
+	cfg.DefaultProvider = ""
+	cfg.Routing.Routings = []config.RoutingEntry{{ID: "plan", Label: "Plan", Description: "Planning"}, {ID: "execute", Label: "Execute"}, {ID: "utility", Label: "Utility"}, {ID: "chat", Label: "Chat"}}
+	x.config = &cfg
+	code, out = request(t, x.h, "POST", "/providers", map[string]any{"name": "local", "type": "openai", "baseUrl": upstream.URL + "/v1", "noKey": true, "models": []string{"a", "b"}})
+	checkStatus(t, code, 200, out)
+	if len(x.config.Routing.Routings[0].Models) != 0 {
+		t.Fatalf("provider save pinned automatic route models: %#v", x.config.Routing.Routings[0].Models)
+	}
+	if len(out["routings"].([]any)) == 0 {
+		t.Fatal("provider save did not return derived route previews")
 	}
 	data, _ := os.ReadFile(x.path)
 	reloaded, err := config.ParseBytes(data)

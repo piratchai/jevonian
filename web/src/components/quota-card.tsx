@@ -1,7 +1,7 @@
 import { ProviderLogo } from "@/components/provider-logo";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { ProviderQuotaView, QuotaHealthView, QuotaWindow } from "@/lib/api";
+import type { ModelQuotaHealthView, ProviderQuotaView, QuotaHealthView, QuotaWindow } from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
 import { cn, formatTime, money } from "@/lib/utils";
 
@@ -83,6 +83,22 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
   );
 }
 
+function ModelCooldownRow({ model }: { model: ModelQuotaHealthView }) {
+  const reset = resetLabel(model.resetsAt);
+  const status = model.status.toLowerCase();
+  const exhausted = status.includes("exhaust") || status.includes("cooldown") || status.includes("rate");
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <code className="break-all text-xs font-medium">{model.model}</code>
+        <Badge variant={exhausted ? "destructive" : "secondary"}>{model.status}</Badge>
+      </div>
+      {model.reason ? <p className="text-xs text-muted-foreground">{model.reason}</p> : null}
+      {reset ? <p className="text-[11px] text-muted-foreground">{reset}</p> : null}
+    </div>
+  );
+}
+
 export function ProviderQuotaCard({
   quota,
   health,
@@ -136,6 +152,20 @@ export function ProviderQuotaCard({
 
       {quota.windows.length > 0 && quota.error ? (
         <p className="text-[11px] text-muted-foreground">{quota.error}</p>
+      ) : null}
+
+      {health?.modelHealth && health.modelHealth.length > 0 ? (
+        <section className="flex flex-col gap-2 border-t pt-3" aria-label="Model cooldowns">
+          <div>
+            <p className="text-xs font-medium">Model-specific limits</p>
+            <p className="text-[11px] text-muted-foreground">
+              Account quota can be OK while an individual model is rate-limited.
+            </p>
+          </div>
+          {health.modelHealth.map((model) => (
+            <ModelCooldownRow key={model.model} model={model} />
+          ))}
+        </section>
       ) : null}
 
       {health?.remainingUsd !== undefined ? (
