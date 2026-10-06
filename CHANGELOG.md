@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.2] - 2026-10-06
+
+### Changed
+
+- **CLI output uses a consistent terminal style.** Status labels and command output use shared colors, while JSON and redirected output stay plain.
+- **Removed the Kev decision brain.** The Kev CLI command, channel, and related deployment code are no longer included.
+
 ## [0.6.1] - 2026-10-06
 
 ### Fixed
