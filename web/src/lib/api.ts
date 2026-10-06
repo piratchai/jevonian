@@ -102,8 +102,6 @@ export interface BrainChannelView {
   apiKeyEnv: string;
   requiresBaseUrl?: boolean;
   requiresAccountId?: boolean;
-  keyOptional?: boolean;
-  defaultMinConfidence?: number;
   models?: BrainModelView[];
   hint?: string;
   keysUrl?: string;

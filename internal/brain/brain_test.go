@@ -74,7 +74,7 @@ func TestParseSystemOneResponseChoice(t *testing.T) {
 				},
 			},
 		},
-	}, false)
+	})
 	if parsed.Model != "deepseek-v4.1-flash" {
 		t.Fatalf("model = %q", parsed.Model)
 	}
@@ -99,7 +99,7 @@ func TestParseSystemOneResponseChoicesFallback(t *testing.T) {
 				},
 			},
 		},
-	}, false)
+	})
 	if parsed.Model != "deepseek-v4-pro" {
 		t.Fatalf("model = %q", parsed.Model)
 	}
@@ -113,7 +113,7 @@ func TestParseSystemOneResponseNoneOfTheAbove(t *testing.T) {
 		"answers": map[string]any{
 			"model": map[string]any{"choice": "none_of_the_above", "confidence": 0.55},
 		},
-	}, false)
+	})
 	if parsed.Model != "none_of_the_above" {
 		t.Fatalf("model = %q", parsed.Model)
 	}
@@ -128,7 +128,7 @@ func TestParseSystemOneResponseNoneOfTheAbove(t *testing.T) {
 func TestParseSystemOneResponseMissingChoice(t *testing.T) {
 	parsed := ParseSystemOneResponse(map[string]any{
 		"answers": map[string]any{"model": map[string]any{}},
-	}, false)
+	})
 	if parsed.Model != "" {
 		t.Fatalf("model = %q", parsed.Model)
 	}
@@ -145,24 +145,8 @@ func TestParseSystemOneResponseKeepsReportedConfidence(t *testing.T) {
 				"probabilities": map[string]any{"plan": 0.52, "execute": 0.48},
 			},
 		},
-	}, false)
+	})
 	if parsed.Confidence != 0.3 {
-		t.Fatalf("confidence = %v", parsed.Confidence)
-	}
-}
-
-func TestParseSystemOneResponseConfidenceFromDistribution(t *testing.T) {
-	// Kev's `confidence` is a separate calibrated score; the winning
-	// probability is the confidence the router reads.
-	parsed := ParseSystemOneResponse(map[string]any{
-		"answers": map[string]any{
-			"model": map[string]any{
-				"choice": "b", "confidence": 0.04,
-				"probabilities": map[string]any{"a": 0.48, "b": 0.52},
-			},
-		},
-	}, true)
-	if parsed.Confidence != 0.52 {
 		t.Fatalf("confidence = %v", parsed.Confidence)
 	}
 }
@@ -183,7 +167,7 @@ func TestParseSystemOneResponseEffortDistribution(t *testing.T) {
 				},
 			},
 		},
-	}, false)
+	})
 	if parsed.Effort != "low" {
 		t.Fatalf("effort = %q", parsed.Effort)
 	}
@@ -291,50 +275,6 @@ func TestAskExplicitAPIKeyOverride(t *testing.T) {
 	}
 	if tr.requests[0].Header.Get("authorization") != "Bearer typed-key" {
 		t.Fatalf("auth = %q", tr.requests[0].Header.Get("authorization"))
-	}
-}
-
-func TestAskKevKeylessPlaceholder(t *testing.T) {
-	tr := &fakeTransport{responses: []*http.Response{
-		jsonResponse(200, map[string]any{
-			"model": "kev-latest",
-			"answers": map[string]any{
-				"model": map[string]any{
-					"choice": "execute", "confidence": 0.05,
-					"probabilities": map[string]any{"execute": 0.61, "plan": 0.39},
-				},
-			},
-		}),
-	}}
-	verdict := clientWith(tr).AskVerdict(context.Background(), Input{
-		Brain: config.BrainConfig{Channel: "kev", TimeoutMs: 1000, MinConfidence: 0.4},
-		State: map[string]any{},
-	})
-	if tr.requests[0].URL.String() != "http://127.0.0.1:8009/v1/systemone" {
-		t.Fatalf("url = %s", tr.requests[0].URL)
-	}
-	if tr.requests[0].Header.Get("authorization") != "Bearer "+PlaceholderKey {
-		t.Fatalf("auth = %q", tr.requests[0].Header.Get("authorization"))
-	}
-	if verdict == nil || verdict.Model != "execute" {
-		t.Fatalf("verdict = %+v", verdict)
-	}
-	if verdict.Confidence != 0.61 {
-		t.Fatalf("confidence = %v", verdict.Confidence)
-	}
-}
-
-func TestAskKev401NeedsKey(t *testing.T) {
-	tr := &fakeTransport{responses: []*http.Response{textResponse(401, "unauthorized")}}
-	outcome := clientWith(tr).Ask(context.Background(), Input{
-		Brain: config.BrainConfig{Channel: "kev", TimeoutMs: 1000, MinConfidence: 0.4},
-		State: map[string]any{},
-	})
-	if outcome.Failure == nil {
-		t.Fatal("expected failure")
-	}
-	if !strings.Contains(outcome.Failure.Error, "KEV_API_KEY") {
-		t.Fatalf("error = %q", outcome.Failure.Error)
 	}
 }
 
@@ -609,16 +549,6 @@ func TestFindChannel(t *testing.T) {
 	if !hasBaseURL {
 		t.Fatal("some channel should require baseUrl")
 	}
-	kev := FindChannel("kev")
-	if kev.Model != "kev-latest" || !kev.KeyOptional || !kev.CompactState || !kev.ConfidenceFromDistribution {
-		t.Fatalf("kev = %+v", kev)
-	}
-	if FindChannel("typesafe").CompactState {
-		t.Fatal("typesafe should not be compactState")
-	}
-	if FindChannel("typesafe").ConfidenceFromDistribution {
-		t.Fatal("typesafe should not be confidenceFromDistribution")
-	}
 }
 
 func TestChannelDefaultModelFirst(t *testing.T) {
@@ -644,7 +574,7 @@ func TestNormalizeEvaluationResult(t *testing.T) {
 			},
 		},
 	}, "typesafe-ai/jev")
-	parsed := ParseSystemOneResponse(normalized, false)
+	parsed := ParseSystemOneResponse(normalized)
 	if parsed.Model != "deepseek-v4.1-flash" {
 		t.Fatalf("model = %q", parsed.Model)
 	}

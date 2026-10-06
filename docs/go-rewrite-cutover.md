@@ -51,7 +51,7 @@ Package layout follows responsibility layers — state/config at the bottom, HTT
 cmd/jevonian/main.go          # sole entrypoint → internal/cli
 internal/
   cli/        command dispatch: serve.go lifecycle.go providers.go keycommands.go
-              observability.go (doctor/report) pricing.go catalog.go kev.go
+              observability.go (doctor/report) pricing.go catalog.go
   config/     JSONC load, TS-compatible
   paths/      XDG / dataDir
   ledger/     SQLite + JSONL import + rollups
@@ -68,7 +68,7 @@ internal/
   brain/      client.go types.go                   # hand-rolled scorer (replaces @ai-sdk/gateway)
   catalogsync/ models.dev capabilities + identity index, leaderboard refresh
   modelsync/  provider model-list sync
-  clients/    client config writers (launch / kev)
+  clients/    client config writers (launch)
   saver/      RTK token saver
   wire/
     openai/ anthropic/ responses/

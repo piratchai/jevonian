@@ -24,7 +24,7 @@
     ],
     "brains": [
       {"channel": "cloudflare", "accountId": " acc ", "model": "@cf/x", "baseUrl": "https://b", "apiKeyEnv": "CF", "timeoutMs": 9000, "minConfidence": 0.3, "fullPrompt": true},
-      {"channel": "kev"}, {"timeoutMs": -1, "minConfidence": 7}
+      {"channel": "typesafe"}, {"timeoutMs": -1, "minConfidence": 7}
     ]
   }
 }

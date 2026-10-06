@@ -366,9 +366,6 @@ func (h *Handler) brainSource(b config.BrainConfig) string {
 	if env != "" && os.Getenv(env) != "" {
 		return "env:" + env
 	}
-	if channel != nil && channel.KeyOptional {
-		return "optional"
-	}
 	return "none"
 }
 func channels() []map[string]any {
@@ -387,20 +384,8 @@ func channels() []map[string]any {
 		if c.RequiresAccountID {
 			m["requiresAccountId"] = true
 		}
-		if c.KeyOptional {
-			m["keyOptional"] = true
-		}
-		if c.DefaultMinConfidence != 0 {
-			m["defaultMinConfidence"] = c.DefaultMinConfidence
-		}
 		if len(c.Models) > 0 {
 			m["models"] = c.Models
-		}
-		if c.CompactState {
-			m["compactState"] = true
-		}
-		if c.ConfidenceFromDistribution {
-			m["confidenceFromDistribution"] = true
 		}
 		out = append(out, m)
 	}
@@ -668,7 +653,7 @@ func (h *Handler) saveRouting(w http.ResponseWriter, r *http.Request) {
 			if len(bs) > 0 {
 				current = object(bs[0])
 			}
-			merged, err := h.mergeBrain(current, bb, len(bs) == 0)
+			merged, err := h.mergeBrain(current, bb)
 			if err != nil {
 				return nil, 500, err
 			}
@@ -688,7 +673,7 @@ func (h *Handler) saveRouting(w http.ResponseWriter, r *http.Request) {
 		return out, 200, nil
 	})
 }
-func (h *Handler) mergeBrain(current, b map[string]any, isDefault bool) (map[string]any, error) {
+func (h *Handler) mergeBrain(current, b map[string]any) (map[string]any, error) {
 	next := map[string]any{}
 	channel := text(current["channel"])
 	if s := text(b["channel"]); s != "" {
@@ -723,8 +708,6 @@ func (h *Handler) mergeBrain(current, b map[string]any, isDefault bool) (map[str
 	next["minConfidence"] = current["minConfidence"]
 	if n, ok := b["minConfidence"].(float64); ok {
 		next["minConfidence"] = n
-	} else if (channel != text(current["channel"]) || isDefault) && preset != nil && preset.DefaultMinConfidence != 0 {
-		next["minConfidence"] = preset.DefaultMinConfidence
 	}
 	if b["fullPrompt"] == true {
 		next["fullPrompt"] = true
@@ -742,7 +725,7 @@ func (h *Handler) brains(w http.ResponseWriter, r *http.Request) {
 		bs := slice(rc["brains"])
 		status := 200
 		if r.Method == "POST" && r.PathValue("index") == "" {
-			merged, err := h.mergeBrain(toMap(config.DefaultBrain), b, true)
+			merged, err := h.mergeBrain(toMap(config.DefaultBrain), b)
 			if err != nil {
 				return nil, 500, err
 			}
@@ -780,7 +763,7 @@ func (h *Handler) brains(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			default:
-				merged, err := h.mergeBrain(object(bs[index]), b, false)
+				merged, err := h.mergeBrain(object(bs[index]), b)
 				if err != nil {
 					return nil, 500, err
 				}

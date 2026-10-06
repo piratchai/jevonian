@@ -126,9 +126,9 @@ func (c commandContext) providers() error {
 			if where == "" {
 				where = "custom"
 			}
-			account = " account=" + where
+			account = " account=" + c.styleValue(where)
 		}
-		fmt.Fprintf(c.out, "%-24s %-14s %-46s key=%s%s models=%d\n", p.Name, typ, p.BaseURL, source, account, len(p.Models))
+		fmt.Fprintf(c.out, "%s %-14s %-46s key=%s%s models=%d\n", c.styleValue(fmt.Sprintf("%-24s", p.Name)), typ, p.BaseURL, c.styleValue(source), account, len(p.Models))
 	}
 	return nil
 }
@@ -172,7 +172,7 @@ func (c commandContext) remove(a arguments) error {
 	if a.has("keep-key") {
 		suffix = " (key kept)"
 	}
-	fmt.Fprintf(c.out, "Removed provider %q%s\n", name, suffix)
+	fmt.Fprintf(c.out, "Removed provider %s%s\n", c.styleValue(fmt.Sprintf("%q", name)), suffix)
 	return nil
 }
 func expandHome(p string) string {
@@ -310,7 +310,7 @@ func (c commandContext) add(a arguments) error {
 		if pre.source != "" && pre.hint != "" {
 			fmt.Fprintln(c.out, pre.hint)
 		} else if pre.keysURL != "" {
-			fmt.Fprintf(c.out, "Get a key at %s\n", pre.keysURL)
+			fmt.Fprintf(c.out, "Get a key at %s\n", c.styleValue(pre.keysURL))
 		} else if pre.hint != "" {
 			fmt.Fprintln(c.out, pre.hint)
 		}
@@ -337,7 +337,7 @@ func (c commandContext) add(a arguments) error {
 		if who == "" {
 			who = signed.Name
 		}
-		fmt.Fprintf(c.out, "Signed in to Freebuff as %s.\n", who)
+		fmt.Fprintf(c.out, "Signed in to Freebuff as %s.\n", c.styleValue(who))
 	}
 	if p.OAuthSource == config.OAuthWorkbuddyAI && !workbuddy.HasCredential(p.Login) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -346,7 +346,7 @@ func (c commandContext) add(a arguments) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(c.out, "Signed in as %s.\n", signed.User)
+		fmt.Fprintf(c.out, "Signed in as %s.\n", c.styleValue(signed.User))
 	}
 	models := splitModels(a.flags["models"])
 	if len(models) == 0 {
@@ -446,9 +446,9 @@ func (c commandContext) add(a arguments) error {
 	if len(models) > 0 {
 		preview := ""
 		if len(models) <= 8 {
-			preview = ": " + strings.Join(models, ", ")
+			preview = ": " + c.styleValue(strings.Join(models, ", "))
 		}
-		fmt.Fprintf(c.out, "enabling %d models%s\n", len(models), preview)
+		fmt.Fprintf(c.out, "enabling %s models%s\n", c.styleValue(fmt.Sprint(len(models))), preview)
 	}
 	authLine := "none"
 	switch {
@@ -463,7 +463,7 @@ func (c commandContext) add(a arguments) error {
 	case p.APIKeyEnv != "":
 		authLine = "env " + p.APIKeyEnv
 	}
-	fmt.Fprintf(c.out, "\nAdded provider %q (%s) with %d models\n  auth: %s\n", p.Name, p.Type, len(models), authLine)
+	fmt.Fprintf(c.out, "\nAdded provider %s (%s) with %s models\n  %s %s\n", c.styleValue(fmt.Sprintf("%q", p.Name)), p.Type, c.styleValue(fmt.Sprint(len(models))), c.styleValue("auth:"), authLine)
 	if p.Login != nil {
 		where := p.Login.CredentialsPath
 		if where == "" {
@@ -479,12 +479,12 @@ func (c commandContext) add(a arguments) error {
 		if p.Login.Label != "" {
 			label = p.Login.Label + " — "
 		}
-		fmt.Fprintf(c.out, "  login: %s%s\n", label, where)
+		fmt.Fprintf(c.out, "  %s %s%s\n", c.styleValue("login:"), label, where)
 	}
-	fmt.Fprintf(c.out, "  billing: %s\n", p.Billing)
+	fmt.Fprintf(c.out, "  %s %s\n", c.styleValue("billing:"), p.Billing)
 	for _, r := range cfg.Routing.Routings {
 		if len(r.Models) > 0 {
-			fmt.Fprintf(c.out, "  %s: %s\n", r.ID, strings.Join(r.Models, ", "))
+			fmt.Fprintf(c.out, "  %s: %s\n", c.styleValue(r.ID), strings.Join(r.Models, ", "))
 		}
 	}
 	fmt.Fprintf(c.out, "config: %s\nNext: jevonian serve\n", paths.ConfigPath())
@@ -528,7 +528,7 @@ func (c commandContext) init(a arguments) error {
 	}
 	if c.interactive(a) {
 		if len(cfg.Providers) > 0 {
-			fmt.Fprintf(c.out, "Config already exists at %s with %d providers.\nAdd another with: jevonian add\n", paths.ConfigPath(), len(cfg.Providers))
+			fmt.Fprintf(c.out, "Config already exists at %s with %d providers.\nAdd another with: jevonian add\n", c.styleValue(paths.ConfigPath()), len(cfg.Providers))
 			return nil
 		}
 		fmt.Fprintln(c.out, "Welcome to Jevonian. Let's add your first provider.")
@@ -551,7 +551,7 @@ func (c commandContext) init(a arguments) error {
 	if err := saveConfig(cfg); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.out, "Wrote %s\nSet DEEPSEEK_API_KEY, then run: jevonian serve\n", paths.ConfigPath())
+	fmt.Fprintf(c.out, "Wrote %s\nSet DEEPSEEK_API_KEY, then run: jevonian serve\n", c.styleValue(paths.ConfigPath()))
 	return nil
 }
 

@@ -39,27 +39,29 @@ import (
 )
 
 func runServe(args []string) int {
+	stdout := styledWriter(os.Stdout)
+	stderr := styledWriter(os.Stderr)
 	cfg, cfgPath, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		fmt.Fprintf(stderr, "config: %v\n", err)
 		return 1
 	}
 
 	a, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if err := applyServeFlags(&cfg, a, cfgPath); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	if a.has("lan") || a.has("no-lan") || a.has("lan-host") || a.has("lan-port") {
-		commandContext{out: os.Stdout, errOut: os.Stderr}.printLanState(cfg)
+		commandContext{out: stdout, errOut: stderr}.printLanState(cfg)
 	}
 	if _, statErr := os.Stat(cfgPath); os.IsNotExist(statErr) {
-		fmt.Fprintln(os.Stdout, "No config yet — starting with defaults. Add a provider in the web UI:")
-		fmt.Fprintf(os.Stdout, "  http://%s:%d/providers\n", cfg.Listen.Host, cfg.Listen.Port)
+		fmt.Fprintln(stdout, "No config yet — starting with defaults. Add a provider in the web UI:")
+		fmt.Fprintf(stdout, "  http://%s:%d/providers\n", cfg.Listen.Host, cfg.Listen.Port)
 	}
 	// Machine-wide launchd PATH is /usr/bin:/bin:...; restore Homebrew / local bins so
 	// tunnel providers (ngrok, cloudflared) resolve without a shell profile.
@@ -68,9 +70,9 @@ func runServe(args []string) int {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		if !service.ManagedByLaunchd() {
-			fmt.Fprintf(os.Stderr, "%s\n", portInUseMessage(cfg.Listen.Port, err))
+			fmt.Fprintf(stderr, "%s\n", portInUseMessage(cfg.Listen.Port, err))
 		} else {
-			fmt.Fprintf(os.Stderr, "serve: cannot bind %s: %v\n", addr, err)
+			fmt.Fprintf(stderr, "serve: cannot bind %s: %v\n", addr, err)
 		}
 		return 1
 	}
@@ -80,19 +82,19 @@ func runServe(args []string) int {
 	forceHTTP1(transport)
 	client := &http.Client{Transport: transport, Timeout: 0}
 	if sysProxy != nil {
-		fmt.Fprintf(os.Stderr, "jevonian (go): system proxy %s\n", sysProxy.URL)
+		fmt.Fprintf(stderr, "jevonian (go): system proxy %s\n", sysProxy.URL)
 	} else if proxy.HasProxyEnv(nil) {
-		fmt.Fprintln(os.Stderr, "jevonian (go): using HTTP(S)_PROXY from environment")
+		fmt.Fprintln(stderr, "jevonian (go): using HTTP(S)_PROXY from environment")
 	}
 
 	dbPath := paths.LedgerDBPath()
 	db, err := ledger.Open(dbPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ledger: %v\n", err)
+		fmt.Fprintf(stderr, "ledger: %v\n", err)
 		return 1
 	}
 	if err := db.ExtendSchema(); err != nil {
-		fmt.Fprintf(os.Stderr, "ledger: extend schema: %v\n", err)
+		fmt.Fprintf(stderr, "ledger: extend schema: %v\n", err)
 		return 1
 	}
 	defer db.Close()
@@ -103,16 +105,16 @@ func runServe(args []string) int {
 			started := time.Now()
 			imported, err := db.ImportJSONL(jsonl)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ledger: import %s: %v\n", jsonl, err)
+				fmt.Fprintf(stderr, "ledger: import %s: %v\n", jsonl, err)
 			} else {
-				fmt.Fprintf(os.Stderr, "jevonian (go): imported %d ledger rows from %s in %s\n",
+				fmt.Fprintf(stderr, "jevonian (go): imported %d ledger rows from %s in %s\n",
 					imported, jsonl, time.Since(started).Round(time.Millisecond))
 			}
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "jevonian (go): config %s (%d providers)\n", cfgPath, len(cfg.Providers))
-	fmt.Fprintf(os.Stderr, "jevonian (go): ledger %s\n", dbPath)
+	fmt.Fprintf(stderr, "jevonian (go): config %s (%d providers)\n", cfgPath, len(cfg.Providers))
+	fmt.Fprintf(stderr, "jevonian (go): ledger %s\n", dbPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -149,7 +151,7 @@ func runServe(args []string) int {
 	brainClient := &brain.Client{HTTP: client, Credentials: credentials.Get}
 	logs, err := admin.OpenSQLiteLogs(dbPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "admin ledger: %v\n", err)
+		fmt.Fprintf(stderr, "admin ledger: %v\n", err)
 		return 1
 	}
 	defer logs.Close()
@@ -231,7 +233,7 @@ func runServe(args []string) int {
 			}
 		},
 		Log: func(msg string) {
-			fmt.Fprintf(os.Stderr, "jevonian (go): %s\n", msg)
+			fmt.Fprintf(stderr, "jevonian (go): %s\n", msg)
 		},
 	}
 	modelSyncDeps.Start(ctx)
@@ -269,12 +271,12 @@ func runServe(args []string) int {
 		CatalogDeps: catalogDeps,
 	})
 
-	exposure := server.NewExposure(ctx, deps, current.Load, server.ExposureOptions{OnError: func(err error) { fmt.Fprintf(os.Stderr, "public listener: %v\n", err) }})
+	exposure := server.NewExposure(ctx, deps, current.Load, server.ExposureOptions{OnError: func(err error) { fmt.Fprintf(stderr, "public listener: %v\n", err) }})
 	defer exposure.Close()
 	deps.OnReload = func(next *config.Config) {
 		current.Store(next)
 		if err := exposure.Reconcile(next); err != nil {
-			fmt.Fprintf(os.Stderr, "public listener: %v\n", err)
+			fmt.Fprintf(stderr, "public listener: %v\n", err)
 		}
 	}
 	srv := server.New(addr, deps)
@@ -287,7 +289,7 @@ func runServe(args []string) int {
 			status := updater.Check(ctx, false)
 			if status.UpdateAvailable && status.Latest != "" && status.Latest != announced {
 				announced = status.Latest
-				fmt.Fprint(os.Stderr, update.FormatUpdateNotice(status, stderrIsTTY(os.Stderr)))
+				fmt.Fprint(stderr, update.FormatUpdateNotice(status, stderrIsTTY(stderr)))
 			}
 		}
 		select {
@@ -311,32 +313,32 @@ func runServe(args []string) int {
 	go func() {
 		quotas, err := liveQuotaService.ProviderQuotas(ctx, &cfg, true)
 		if err != nil {
-			fmt.Fprintf(os.Stdout, "quota refresh failed: %v\n", err)
+			fmt.Fprintf(stdout, "quota refresh failed: %v\n", err)
 			return
 		}
 		if spent := spentProviders(quotas); len(spent) > 0 {
-			fmt.Fprintf(os.Stdout, "quota: routing around %s (limit reached)\n", strings.Join(spent, ", "))
+			fmt.Fprintf(stdout, "quota: routing around %s (limit reached)\n", strings.Join(spent, ", "))
 		}
 	}()
 	go func() {
 		if pStale, bStale := catalogsync.NeedsRefresh(PricingInfo(), time.Now()); pStale || bStale {
 			res := catalogDeps.Refresh(ctx, false)
 			if cached, ok := res.Pricing["cached"].(bool); ok && !cached {
-				fmt.Fprintf(os.Stderr, "jevonian (go): refreshed pricing snapshot\n")
+				fmt.Fprintf(stderr, "jevonian (go): refreshed pricing snapshot\n")
 			}
 			if cached, ok := res.Leaderboard["cached"].(bool); ok && !cached {
-				fmt.Fprintf(os.Stderr, "jevonian (go): refreshed leaderboard benchmarks\n")
+				fmt.Fprintf(stderr, "jevonian (go): refreshed leaderboard benchmarks\n")
 			}
 		}
 	}()
 	if err := exposure.Reconcile(&cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "public listener: %v\n", err)
+		fmt.Fprintf(stderr, "public listener: %v\n", err)
 	}
-	printServeBanner(os.Stdout, cfg, addr)
+	printServeBanner(stdout, cfg, addr)
 	if cfg.Tunnel.Enabled {
-		fmt.Println("tunnel: starting…")
+		fmt.Fprintln(stdout, "tunnel: starting…")
 		tunnelManager.Start(ctx)
-		go announceTunnel(ctx, os.Stdout, tunnelManager.Status, 500*time.Millisecond, 30*time.Second)
+		go announceTunnel(ctx, stdout, tunnelManager.Status, 500*time.Millisecond, 30*time.Second)
 		go func() {
 			select {
 			case <-intCh:
@@ -347,27 +349,27 @@ func runServe(args []string) int {
 	}
 	for _, provider := range cfg.Providers {
 		if keySource(provider) == "none" {
-			fmt.Fprintf(os.Stderr, "warning: provider %q has no API key. Run `jevonian add %s`.\n", provider.Name, provider.Name)
+			fmt.Fprintf(stderr, "warning: provider %q has no API key. Run `jevonian add %s`.\n", provider.Name, provider.Name)
 		}
 	}
 	if cfg.Lan.Enabled {
 		urls := tunnel.LanBaseURLs(&cfg, tunnel.LanIPv4Addresses(nil))
-		fmt.Printf("lan: listening on %s:%d (only /v1, key required)\n", tunnel.LanBindHost(cfg.Lan), tunnel.LanPort(&cfg))
+		fmt.Fprintf(stdout, "lan: listening on %s:%d (only /v1, key required)\n", tunnel.LanBindHost(cfg.Lan), tunnel.LanPort(&cfg))
 		if len(urls) == 0 {
-			fmt.Println("lan: no non-loopback IPv4 address found; a peer cannot reach this machine yet.")
+			fmt.Fprintln(stdout, "lan: no non-loopback IPv4 address found; a peer cannot reach this machine yet.")
 		}
 		for _, url := range urls {
-			fmt.Printf("lan: provider base URL %s\n", url)
+			fmt.Fprintf(stdout, "lan: provider base URL %s\n", url)
 		}
 	}
-	openDashboard("http://"+net.JoinHostPort(probeHost(cfg.Listen.Host), strconv.Itoa(cfg.Listen.Port))+"/", a)
+	openDashboard("http://"+net.JoinHostPort(probeHost(cfg.Listen.Host), strconv.Itoa(cfg.Listen.Port))+"/", a, stdout)
 	if err := srv.Serve(ctx, ln); err != nil {
-		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		fmt.Fprintf(stderr, "serve: %v\n", err)
 		return 1
 	}
 	if relaunch.Load() {
-		if err := relaunchSelf(); err != nil {
-			fmt.Fprintf(os.Stderr, "update installed, but Jevonian could not restart automatically: %v\n", err)
+		if err := relaunchSelf(stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "update installed, but Jevonian could not restart automatically: %v\n", err)
 			return 1
 		}
 	}
@@ -378,7 +380,15 @@ func runServe(args []string) int {
 // installed build takes over after a dashboard-triggered restart. The child is
 // detached and told not to open a browser (the tab is already there), then this
 // process exits. src/cli.ts state.restart.
-func relaunchSelf() error {
+func relaunchSelf(stdout, stderr io.Writer) error {
+	// Keep the raw file descriptors for the child: passing a terminalWriter
+	// wrapper would work too, but raw streams match the previous contract.
+	if w, ok := stdout.(terminalWriter); ok {
+		stdout = w.Writer
+	}
+	if w, ok := stderr.(terminalWriter); ok {
+		stderr = w.Writer
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -386,8 +396,8 @@ func relaunchSelf() error {
 	child := exec.Command(exe, os.Args[1:]...)
 	child.Env = append(os.Environ(), "JEVONIAN_NO_OPEN=1")
 	child.Stdin = os.Stdin
-	child.Stdout = os.Stdout
-	child.Stderr = os.Stderr
+	child.Stdout = stdout
+	child.Stderr = stderr
 	child.SysProcAttr = detachProcAttr()
 	if err := child.Start(); err != nil {
 		return err

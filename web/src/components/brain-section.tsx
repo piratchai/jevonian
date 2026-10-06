@@ -119,9 +119,6 @@ export function BrainSection({
           : "",
         model: preset?.model ?? "",
         apiKeyEnv: preset?.apiKeyEnv ?? "",
-        ...(preset?.defaultMinConfidence !== undefined
-          ? { minConfidence: preset.defaultMinConfidence }
-          : {}),
       }));
       setKey("");
       setResult("");

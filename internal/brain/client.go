@@ -25,7 +25,7 @@ import (
 // (docs/go-feature-parity.md section 11); the config loads but the channel
 // cannot be called.
 var ErrVercelDropped = errors.New(
-	`brain channel "vercel" is not supported by the Go build; use typesafe, openrouter, opencode-zen, cloudflare, kev, or custom`,
+	`brain channel "vercel" is not supported by the Go build; use typesafe, openrouter, opencode-zen, cloudflare, or custom`,
 )
 
 // DefaultTimeout bounds one brain call when BrainConfig.TimeoutMs is unset.
@@ -148,11 +148,6 @@ func (c *Client) resolveTransport(brain config.BrainConfig, explicitKey string) 
 	if apiKey == "" && channel != nil && channel.APIKeyEnv != "" {
 		apiKey = os.Getenv(channel.APIKeyEnv)
 	}
-	// Local endpoints that serve open requests still receive a bearer header
-	// because TypeSafe-shaped clients always send one. src/brain.ts keyOptional.
-	if apiKey == "" && channel != nil && channel.KeyOptional {
-		apiKey = PlaceholderKey
-	}
 	if apiKey == "" {
 		return transport{}, false
 	}
@@ -254,28 +249,17 @@ func (c *Client) askSystemOne(ctx context.Context, input Input, tr transport) Ou
 	}
 	defer resp.Body.Close()
 
-	channel := FindChannel(input.Brain.Channel)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		drain(resp.Body)
-		// A keyOptional server that answers 401 was started with a key we were
-		// never given. src/brain.ts needsKey.
-		needsKey := resp.StatusCode == http.StatusUnauthorized &&
-			channel != nil && channel.KeyOptional && tr.apiKey == PlaceholderKey
+		// A rejected credential remains a normal channel failure.
 		errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
-		if needsKey {
-			env := "an API key"
-			if channel.APIKeyEnv != "" {
-				env = channel.APIKeyEnv
-			}
-			errMsg = fmt.Sprintf("HTTP 401: the server requires a key; set %s for this brain", env)
-		}
 		return Outcome{Failure: &Failure{Status: resp.StatusCode, Error: errMsg}}
 	}
 	payload, err := decodeBody(resp.Body)
 	if err != nil {
 		return Outcome{Failure: &Failure{Error: err.Error()}}
 	}
-	parsed := ParseSystemOneResponse(payload, channel != nil && channel.ConfidenceFromDistribution)
+	parsed := ParseSystemOneResponse(payload)
 	if parsed.Model == "" {
 		return Outcome{Failure: &Failure{Error: "empty verdict"}}
 	}
@@ -335,7 +319,7 @@ func (c *Client) askCloudflare(ctx context.Context, input Input, tr transport) O
 	if !ok {
 		return Outcome{Failure: &Failure{Error: "empty response"}}
 	}
-	parsed := ParseSystemOneResponse(payload, false)
+	parsed := ParseSystemOneResponse(payload)
 	if parsed.Model == "" {
 		return Outcome{Failure: &Failure{Error: "empty verdict"}}
 	}
@@ -666,7 +650,7 @@ func HTTPQuestions(input Input) map[string]Question {
 
 // ParseSystemOneResponse reads a SystemOne (or evaluation-normalized) payload.
 // src/brain.ts parseSystemOneResponse.
-func ParseSystemOneResponse(payload any, confidenceFromDistribution bool) parseOutcome {
+func ParseSystemOneResponse(payload any) parseOutcome {
 	body := asMap(payload)
 	answers := asMap(body["answers"])
 	modelAnswer := asMap(answers["model"])
@@ -684,27 +668,15 @@ func ParseSystemOneResponse(payload any, confidenceFromDistribution bool) parseO
 		}
 	}
 	conf, confSet := jsonNumber(modelAnswer["confidence"])
-	// Jev's `confidence` is authoritative; channels flagged
-	// confidenceFromDistribution (Kev) read the distribution top instead.
-	// src/brain.ts parseSystemOneResponse.
+	// The reported confidence is authoritative; use the distribution when it
+	// is absent, then treat a non-empty choice as fully confident.
 	var confidence float64
-	switch {
-	case confidenceFromDistribution:
-		if topSet {
-			confidence = top
-		} else if confSet {
-			confidence = conf
-		} else if choice != "" {
-			confidence = 1
-		}
-	default:
-		if confSet {
-			confidence = conf
-		} else if topSet {
-			confidence = top
-		} else if choice != "" {
-			confidence = 1
-		}
+	if confSet {
+		confidence = conf
+	} else if topSet {
+		confidence = top
+	} else if choice != "" {
+		confidence = 1
 	}
 
 	effortAnswer := asMap(answers["effort"])

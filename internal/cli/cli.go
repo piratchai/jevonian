@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/mattn/go-isatty"
 	"io"
 	"net"
 	"net/http"
@@ -41,8 +40,6 @@ Usage: jevonian [command] [flags]
   pricing [--refresh]         Show/fetch models.dev pricing snapshot
   quota [--refresh]           Show quota windows, reset times, and rolling spend
   refresh                     Refresh catalog, pricing, and leaderboard snapshots
-  kev [--start|--stop|--status] [--run CHECKPOINT] [--port P] [--no-config]
-                              Deploy a local Kev decision model as the routing brain
   update [--check]            Check for or install a new release
   launch claude [--model M] [--] [args...]  Launch Claude Code without disk edits
   version | help              Print version or this help
@@ -116,7 +113,6 @@ var commands = map[string]func(c commandContext, a arguments) error{
 	"quota":     commandContext.quota,
 	"update":    commandContext.update,
 	"refresh":   commandContext.refresh,
-	"kev":       commandContext.kev,
 }
 
 // specialCommands are dispatched in run outside the table.
@@ -164,6 +160,7 @@ func editDistance(a, b string) int {
 
 func Run(args []string) int { return run(args, os.Stdin, os.Stdout, os.Stderr) }
 func run(args []string, in io.Reader, out, errOut io.Writer) int {
+	out, errOut, term := newTermEnv(out, errOut)
 	command := "serve"
 	rest := args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -181,11 +178,11 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 	}
 	if command == "help" {
-		fmt.Fprint(out, helpText)
+		fmt.Fprint(out, renderHelp(term.out, out))
 		return 0
 	}
 	if command == "version" {
-		fmt.Fprintln(out, "jevonian "+Version)
+		fmt.Fprintln(out, renderVersion(term.out, out))
 		return 0
 	}
 	a, err := parseArgs(rest)
@@ -194,14 +191,10 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	if a.has("help") {
-		if command == "kev" {
-			fmt.Fprint(out, kevHelpText)
-		} else {
-			fmt.Fprint(out, helpText)
-		}
+		fmt.Fprint(out, renderHelp(term.out, out))
 		return 0
 	}
-	c := commandContext{in: in, out: out, errOut: errOut}
+	c := commandContext{in: in, out: out, errOut: errOut, term: term}
 	// Heal a broken LaunchAgent after Node→Go / npm wipe before any other work,
 	// so short commands still bring the background service back.
 	if runtime.GOOS == "darwin" && command != "stop" && command != "help" && command != "version" {
@@ -242,9 +235,13 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 	} else {
 		fmt.Fprintf(errOut, "unknown command %q", command)
 		if s := nearestCommand(command); s != "" {
-			fmt.Fprintf(errOut, ". Did you mean `jevonian %s`?", s)
+			suggestion := "`jevonian " + s + "`"
+			if term.err {
+				suggestion = ansiStyles(errOut).accent.Render(suggestion)
+			}
+			fmt.Fprintf(errOut, ". Did you mean %s?", suggestion)
 		}
-		fmt.Fprintf(errOut, "\n\n%s", helpText)
+		fmt.Fprintf(errOut, "\n\n%s", renderHelp(term.err, errOut))
 		return 1
 	}
 	if err != nil {
@@ -257,6 +254,72 @@ func run(args []string, in io.Reader, out, errOut io.Writer) int {
 type commandContext struct {
 	in          io.Reader
 	out, errOut io.Writer
+	term        termEnv
+}
+
+// renderHelp styles the static help text for terminals. Command names in the
+// "Usage:" column get the accent; flag names get dim styling; the body is
+// untouched so column alignment and wording stay identical.
+func renderHelp(tty bool, w io.Writer) string {
+	return styleHelpText(helpText, tty, w)
+}
+
+func renderVersion(tty bool, w io.Writer) string {
+	if !tty {
+		return "jevonian " + Version
+	}
+	pal := ansiStyles(w)
+	return pal.emph.Render("jevonian") + " " + pal.accent.Render(Version)
+}
+
+// styleHelpText colors `jevonian`, command words in the usage column, and
+// --flags inside an otherwise unchanged help block.
+func styleHelpText(text string, tty bool, w io.Writer) string {
+	if !tty {
+		return text
+	}
+	pal := ansiStyles(w)
+	lines := strings.Split(text, "\n")
+	for i, ln := range lines {
+		if strings.HasPrefix(ln, "Jevonian —") {
+			lines[i] = pal.emph.Render("Jevonian") + strings.TrimPrefix(ln, "Jevonian")
+			continue
+		}
+		if strings.HasPrefix(ln, "Usage:") {
+			lines[i] = pal.accent.Render("Usage:") + strings.TrimPrefix(ln, "Usage:")
+			continue
+		}
+		// Accent the leading command word in the usage column, dim the rest.
+		trimmed := strings.TrimLeft(ln, " ")
+		indent := ln[:len(ln)-len(trimmed)]
+		if trimmed == "" || strings.HasPrefix(trimmed, "Usage:") || strings.HasPrefix(trimmed, "Serve flags") || strings.HasPrefix(trimmed, "Service flags") || strings.HasPrefix(trimmed, "Add flags") || strings.HasPrefix(trimmed, "Keys flags") {
+			if strings.HasPrefix(trimmed, "Serve flags") || strings.HasPrefix(trimmed, "Service flags") || strings.HasPrefix(trimmed, "Add flags") || strings.HasPrefix(trimmed, "Keys flags") {
+				colon := strings.IndexByte(trimmed, ':')
+				if colon >= 0 {
+					lines[i] = indent + pal.accent.Render(trimmed[:colon+1]) + trimmed[colon+1:]
+				}
+			}
+			continue
+		}
+		if word, rest, ok := splitUsageLine(trimmed); ok {
+			lines[i] = indent + pal.accent.Render(word) + rest
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// splitUsageLine splits a usage-column line into its command word and the
+// remainder, or reports false when the line is a flags/section line.
+func splitUsageLine(ln string) (string, string, bool) {
+	fields := strings.Fields(ln)
+	if len(fields) < 2 {
+		return "", "", false
+	}
+	first := fields[0]
+	if strings.HasPrefix(first, "--") || strings.HasSuffix(first, ":") {
+		return "", "", false
+	}
+	return first, strings.TrimPrefix(ln, first), true
 }
 
 func (c commandContext) printCachedUpdateNotice() {
@@ -319,7 +382,7 @@ func (c commandContext) update(a arguments) error {
 	})
 	return m.Command(context.Background(), c.out, c.errOut, update.CommandOptions{
 		CheckOnly:      a.has("check"),
-		Colors:         true,
+		Colors:         stderrIsTTY(c.errOut),
 		RunningVersion: runningServeVersion,
 		RestartBackground: func(ctx context.Context) bool {
 			if runtime.GOOS != "darwin" || service.ManagedByLaunchd() {
@@ -349,6 +412,5 @@ func foreground(a arguments) bool {
 
 // stderrIsTTY mirrors TS `process.stderr.isTTY`: colors only on a real terminal.
 func stderrIsTTY(w io.Writer) bool {
-	f, ok := w.(*os.File)
-	return ok && isatty.IsTerminal(f.Fd())
+	return isColorTTY(rawWriter(w))
 }

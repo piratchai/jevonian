@@ -358,13 +358,13 @@ func (c commandContext) models(a arguments) error {
 	failed := false
 	for _, e := range entries {
 		if e.Error != "" {
-			fmt.Fprintf(c.out, "%s: error: %s\n", e.Provider, e.Error)
+			fmt.Fprintf(c.out, "%s: %s %s\n", c.styleValue(e.Provider), c.styleValue("error:"), e.Error)
 			failed = true
 		} else {
-			fmt.Fprintf(c.out, "%s: %d models\n", e.Provider, len(e.Models))
+			fmt.Fprintf(c.out, "%s: %s\n", c.styleValue(e.Provider), c.styleValue(fmt.Sprintf("%d models", len(e.Models))))
 		}
 		for _, id := range e.Models {
-			fmt.Fprintln(c.out, "  "+id)
+			fmt.Fprintln(c.out, "  "+c.styleValue(id))
 		}
 	}
 	if failed && a.has("refresh") {
@@ -401,15 +401,15 @@ func (c commandContext) modelsSync() error {
 	for _, entry := range result.Providers {
 		switch {
 		case entry.Skipped == "opted-out":
-			fmt.Fprintf(c.out, "%s: skipped (syncModels: false)\n", entry.Provider)
+			fmt.Fprintf(c.out, "%s: skipped (syncModels: false)\n", c.styleValue(entry.Provider))
 		case entry.Skipped == "default-off":
-			fmt.Fprintf(c.out, "%s: skipped (API/reseller; set syncModels: true to enable)\n", entry.Provider)
+			fmt.Fprintf(c.out, "%s: skipped (API/reseller; set syncModels: true to enable)\n", c.styleValue(entry.Provider))
 		case entry.Error != "":
-			fmt.Fprintf(c.out, "%s: error: %s\n", entry.Provider, entry.Error)
+			fmt.Fprintf(c.out, "%s: %s %s\n", c.styleValue(entry.Provider), c.styleValue("error:"), entry.Error)
 		case len(entry.Added) > 0:
-			fmt.Fprintf(c.out, "%s: +%d (%s)\n", entry.Provider, len(entry.Added), strings.Join(entry.Added, ", "))
+			fmt.Fprintf(c.out, "%s: +%d (%s)\n", c.styleValue(entry.Provider), len(entry.Added), c.styleValue(strings.Join(entry.Added, ", ")))
 		default:
-			fmt.Fprintf(c.out, "%s: up to date\n", entry.Provider)
+			fmt.Fprintf(c.out, "%s: %s\n", c.styleValue(entry.Provider), c.styleValue("up to date"))
 		}
 	}
 	return nil

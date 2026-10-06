@@ -767,33 +767,33 @@ func TestStateForBrainHostedGetsFullState(t *testing.T) {
 	}
 }
 
-func TestStateForBrainCompactTrimsSoftEvidence(t *testing.T) {
+func TestStateForBrainKeepsSoftEvidence(t *testing.T) {
 	ready := readyState()
 	state := StateForBrain(
-		config.BrainConfig{Channel: "kev", TimeoutMs: 1000, MinConfidence: 0.4},
+		config.BrainConfig{Channel: "typesafe", TimeoutMs: 1000, MinConfidence: 0.6},
 		ready,
 		"",
 	)
-	if _, has := state["candidates"]; has {
-		t.Fatal("kev should not receive candidates")
+	if _, has := state["candidates"]; !has {
+		t.Fatal("brain should receive candidates")
 	}
-	if _, has := state["recent_tool_results"]; has {
-		t.Fatal("kev should not receive recent_tool_results")
+	if _, has := state["recent_tool_results"]; !has {
+		t.Fatal("brain should receive recent_tool_results")
 	}
-	if _, has := state["benchmark_focus"]; has {
-		t.Fatal("kev should not receive benchmark_focus")
+	if _, has := state["benchmark_focus"]; !has {
+		t.Fatal("brain should receive benchmark_focus")
 	}
 	routings, ok := state["routings"].([]any)
 	if !ok || len(routings) != 1 {
 		t.Fatalf("routings = %v", state["routings"])
 	}
 	routing := routings[0].(map[string]any)
-	if _, has := routing["benchmark_focus"]; has {
-		t.Fatal("routing benchmark_focus should be trimmed")
+	if _, has := routing["benchmark_focus"]; !has {
+		t.Fatal("routing benchmark_focus should be retained")
 	}
 	models := routing["models"].([]any)
-	if _, has := models[0].(map[string]any)["benchmarks"]; has {
-		t.Fatal("model benchmarks should be trimmed")
+	if _, has := models[0].(map[string]any)["benchmarks"]; !has {
+		t.Fatal("model benchmarks should be retained")
 	}
 	// The shared ready map must not be mutated.
 	if _, has := ready["candidates"]; !has {

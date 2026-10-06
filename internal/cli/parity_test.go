@@ -18,27 +18,6 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 )
 
-func TestKevBrainPrimaryKeepsHostedFailover(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Routing.Brains = []config.BrainConfig{{Channel: "typesafe", TimeoutMs: 5000, MinConfidence: 0.6}}
-	next := commandContext{}.withKevBrain(&cfg, 8123, true)
-	b := next.Routing.Brains
-	if len(b) != 2 || b[0].Channel != "kev" || b[1].Channel != "typesafe" {
-		t.Fatalf("order %+v", b)
-	}
-	if b[0].MinConfidence != 0.4 || b[0].BaseURL != "http://127.0.0.1:8123/v1/systemone" || b[0].TimeoutMs <= 0 {
-		t.Fatalf("kev brain %+v", b[0])
-	}
-}
-
-func TestKevHelpAndOptionalDocs(t *testing.T) {
-	sandbox(t)
-	code, out, _ := invoke("kev", "--help")
-	if code != 0 || !strings.Contains(out, "--no-config") {
-		t.Fatalf("%d %s", code, out)
-	}
-}
-
 func TestQuotaNoProvidersAndHelpListsCommands(t *testing.T) {
 	sandbox(t)
 	code, out, _ := invoke("quota")
@@ -46,7 +25,7 @@ func TestQuotaNoProvidersAndHelpListsCommands(t *testing.T) {
 		t.Fatalf("%d %s", code, out)
 	}
 	_, _, errText := invoke("bogus")
-	for _, want := range []string{"update", "refresh", "kev", "quota [--refresh]"} {
+	for _, want := range []string{"update", "refresh", "quota [--refresh]"} {
 		if !strings.Contains(errText, want) {
 			t.Fatalf("usage lacks %q", want)
 		}
@@ -60,7 +39,7 @@ func TestDoctorBrainsAndBaselineFallback(t *testing.T) {
 	}
 	cfg, _, _ := config.Load()
 	cfg.Routing.BaselineModel = ""
-	cfg.Routing.Brains = []config.BrainConfig{{Channel: "kev", Model: "kev-latest", TimeoutMs: 5000, MinConfidence: 0.4}}
+	cfg.Routing.Brains = []config.BrainConfig{{Channel: "typesafe", TimeoutMs: 5000, MinConfidence: 0.6}}
 	if err := saveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -199,18 +178,6 @@ func TestAnnounceTunnelPrintsURLAndErrors(t *testing.T) {
 	}, time.Millisecond, time.Second)
 	if buf.String() != "tunnel: boom\n" {
 		t.Fatal(buf.String())
-	}
-}
-
-func TestKevHelpIsKevUsageAndBadPortMessage(t *testing.T) {
-	sandbox(t)
-	_, out, _ := invoke("kev", "--help")
-	if !strings.HasPrefix(out, "Usage: jevonian kev ") {
-		t.Fatal(out)
-	}
-	code, _, errText := invoke("kev", "--port", "abc")
-	if code != 1 || !strings.Contains(errText, `invalid --port "abc"; use a number between 1 and 65535.`) {
-		t.Fatalf("%d %s", code, errText)
 	}
 }
 

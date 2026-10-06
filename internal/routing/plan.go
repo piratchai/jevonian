@@ -1129,9 +1129,8 @@ func Decide(ctx context.Context, deps Deps, input Input) (*Decision, error) {
 var routingIDRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 // StateForBrain is the state one brain receives: the routing state plus the
-// transcript when that brain asked for the full prompt. Compact-state
-// channels (Kev) drop benchmark tables, the flat candidates mirror, and
-// tool-result blobs. The input map is never mutated.
+// transcript when that brain asked for the full prompt. The input map is never
+// mutated.
 // src/routing.ts brainStateFor.
 func StateForBrain(brain config.BrainConfig, ready map[string]any, transcript string) map[string]any {
 	state := make(map[string]any, len(ready)+1)
@@ -1141,53 +1140,5 @@ func StateForBrain(brain config.BrainConfig, ready map[string]any, transcript st
 	if brain.FullPrompt && transcript != "" {
 		state["transcript"] = transcript
 	}
-	if !compactStateChannels[brain.Channel] {
-		return state
-	}
-	delete(state, "candidates")
-	delete(state, "recent_tool_results")
-	delete(state, "benchmark_focus")
-	delete(state, "benchmarks_coverage")
-	if routings, ok := state["routings"].([]any); ok {
-		trimmed := make([]any, 0, len(routings))
-		for _, raw := range routings {
-			routing, ok := raw.(map[string]any)
-			if !ok {
-				trimmed = append(trimmed, raw)
-				continue
-			}
-			copyR := make(map[string]any, len(routing))
-			for k, v := range routing {
-				if k != "benchmark_focus" {
-					copyR[k] = v
-				}
-			}
-			if models, ok := routing["models"].([]any); ok {
-				out := make([]any, 0, len(models))
-				for _, rawM := range models {
-					m, ok := rawM.(map[string]any)
-					if !ok {
-						out = append(out, rawM)
-						continue
-					}
-					copyM := make(map[string]any, len(m))
-					for k, v := range m {
-						if k != "benchmarks" {
-							copyM[k] = v
-						}
-					}
-					out = append(out, copyM)
-				}
-				copyR["models"] = out
-			}
-			trimmed = append(trimmed, copyR)
-		}
-		state["routings"] = trimmed
-	}
 	return state
 }
-
-// compactStateChannels mirrors brain.Channel.CompactState without importing
-// internal/brain (routing must not depend on the brain client).
-// src/brain.ts JEV_CHANNELS compactState.
-var compactStateChannels = map[string]bool{"kev": true}

@@ -178,7 +178,7 @@
         "fullPrompt": true
       },
       {
-        "channel": "kev",
+        "channel": "typesafe",
         "timeoutMs": 5000,
         "minConfidence": 0.6
       },

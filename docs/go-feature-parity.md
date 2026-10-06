@@ -8,7 +8,7 @@ Definition of **100% user-facing parity** with the TypeScript product (v0.5.4 su
 
 - [x] ~~Vercel AI Gateway brain (`channel: "vercel"`, `@ai-sdk/gateway` / `experimental_evaluate`)~~ — **OUT OF SCOPE**; omitted from Go. Do not block 100% parity on this path.
 
-All other brain channels (TypeSafe / SystemOne HTTP, OpenRouter decisions, OpenCode Zen SystemOne, Cloudflare Workers AI including Clef / Clef-flash, Kev local, custom SystemOne URL) and heuristic fallback **must** remain.
+Supported brain channels (TypeSafe / SystemOne HTTP, OpenRouter decisions, OpenCode Zen SystemOne, Cloudflare Workers AI including Clef / Clef-flash, and custom SystemOne URL) and heuristic fallback **must** remain.
 
 **Format:** `- [ ] **Name** — \`ts hint\` — Acceptance: …`
 
@@ -51,11 +51,8 @@ All other brain channels (TypeSafe / SystemOne HTTP, OpenRouter decisions, OpenC
 - [x] **`jevonian refresh`** — `src/cli.ts`, `src/catalog-sync.ts` — Acceptance: refreshes catalog + pricing + leaderboard snapshots.
 - [x] **`jevonian quota [--refresh]`** — `src/cli.ts`, `src/quota.ts` — Acceptance: per-provider windows, reset times, 30-day spend; `--refresh` blocks on live probes.
 
-### 1.4 Kev, update, launch
+### 1.4 Update and launch
 
-- [x] **`jevonian kev --start|--stop|--status`** — `src/kev.ts`, `src/cli.ts` — Acceptance: clone/install/serve local Kev; status probes SystemOne; stop kills serve.
-- [x] **`jevonian kev --run CHECKPOINT --port P --no-config`** — `src/kev.ts` — Acceptance: alternate checkpoint/port; `--no-config` skips editing brains.
-- [x] **Kev as primary brain on `--start`** — `src/kev.ts` — Acceptance: inserts `channel: kev` first with `minConfidence` 0.4; keeps hosted brains as failover.
 - [x] **`jevonian update [--check]`** — `src/cli.ts`, `src/updates.ts` — Acceptance: registry check with tarball HEAD probe; install via detected package manager; verify on-disk version.
 - [x] **Update restarts macOS service** — `src/cli.ts`, `src/updates.ts`, `src/service.ts` — Acceptance: after install, LaunchAgent reloads onto new build when loaded.
 - [x] **Cached update notice on short commands** — `src/cli.ts`, `src/updates.ts` — Acceptance: non-serve commands print prior cached “update available” notice.
@@ -404,7 +401,6 @@ All other brain channels (TypeSafe / SystemOne HTTP, OpenRouter decisions, OpenC
 - [x] **OpenRouter decisions API** — `src/brain.ts` — Acceptance: `openrouter.ai/api/alpha/decisions` + `typesafe/jev-1.13` + attribution.
 - [x] **OpenCode Zen SystemOne** — `src/brain.ts` — Acceptance: `opencode.ai/zen/v1/systemone`.
 - [x] **Cloudflare Workers AI + Clef / Clef-flash** — `src/brain.ts`, CHANGELOG 0.5.0 — Acceptance: account id; Jev envelope vs catalog `@cf/…` path shapes; model picker ids; unwrap `{ success, result }`.
-- [x] **Kev local SystemOne** — `src/brain.ts`, `src/kev.ts` — Acceptance: key optional + placeholder Authorization; confidence from distribution; compact trimmed state; default minConfidence 0.4.
 - [x] **Custom SystemOne URL channel** — `src/brain.ts` — Acceptance: free-form baseUrl + key.
 - [x] **Ordered brain failover (not low-confidence failover)** — `src/brain.ts` — Acceptance: next channel only on hard failure; low confidence still used + marked.
 - [x] **Brain timeout / retry / breaker** — `src/brain.ts`, CHANGELOG 0.5.4 — Acceptance: default ~5s, one retry, short breaker → heuristic; per-channel failure isolation (no cross-turn result swap).

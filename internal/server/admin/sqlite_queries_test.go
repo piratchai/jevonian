@@ -69,7 +69,7 @@ func seededSQLite(t testing.TB, count int) (*admin.SQLiteLogs, *sql.DB) {
 		if i < count-20 {
 			ts = at.Add(-48 * time.Hour)
 		}
-		if _, err := stmt.Exec(i*3+10, fmt.Sprintf("row-%d", i), requestID, ts.UnixMilli(), ts.Format(time.RFC3339Nano), model, "Provider", kind, phase, "session", "reason", "high", 0, 0, 200, 120, 0.25, `[{"cause":"retry","marker":"preserved"}]`, `[{"provider":"skipped"}]`, `{"hit":true}`, "kev", 1); err != nil {
+		if _, err := stmt.Exec(i*3+10, fmt.Sprintf("row-%d", i), requestID, ts.UnixMilli(), ts.Format(time.RFC3339Nano), model, "Provider", kind, phase, "session", "reason", "high", 0, 0, 200, 120, 0.25, `[{"cause":"retry","marker":"preserved"}]`, `[{"provider":"skipped"}]`, `{"hit":true}`, "typesafe", 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -115,7 +115,7 @@ func TestSQLiteQueriesMatchAppendOffsetsAndFilters(t *testing.T) {
 		t.Fatalf("page %#v: %v", page, err)
 	}
 	row := page.Logs[0]
-	if row["brainChannel"] != "kev" || row["cacheKeep"] != int64(1) || row["cache"].(map[string]any)["hit"] != true || row["skipped"].([]any)[0].(map[string]any)["provider"] != "skipped" || row["tries"].([]any)[0].(map[string]any)["marker"] != "preserved" {
+	if row["brainChannel"] != "typesafe" || row["cacheKeep"] != int64(1) || row["cache"].(map[string]any)["hit"] != true || row["skipped"].([]any)[0].(map[string]any)["provider"] != "skipped" || row["tries"].([]any)[0].(map[string]any)["marker"] != "preserved" {
 		t.Fatalf("extended fields lost: %#v", row)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

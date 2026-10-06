@@ -33,21 +33,7 @@ type Channel struct {
 	RequiresAccountID bool
 	Hint              string
 	KeysURL           string
-	// Endpoint accepts requests without an API key (local Kev); sends
-	// PlaceholderKey when none is configured. src/brain.ts keyOptional.
-	KeyOptional bool
-	// Channel-specific default minConfidence when it differs from the global 0.6.
-	DefaultMinConfidence float64
-	// Read confidence from the winning option's probability (Kev).
-	ConfidenceFromDistribution bool
-	// Trim soft evidence (benchmarks, flat candidates, tool blobs) for
-	// decision models trained on short states (Kev 4B/9B).
-	CompactState bool
 }
-
-// PlaceholderKey is the bearer sent to a KeyOptional channel with no key.
-// src/brain.ts PLACEHOLDER_BRAIN_KEY.
-const PlaceholderKey = "local"
 
 // Channels lists the supported brain routes. src/brain.ts JEV_CHANNELS.
 // The "vercel" entry is kept as a marker so stored configs surface a clear
@@ -117,19 +103,6 @@ var Channels = []Channel{
 		Hint:    "Account ID from the Cloudflare dashboard overview; API token needs Workers AI permission.",
 	},
 	{
-		ID:                         "kev",
-		Label:                      "Kev (local)",
-		BaseURL:                    "http://127.0.0.1:8009/v1/systemone",
-		Model:                      "kev-latest",
-		APIKeyEnv:                  "KEV_API_KEY",
-		KeyOptional:                true,
-		DefaultMinConfidence:       0.4,
-		ConfidenceFromDistribution: true,
-		CompactState:               true,
-		KeysURL:                    "https://github.com/jaredpalmer/kev",
-		Hint:                       "`jevonian kev --start` deploys it; no key needed unless KEV_API_KEY is set on the server.",
-	},
-	{
 		ID:              "custom",
 		Label:           "Custom endpoint",
 		BaseURL:         "",
@@ -169,8 +142,7 @@ type Usage struct {
 type Verdict struct {
 	// Model is the winning option: a routing id when routings were offered.
 	Model string `json:"model"`
-	// Confidence is Jev's calibrated score, or the distribution top for
-	// channels flagged ConfidenceFromDistribution.
+	// Confidence is the decision model's calibrated score.
 	Confidence float64 `json:"confidence"`
 	// Probabilities is the full distribution over options, when returned.
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`

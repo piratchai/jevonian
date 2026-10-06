@@ -98,18 +98,18 @@ func checkStatus(t *testing.T, got, want int, body any) {
 func TestBrainsCRUDPersistsWithoutMutatingSnapshot(t *testing.T) {
 	x := setup(t, nil)
 	snapshot := x.config
-	code, out := request(t, x.h, "POST", "/brains", map[string]any{"channel": "kev", "apiKey": "secret"})
+	code, out := request(t, x.h, "POST", "/brains", map[string]any{"channel": "typesafe", "apiKey": "secret"})
 	checkStatus(t, code, 201, out)
 	if len(snapshot.Routing.Brains) != 0 {
 		t.Fatal("mutated live snapshot")
 	}
-	if x.config.Routing.Brains[0].MinConfidence != 0.4 {
-		t.Fatalf("Kev confidence %#v", x.config.Routing.Brains)
+	if x.config.Routing.Brains[0].MinConfidence != config.DefaultBrain.MinConfidence {
+		t.Fatalf("default confidence %#v", x.config.Routing.Brains)
 	}
 	if strings.Contains(string(mustJSON(out)), "secret") {
 		t.Fatal("secret leaked")
 	}
-	if x.creds.Get("brain:kev") != "secret" {
+	if x.creds.Get("brain:typesafe") != "secret" {
 		t.Fatal("credential not stored")
 	}
 	code, out = request(t, x.h, "POST", "/brains", map[string]any{"channel": "typesafe"})
@@ -119,16 +119,16 @@ func TestBrainsCRUDPersistsWithoutMutatingSnapshot(t *testing.T) {
 	if x.config.Routing.Brains[0].Channel != "typesafe" {
 		t.Fatal("move failed")
 	}
-	code, out = request(t, x.h, "PUT", "/brains/1", map[string]any{"model": "kev-custom", "timeoutMs": 6000})
+	code, out = request(t, x.h, "PUT", "/brains/1", map[string]any{"channel": "openrouter", "model": "typesafe-custom", "timeoutMs": 6000})
 	checkStatus(t, code, 200, out)
 	// Deleting one of two brains on a channel retains the shared credential.
-	request(t, x.h, "POST", "/brains", map[string]any{"channel": "kev"})
+	request(t, x.h, "POST", "/brains", map[string]any{"channel": "typesafe"})
 	request(t, x.h, "DELETE", "/brains/1", nil)
-	if x.creds.Get("brain:kev") == "" {
+	if x.creds.Get("brain:typesafe") == "" {
 		t.Fatal("removed shared credential")
 	}
 	request(t, x.h, "DELETE", "/brains/1", nil)
-	if x.creds.Get("brain:kev") != "" {
+	if x.creds.Get("brain:openrouter") != "" {
 		t.Fatal("credential not removed")
 	}
 	data, err := os.ReadFile(x.path)
@@ -152,7 +152,7 @@ func TestBrainsCRUDPersistsWithoutMutatingSnapshot(t *testing.T) {
 func mustJSON(v any) []byte { data, _ := json.Marshal(v); return data }
 func TestRoutingValidationExternalEditAndTokenSaver(t *testing.T) {
 	x := setup(t, nil)
-	request(t, x.h, "POST", "/brains", map[string]any{"channel": "kev"})
+	request(t, x.h, "POST", "/brains", map[string]any{"channel": "typesafe"})
 	data, _ := os.ReadFile(x.path)
 	disk, err := config.ParseBytes(data)
 	if err != nil {

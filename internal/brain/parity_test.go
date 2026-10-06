@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -188,25 +187,4 @@ func TestBreakerCooldownExpiresAndFailureIsolation(t *testing.T) {
 	if c.BreakerOpen() {
 		t.Fatal("success must reset the consecutive count")
 	}
-}
-
-func TestKevDefaultMinConfidenceAndPlaceholderHeader(t *testing.T) {
-	if FindChannel("kev").DefaultMinConfidence != 0.4 {
-		t.Fatal("kev default minConfidence")
-	}
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		_ = json.NewEncoder(w).Encode(map[string]any{"answers": map[string]any{"model": map[string]any{
-			"choice": "plan", "confidence": 0.01, "probabilities": map[string]any{"plan": 0.7, "execute": 0.3}}}})
-	}))
-	defer srv.Close()
-	t.Setenv("KEV_API_KEY", "")
-	c := &Client{HTTP: srv.Client()}
-	out := c.Ask(context.Background(), Input{
-		Brain: config.BrainConfig{Channel: "kev", BaseURL: srv.URL, TimeoutMs: 2000}, State: map[string]any{}})
-	if out.Verdict == nil || out.Verdict.Confidence != 0.7 || gotAuth != "Bearer local" {
-		t.Fatalf("%+v auth=%q", out, gotAuth)
-	}
-	_ = strings.TrimSpace
 }

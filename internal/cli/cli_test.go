@@ -50,11 +50,7 @@ func TestDispatch(t *testing.T) {
 	if code != 1 || !strings.Contains(err, "Usage:") {
 		t.Fatalf("unknown: %d %s", code, err)
 	}
-	code, out, _ := invoke("kev", "--status")
-	if code != 0 || !strings.Contains(out, "kev is not running") {
-		t.Fatalf("kev status failed: %d %s", code, out)
-	}
-	code, out, _ = invoke("update", "--check")
+	code, out, _ := invoke("update", "--check")
 	if code != 0 && !strings.Contains(out, "jevonian") {
 		t.Fatalf("update check failed: %d %s", code, out)
 	}

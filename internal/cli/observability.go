@@ -209,7 +209,7 @@ func (c commandContext) report() error {
 		fmt.Fprintln(c.out, "No requests recorded yet.")
 		return nil
 	}
-	fmt.Fprintf(c.out, "%-24s %6s %10s %10s %12s %10s %10s\n", "model", "reqs", "prompt", "output", "cache read", "saved", "cost")
+	fmt.Fprint(c.out, c.styleValue(fmt.Sprintf("%-24s %6s %10s %10s %12s %10s %10s\n", "model", "reqs", "prompt", "output", "cache read", "saved", "cost")))
 	sorted := func(table map[string]*reportRow) []string {
 		var keys []string
 		for key := range table {
@@ -233,13 +233,13 @@ func (c commandContext) report() error {
 		if r.saved > 0 {
 			saved = fmt.Sprintf("~%d", r.saved)
 		}
-		fmt.Fprintf(c.out, "%-24s %6d %10d %10d %12d %10s %10s\n", key, r.requests, r.prompt, r.output, r.cache, saved, fmt.Sprintf("$%.4f", r.cost)+note)
+		fmt.Fprintf(c.out, "%s %6d %10d %10d %12d %10s %10s\n", c.styleValue(fmt.Sprintf("%-24s", key)), r.requests, r.prompt, r.output, r.cache, saved, fmt.Sprintf("$%.4f", r.cost)+note)
 	}
 	hit := 0.0
 	if total.cache+total.prompt > 0 {
 		hit = float64(total.cache) / float64(total.cache+total.prompt) * 100
 	}
-	fmt.Fprintf(c.out, "\n%d requests, %d sessions\ncache hits: %.1f%% (%d cached tokens)\n", total.requests, len(sessions), hit, total.cache)
+	fmt.Fprintf(c.out, "\n%s requests, %s sessions\n%s %.1f%% (%d cached tokens)\n", c.styleValue(fmt.Sprint(total.requests)), c.styleValue(fmt.Sprint(len(sessions))), c.styleValue("cache hits:"), hit, total.cache)
 	if total.saved > 0 {
 		percent := ""
 		if total.prompt > 0 {
@@ -247,15 +247,15 @@ func (c commandContext) report() error {
 		}
 		fmt.Fprintf(c.out, "token saver: ~%s tokens kept out of prompts%s\n", groupThousands(total.saved), percent)
 	}
-	fmt.Fprintf(c.out, "brain-decided: %d\n", brainDecided)
+	fmt.Fprintf(c.out, "%s %d\n", c.styleValue("brain-decided:"), brainDecided)
 	for _, section := range []struct {
 		name  string
 		table map[string]*reportRow
 	}{{"phase", byPhase}, {"thinking effort", byEffort}} {
-		fmt.Fprintln(c.out, "\nby "+section.name+":")
+		fmt.Fprintf(c.out, "\n%s\n", c.styleValue("by "+section.name+":"))
 		for _, key := range sorted(section.table) {
 			r := section.table[key]
-			fmt.Fprintf(c.out, "%-12s %6d reqs %12s\n", key, r.requests, fmt.Sprintf("$%.4f", r.cost))
+			fmt.Fprintf(c.out, "%s %6d reqs %12s\n", c.styleValue(fmt.Sprintf("%-12s", key)), r.requests, fmt.Sprintf("$%.4f", r.cost))
 		}
 	}
 	fmt.Fprintf(c.out, "\nactual:   $%.4f\n", total.cost)
@@ -265,9 +265,9 @@ func (c commandContext) report() error {
 		if baselineCost > 0 {
 			percent = saved / baselineCost * 100
 		}
-		fmt.Fprintf(c.out, "baseline: $%.4f (%s for everything)\nsavings:  $%.4f (%.1f%%)\n", baselineCost, baseline, saved, percent)
+		fmt.Fprintf(c.out, "baseline: $%.4f (%s for everything)\nsavings:  $%.4f (%.1f%%)\n", baselineCost, c.styleValue(baseline), saved, percent)
 	} else if baseline != "" {
-		fmt.Fprintf(c.out, "baseline: %s (unpriced; savings unavailable)\n", baseline)
+		fmt.Fprintf(c.out, "baseline: %s (unpriced; savings unavailable)\n", c.styleValue(baseline))
 	}
 	return nil
 }
@@ -313,20 +313,20 @@ func (c commandContext) doctor(a arguments) error {
 		if source == "none" && p.APIKeyEnv != "" {
 			source = "missing (" + p.APIKeyEnv + ")"
 		}
-		fmt.Fprintf(c.out, "%s: %s %s auth=%s", p.Name, p.Type, p.BaseURL, p.Auth)
+		fmt.Fprintf(c.out, "%s: %s %s auth=%s", c.styleValue(p.Name), p.Type, p.BaseURL, p.Auth)
 		if p.OAuthSource != "" {
 			fmt.Fprintf(c.out, ":%s", p.OAuthSource)
 		}
 		fmt.Fprintf(c.out, " billing=%s credential=%s models=%d\n", p.Billing, source, len(p.Models))
 	}
 	routings := routing.DeriveRoutings(&cfg, pricingDeps())
-	fmt.Fprintf(c.out, "\nrouting: %s\n", cfg.Routing.Mode)
+	fmt.Fprintf(c.out, "\nrouting: %s\n", c.styleValue(cfg.Routing.Mode))
 	for _, r := range routings {
 		models := strings.Join(r.Models, ", ")
 		if models == "" {
 			models = "(none)"
 		}
-		fmt.Fprintf(c.out, "  %s: %s — %s\n", r.ID, models, r.Description)
+		fmt.Fprintf(c.out, "  %s: %s — %s\n", c.styleValue(r.ID), models, r.Description)
 	}
 	baseline := cfg.Routing.BaselineModel
 	if baseline == "" {
@@ -337,11 +337,11 @@ func (c commandContext) doctor(a arguments) error {
 			}
 		}
 	}
-	fmt.Fprintf(c.out, "  baseline: %s\n", baseline)
+	fmt.Fprintf(c.out, "  %s %s\n", c.styleValue("baseline:"), c.styleValue(baseline))
 	if len(cfg.Routing.Brains) == 0 {
-		fmt.Fprintln(c.out, "  brains:  (none) — jevonian/auto is disabled until one is configured")
+		fmt.Fprintf(c.out, "  %s  (none) — jevonian/auto is disabled until one is configured\n", c.styleValue("brains:"))
 	} else {
-		fmt.Fprintf(c.out, "  brains:  %d configured (tried in order)\n", len(cfg.Routing.Brains))
+		fmt.Fprintf(c.out, "  %s  %d configured (tried in order)\n", c.styleValue("brains:"), len(cfg.Routing.Brains))
 		for i, b := range cfg.Routing.Brains {
 			key := "none"
 			env := b.APIKeyEnv
@@ -359,16 +359,16 @@ func (c commandContext) doctor(a arguments) error {
 			}
 			model := ""
 			if b.Model != "" {
-				model = " · " + b.Model
+				model = " · " + c.styleValue(b.Model)
 			}
-			fmt.Fprintf(c.out, "    %d. %s%s · key=%s\n", i+1, label, model, key)
+			fmt.Fprintf(c.out, "    %d. %s%s · key=%s\n", i+1, c.styleValue(label), model, key)
 		}
 	}
 	for _, r := range routings {
 		for _, model := range r.Models {
 			variants := routing.CanonicalVariants(&cfg, model, "", nil)
 			if len(variants) == 0 {
-				fmt.Fprintf(c.out, "  warning: %s has no configured provider\n", model)
+				fmt.Fprintf(c.out, "  %s %s has no configured provider\n", c.styleValue("warning:"), c.styleValue(model))
 			}
 		}
 	}
@@ -383,9 +383,9 @@ func (c commandContext) doctor(a arguments) error {
 		for _, e := range entries {
 			if e.Error != "" {
 				failed = true
-				fmt.Fprintf(c.out, "  %s: error: %s\n", e.Provider, e.Error)
+				fmt.Fprintf(c.out, "  %s: %s %s\n", c.styleValue(e.Provider), c.styleValue("error:"), e.Error)
 			} else {
-				fmt.Fprintf(c.out, "  %s: %d models\n", e.Provider, len(e.Models))
+				fmt.Fprintf(c.out, "  %s: %d models\n", c.styleValue(e.Provider), len(e.Models))
 			}
 		}
 		fmt.Fprintln(c.out)
@@ -395,7 +395,7 @@ func (c commandContext) doctor(a arguments) error {
 		svc := quota.NewService(tracker, quota.LiveOptions{HTTP: client, OAuth: auth})
 		quotas, qerr := svc.ProviderQuotas(context.Background(), &cfg, true)
 		if qerr != nil {
-			fmt.Fprintf(c.out, "  quota probe failed: %v\n", qerr)
+			fmt.Fprintf(c.out, "  %s %v\n", c.styleValue("quota probe failed:"), qerr)
 		}
 		for _, item := range quotas {
 			var windows []string
@@ -409,7 +409,7 @@ func (c commandContext) doctor(a arguments) error {
 			if len(windows) > 0 {
 				suffix += " — " + strings.Join(windows, " · ")
 			}
-			fmt.Fprintf(c.out, "  %s: %s%s\n", item.Provider, item.Source, suffix)
+			fmt.Fprintf(c.out, "  %s: %s%s\n", c.styleValue(item.Provider), item.Source, suffix)
 		}
 		_ = failed
 	}
@@ -437,27 +437,27 @@ func printIdentityGaps(c commandContext, cfg *config.Config, routings []config.R
 		if name == "" {
 			name = gap.Identity.Label
 		}
-		lines = append(lines, fmt.Sprintf("  %s — catalog: %s", gap.Model, name))
+		lines = append(lines, fmt.Sprintf("  %s — catalog: %s", c.styleValue(gap.Model), c.styleValue(name)))
 		served := make([]string, 0, len(gap.SameModel))
 		for _, entry := range gap.SameModel {
-			label := entry.Provider + "/" + entry.Model
+			label := c.styleValue(entry.Provider + "/" + entry.Model)
 			if entry.Official {
 				label += " (official)"
 			}
 			served = append(served, label)
 		}
-		lines = append(lines, "    same model served by: "+strings.Join(served, ", "))
+		lines = append(lines, "    "+c.styleValue("same model served by:")+" "+strings.Join(served, ", "))
 		if gap.Suggestion != "" {
-			lines = append(lines, "    fix: "+gap.Suggestion)
+			lines = append(lines, "    "+c.styleValue("fix:")+" "+gap.Suggestion)
 		}
 	}
 	for _, canonical := range catalogsync.RedundantAliases(cfg) {
-		lines = append(lines, fmt.Sprintf("  %s — alias already redundant: identity routing finds the provider", canonical))
+		lines = append(lines, fmt.Sprintf("  %s — alias already redundant: identity routing finds the provider", c.styleValue(canonical)))
 	}
 	if len(lines) == 0 {
 		return
 	}
-	fmt.Fprintln(c.out, "\nidentity (same model, different ids):")
+	fmt.Fprintf(c.out, "\n%s\n", c.styleValue("identity (same model, different ids):"))
 	for _, line := range lines {
 		fmt.Fprintln(c.out, line)
 	}
@@ -491,7 +491,7 @@ func (c commandContext) quota(a arguments) error {
 	for _, q := range quotas {
 		plan := ""
 		if q.Plan != "" {
-			plan = " · " + q.Plan
+			plan = " · " + c.styleValue(q.Plan)
 		}
 		healthLabel := ""
 		var health *quota.Health
@@ -499,10 +499,10 @@ func (c commandContext) quota(a arguments) error {
 			if p.Name == q.Provider {
 				h := tracker.ProviderHealth(p, quota.HealthOptions{LowPercent: &low})
 				health = &h
-				healthLabel = " · " + string(h.Status)
+				healthLabel = " · " + c.styleValue(string(h.Status))
 			}
 		}
-		fmt.Fprintf(c.out, "%s · %s · %s%s%s\n", q.Provider, q.Billing, q.Source, plan, healthLabel)
+		fmt.Fprintf(c.out, "%s · %s · %s%s%s\n", c.styleValue(q.Provider), q.Billing, q.Source, plan, healthLabel)
 		for _, w := range q.Windows {
 			used := fmt.Sprintf("%.1f%%", w.UsedPercent)
 			if w.UsedUSD != nil && w.UsedPercent == 0 {
@@ -516,24 +516,24 @@ func (c commandContext) quota(a arguments) error {
 			if w.ResetsAt != "" {
 				reset = " · resets " + w.ResetsAt
 			}
-			fmt.Fprintf(c.out, "  %-8s %s%s%s\n", w.Label, used, limit, reset)
+			fmt.Fprintf(c.out, "  %s %s%s%s\n", c.styleValue(fmt.Sprintf("%-8s", w.Label)), used, limit, reset)
 		}
 		if q.Balance != nil {
-			fmt.Fprintf(c.out, "  balance: %.2f %s\n", q.Balance.Amount, q.Balance.Currency)
+			fmt.Fprintf(c.out, "  %s %.2f %s\n", c.styleValue("balance:"), q.Balance.Amount, q.Balance.Currency)
 		}
-		fmt.Fprintf(c.out, "  spend: 5h $%.4f · 24h $%.4f · 7d $%.4f · 30d $%.4f (%d reqs)\n", q.Spend.FiveHourUSD, q.Spend.DayUSD, q.Spend.WeekUSD, q.Spend.MonthUSD, q.Spend.MonthRequests)
+		fmt.Fprintf(c.out, "  %s 5h $%.4f · 24h $%.4f · 7d $%.4f · 30d $%.4f (%d reqs)\n", c.styleValue("spend:"), q.Spend.FiveHourUSD, q.Spend.DayUSD, q.Spend.WeekUSD, q.Spend.MonthUSD, q.Spend.MonthRequests)
 		if q.Note != "" {
-			fmt.Fprintf(c.out, "  note: %s\n", q.Note)
+			fmt.Fprintf(c.out, "  %s %s\n", c.styleValue("note:"), q.Note)
 		}
 		if q.Error != "" {
-			fmt.Fprintf(c.out, "  note: %s\n", q.Error)
+			fmt.Fprintf(c.out, "  %s %s\n", c.styleValue("note:"), q.Error)
 		}
 		if health != nil && health.RemainingUSD != nil {
 			average := ""
 			if health.AvgRequestUSD != nil {
 				average = fmt.Sprintf(" · ~$%.4f/request", *health.AvgRequestUSD)
 			}
-			fmt.Fprintf(c.out, "  remaining: $%.4f%s\n", *health.RemainingUSD, average)
+			fmt.Fprintf(c.out, "  %s $%.4f%s\n", c.styleValue("remaining:"), *health.RemainingUSD, average)
 		}
 		if len(q.Windows) == 0 && q.Error == "" {
 			fmt.Fprintln(c.out, "  no quota source for this provider")

@@ -91,16 +91,13 @@ func TestStatePresetsAndPricingSourceMatchDashboard(t *testing.T) {
 	}
 }
 
-func TestBrainChannelsCarryKevFlagsForDashboard(t *testing.T) {
+func TestBrainChannelsHideUnsupportedVercel(t *testing.T) {
 	x := setup(t, &logs{})
 	_, out := request(t, x.h, "GET", "/brains", nil)
 	for _, raw := range out["brainChannels"].([]any) {
 		c := raw.(map[string]any)
 		if c["id"] == "vercel" {
-			t.Fatal("vercel channel must stay hidden")
-		}
-		if c["id"] == "kev" && (c["compactState"] != true || c["confidenceFromDistribution"] != true) {
-			t.Fatalf("kev flags %#v", c)
+			t.Fatalf("unsupported channel exposed: %#v", c)
 		}
 	}
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -38,7 +39,7 @@ func waitPort(cfg config.Config, timeout time.Duration) bool {
 	}
 	return false
 }
-func openDashboard(url string, a arguments) {
+func openDashboard(url string, a arguments, out io.Writer) {
 	if a.has("no-open") || os.Getenv("JEVONIAN_NO_OPEN") != "" {
 		return
 	}
@@ -47,7 +48,7 @@ func openDashboard(url string, a arguments) {
 	// src/cli.ts openBrowser + src/browser.ts openBrowserOnce.
 	if os.Getenv("JEVONIAN_WEB_DEV") != "" {
 		if alreadyOpened(paths.BrowserStatePath()) {
-			fmt.Fprintf(os.Stdout, "dashboard already open at %s — reusing the tab\n", url)
+			fmt.Fprintf(out, "dashboard already open at %s — reusing the tab\n", url)
 			return
 		}
 	}
@@ -154,7 +155,7 @@ func (c commandContext) start(a arguments, restart bool) error {
 		fmt.Fprintf(c.out, "pid:       %d\n", s.PID)
 	}
 	fmt.Fprintf(c.out, "log:       %s\nstop:      jevonian stop\nstatus:    jevonian status\nforeground: jevonian --foreground\n", s.LogPath)
-	openDashboard(url, a)
+	openDashboard(url, a, c.out)
 	return nil
 }
 
@@ -255,8 +256,8 @@ func (c commandContext) launch(args []string) int {
 	cmd := exec.Command(spec.Path, spec.Args...)
 	cmd.Env = spec.Env
 	cmd.Stdin = c.in
-	cmd.Stdout = c.out
-	cmd.Stderr = c.errOut
+	cmd.Stdout = rawWriter(c.out)
+	cmd.Stderr = rawWriter(c.errOut)
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
 			code := exit.ExitCode()

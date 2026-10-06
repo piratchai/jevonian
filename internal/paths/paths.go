@@ -28,7 +28,7 @@ func ConfigPath() string {
 	return filepath.Join(base, "jevonian", "config.json")
 }
 
-// DataDir is the shared data directory (ledger, logs, kev checkout, …).
+// DataDir is the shared data directory (ledger, logs, and other runtime data).
 // JEVONIAN_DATA_DIR overrides; else $XDG_DATA_HOME/jevonian
 // (or ~/.local/share/jevonian).
 func DataDir() string {
@@ -105,30 +105,6 @@ func LeaderboardPath() string {
 		return v
 	}
 	return filepath.Join(DataDir(), "leaderboard.json")
-}
-
-// KevDir is the checkout of the Kev repo that `jevonian kev` installs and serves from.
-func KevDir() string {
-	if v := os.Getenv("JEVONIAN_KEV_DIR"); v != "" {
-		return v
-	}
-	return filepath.Join(DataDir(), "kev")
-}
-
-// KevPidPath is the kev process pid file under the data directory.
-func KevPidPath() string {
-	if v := os.Getenv("JEVONIAN_KEV_PID"); v != "" {
-		return v
-	}
-	return filepath.Join(DataDir(), "kev.pid")
-}
-
-// KevLogPath is the kev log under the data directory.
-func KevLogPath() string {
-	if v := os.Getenv("JEVONIAN_KEV_LOG"); v != "" {
-		return v
-	}
-	return filepath.Join(DataDir(), "kev.log")
 }
 
 // ModelSyncStatePath is the model-sync state JSON under the data directory.

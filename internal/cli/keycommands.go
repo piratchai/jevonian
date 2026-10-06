@@ -57,7 +57,7 @@ func (c commandContext) keys(a arguments) error {
 			if k.LimitUSD != nil {
 				limit = fmt.Sprintf("$%.4f", *k.LimitUSD)
 			}
-			fmt.Fprintf(c.out, "%s  %-20s %s… requests=%d limit=%s\n", k.ID, k.Name, k.Prefix, k.Requests, limit)
+			fmt.Fprintf(c.out, "%s  %s %s… requests=%d limit=%s\n", c.styleValue(k.ID), c.styleValue(fmt.Sprintf("%-20s", k.Name)), k.Prefix, k.Requests, limit)
 		}
 		return nil
 	case "create", "add":
@@ -76,7 +76,7 @@ func (c commandContext) keys(a arguments) error {
 		if a.has("json") {
 			return json.NewEncoder(c.out).Encode(map[string]any{"key": created.Key, "record": created.Record})
 		}
-		fmt.Fprintf(c.out, "Created %s (%s)\n%s\nSave this key now; it is shown only once.\n", created.Record.ID, created.Record.Name, created.Key)
+		fmt.Fprintf(c.out, "Created %s (%s)\n%s\nSave this key now; it is shown only once.\n", c.styleValue(created.Record.ID), created.Record.Name, c.styleValue(created.Key))
 		return nil
 	case "remove", "delete", "revoke", "update", "rename":
 		if len(rest) != 1 {
@@ -110,7 +110,7 @@ func (c commandContext) keys(a arguments) error {
 		if !found {
 			return fmt.Errorf("key %q not found", rest[0])
 		}
-		fmt.Fprintf(c.out, "Key %s %s\n", rest[0], command)
+		fmt.Fprintf(c.out, "Key %s %s\n", c.styleValue(rest[0]), command)
 		return nil
 	default:
 		return fmt.Errorf("Usage: jevonian keys [list|create|update|remove]")
