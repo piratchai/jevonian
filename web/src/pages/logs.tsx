@@ -15,6 +15,11 @@ import {
   type LogFilters,
 } from "@/components/logs/filter-types";
 import { StatusPills } from "@/components/logs/status-pills";
+import {
+  INLINE_INSPECTOR_QUERY,
+  LOGS_ROW_GRID,
+  LOGS_TABLE_MIN_WIDTH,
+} from "@/components/logs/table-layout";
 import { useLogFacets } from "@/components/logs/use-log-facets";
 import { useMediaQuery } from "@/components/logs/use-media-query";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
@@ -74,7 +79,7 @@ export function LogsPage() {
   /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Tailwind's xl breakpoint; the drawer only opens below it. */
-  const isXl = useMediaQuery("(min-width: 80rem)");
+  const inlineInspector = useMediaQuery(INLINE_INSPECTOR_QUERY);
 
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -341,22 +346,32 @@ export function LogsPage() {
           onChange={(next) => setFilters((c) => ({ ...c, status: next }))}
         />
 
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
-          <div className="grid shrink-0 grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            <div className="col-span-1">Time</div>
-            <div className="col-span-3">Model</div>
-            <div className="col-span-2">Provider</div>
-            <div className="col-span-1">Phase</div>
-            <div className="col-span-1">Effort</div>
-            <div className="col-span-1">Status</div>
-            <div className="col-span-1">Cost</div>
-            <div className="col-span-1">Latency</div>
-            <div className="col-span-1 text-right">Details</div>
+        {/* The header and the rows both keep LOGS_TABLE_MIN_WIDTH, so a narrow window scrolls the card sideways. */}
+        <Card className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden border">
+          <div
+            className={cn(
+              LOGS_ROW_GRID,
+              LOGS_TABLE_MIN_WIDTH,
+              "shrink-0 overflow-hidden border-b bg-muted/40 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase [scrollbar-gutter:stable]",
+            )}
+          >
+            <div>Time</div>
+            <div>Model</div>
+            <div>Provider</div>
+            <div>Phase</div>
+            <div>Effort</div>
+            <div>Status</div>
+            <div>Cost</div>
+            <div>Latency</div>
+            <div className="text-right">Details</div>
           </div>
 
           <div
             ref={scrollContainerRef}
-            className="relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto"
+            className={cn(
+              "relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]",
+              LOGS_TABLE_MIN_WIDTH,
+            )}
           >
             {loadingInitial ? (
               <LogsTableSkeleton rows={12} />
@@ -399,14 +414,15 @@ export function LogsPage() {
                         }
                       }}
                       className={cn(
-                        "grid grid-cols-12 items-center gap-2 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
+                        LOGS_ROW_GRID,
+                        "items-center py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
                         log.id ? "cursor-pointer" : "",
                         isNew ? "animate-flash-new" : "",
                         isSelected ? "bg-muted hover:bg-muted" : failed ? "bg-destructive/5" : "",
                       )}
                       title={log.id ? "Inspect this request" : "No record ID captured"}
                     >
-                      <div className="col-span-1 flex items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
+                      <div className="flex items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
                         <span
                           aria-hidden
                           className={cn(
@@ -416,7 +432,7 @@ export function LogsPage() {
                         />
                         {formatTime(log.ts)}
                       </div>
-                      <div className="col-span-3 flex min-w-0 items-center gap-1.5 pr-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-medium text-foreground">{log.model}</span>
                         {log.billing === "subscription" ? (
                           <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
@@ -424,13 +440,13 @@ export function LogsPage() {
                           </Badge>
                         ) : null}
                       </div>
-                      <div className="col-span-2 flex min-w-0 items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <ProviderLogo id={log.provider} />
                         <span className="truncate text-muted-foreground">
                           {providerDisplayName(log.provider)}
                         </span>
                       </div>
-                      <div className="col-span-1">
+                      <div>
                         <Badge
                           variant={
                             log.phase === "plan"
@@ -444,7 +460,7 @@ export function LogsPage() {
                           {log.phase ?? "-"}
                         </Badge>
                       </div>
-                      <div className="col-span-1">
+                      <div>
                         {log.effort ? (
                           <Badge
                             variant="outline"
@@ -459,7 +475,7 @@ export function LogsPage() {
                       </div>
                       <div
                         className={cn(
-                          "col-span-1 flex min-w-0 items-center gap-1.5 font-mono font-medium",
+                          "flex min-w-0 items-center gap-1.5 font-mono font-medium",
                           failed ? "text-destructive" : "text-muted-foreground",
                         )}
                       >
@@ -481,15 +497,13 @@ export function LogsPage() {
                           </span>
                         ) : null}
                       </div>
-                      <div className="col-span-1 font-mono text-muted-foreground">
+                      <div className="font-mono text-muted-foreground">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
-                      <div className="col-span-1 font-mono text-muted-foreground">
-                        {log.latencyMs}ms
-                      </div>
-                      <div className="col-span-1 text-right text-muted-foreground">
+                      <div className="font-mono text-muted-foreground">{log.latencyMs}ms</div>
+                      <div className="text-right text-muted-foreground">
                         {log.id ? (
-                          <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                             <span>open →</span>
                             <Link
                               to={`/logs/${log.id}`}
@@ -513,10 +527,10 @@ export function LogsPage() {
             {loadingMore ? (
               <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
                 {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className="grid grid-cols-12 items-center gap-2 py-1.5">
-                    <Skeleton className="col-span-1 h-3 w-10" />
-                    <Skeleton className="col-span-3 h-3 w-[80%]" />
-                    <Skeleton className="col-span-2 h-3 w-16" />
+                  <div key={index} className={cn(LOGS_ROW_GRID, "items-center px-0 py-1.5")}>
+                    <Skeleton className="h-3 w-10" />
+                    <Skeleton className="h-3 w-[80%]" />
+                    <Skeleton className="h-3 w-16" />
                     <Skeleton className="col-span-6 h-3 w-full" />
                   </div>
                 ))}
@@ -530,8 +544,8 @@ export function LogsPage() {
         </Card>
       </div>
 
-      {/* Inline panel on xl and up; below xl the same view lives in the Sheet. */}
-      <aside className="hidden min-h-0 w-[30rem] shrink-0 overflow-hidden rounded-xl border bg-card xl:block">
+      {/* Inline panel on very wide windows (see INLINE_INSPECTOR_QUERY); below that the same view lives in the Sheet. */}
+      <aside className="hidden min-h-0 w-[30rem] shrink-0 overflow-hidden rounded-xl border bg-card min-[118rem]:block">
         {selectedId ? (
           <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
         ) : (
@@ -542,7 +556,7 @@ export function LogsPage() {
       </aside>
 
       <Sheet
-        open={Boolean(selectedId) && !isXl}
+        open={Boolean(selectedId) && !inlineInspector}
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}

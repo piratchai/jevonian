@@ -26,6 +26,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const GITHUB_REPO = "https://github.com/xinyao27/jevonian";
 
@@ -68,6 +69,8 @@ export function Layout() {
   const pageName = pathname.startsWith("/logs/")
     ? "Log detail"
     : (pageNames[pathname] ?? "Overview");
+  // The Logs list fills the window. Inside max-w-6xl the table next to the inspector gets about 400px.
+  const fullWidth = pathname === "/logs";
   // Prefer the running process version from the API. Baked web assets can drift
   // ahead when the package on disk was updated without restarting the server.
   const [version, setVersion] = useState(__JEVONIAN_VERSION__);
@@ -164,7 +167,7 @@ export function Layout() {
           </span>
         </header>
         <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-10">
-          <div className="mx-auto max-w-6xl">
+          <div className={cn("mx-auto", fullWidth ? "max-w-none" : "max-w-6xl")}>
             <ErrorBoundary>
               <Outlet />
             </ErrorBoundary>

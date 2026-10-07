@@ -1,3 +1,4 @@
+import { LOGS_ROW_GRID } from "@/components/logs/table-layout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -254,17 +255,17 @@ export function LogsTableSkeleton({ rows = 10 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, index) => (
         <div
           key={index}
-          className="grid grid-cols-12 items-center gap-2 border-b border-border/40 px-4 py-2.5"
+          className={cn(LOGS_ROW_GRID, "items-center border-b border-border/40 py-2.5")}
         >
-          <Skeleton className="col-span-1 h-3 w-12" />
-          <Skeleton className="col-span-3 h-3 w-full max-w-[90%]" />
-          <Skeleton className="col-span-2 h-3 w-20" />
-          <Skeleton className="col-span-1 h-3 w-12" />
-          <Skeleton className="col-span-1 h-3 w-10" />
-          <Skeleton className="col-span-1 h-3 w-10" />
-          <Skeleton className="col-span-1 h-3 w-12" />
-          <Skeleton className="col-span-1 h-3 w-10" />
-          <Skeleton className="col-span-1 ml-auto h-3 w-8" />
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-3 w-full max-w-[90%]" />
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-3 w-10" />
+          <Skeleton className="h-3 w-10" />
+          <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-3 w-10" />
+          <Skeleton className="ml-auto h-3 w-8" />
         </div>
       ))}
     </div>
