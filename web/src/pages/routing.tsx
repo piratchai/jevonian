@@ -260,6 +260,9 @@ export function RoutingPage({
   );
   const schedule = state?.config.routing.schedule;
   const scheduleStatus = state?.schedule;
+  // What each task runs on right now. `derived` ignores the active window, but a window that
+  // changes one task's models also changes what the automatic tasks after it can pick.
+  const effective = state?.effective;
   // The active window changes with the clock, not with the config, so keep it fresh.
   const hasSchedule = Boolean(schedule);
   useEffect(() => {
@@ -668,6 +671,7 @@ export function RoutingPage({
               schedule={schedule}
               status={scheduleStatus}
               derived={derived}
+              effective={effective}
               names={names}
               disabled={busy || editingId !== null}
               onSave={saveSchedule}
@@ -683,7 +687,7 @@ export function RoutingPage({
               const chain = timed?.length
                 ? timed
                 : automatic
-                  ? (derived.get(entry.id) ?? [])
+                  ? (effective?.[entry.id] ?? derived.get(entry.id) ?? [])
                   : entry.models;
               const changesByTime = Object.keys(entry.windows ?? {}).length > 0;
               return (

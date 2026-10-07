@@ -40,6 +40,11 @@ export interface ScheduleSectionProps {
   status: ScheduleStatusView | undefined;
   /** Models an automatic routing derives, shown when it lists none of its own. */
   derived: Map<string, string[]>;
+  /**
+   * What each task runs on right now, with the active window applied. An automatic task can pick
+   * different models while a window changes an earlier task's list, which `derived` does not show.
+   */
+  effective?: Record<string, string[]>;
   names: Map<string, string | undefined>;
   disabled: boolean;
   /** Saves the schedule (null removes it). Returns an error message, or null on success. */
@@ -68,6 +73,7 @@ export function ScheduleSection({
   schedule,
   status,
   derived,
+  effective,
   names,
   disabled,
   onSave,
@@ -196,6 +202,10 @@ export function ScheduleSection({
                   const fallback = route.models.length
                     ? route.models
                     : (derived.get(route.id) ?? []);
+                  // In the active window, a task with no list of its own can still run on other
+                  // models than at other times, when it picks automatically.
+                  const now = effective?.[route.id];
+                  const shifted = Boolean(now && now.join("\n") !== fallback.join("\n"));
                   return (
                     <TableRow key={route.id}>
                       <TableCell className="whitespace-nowrap font-medium">{route.label}</TableCell>
@@ -208,6 +218,8 @@ export function ScheduleSection({
                           >
                             {own?.length ? (
                               chainText(own, names)
+                            ) : status?.active === window.id && shifted && now ? (
+                              chainText(now, names)
                             ) : (
                               <span className="text-muted-foreground">Same as other times</span>
                             )}
