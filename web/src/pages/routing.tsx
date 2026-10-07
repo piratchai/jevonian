@@ -675,7 +675,16 @@ export function RoutingPage({
         </>
       ) : null}
       {settingsOnly ? (
-        settings
+        embedded ? (
+          settings
+        ) : (
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+              Routing settings · quota guard and token saver
+            </summary>
+            <div className="border-t p-3">{settings}</div>
+          </details>
+        )
       ) : embedded ? null : (
         <details className="rounded-lg border">
           <summary className="cursor-pointer p-3 text-sm text-muted-foreground">

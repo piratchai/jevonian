@@ -89,8 +89,11 @@ export interface ProvidersPageProps {
   settingsOnly?: boolean;
 }
 
-export function ProviderSettings({ onChanged }: Pick<ProvidersPageProps, "onChanged">) {
-  return <ProvidersPage settingsOnly onChanged={onChanged} />;
+export function ProviderSettings({
+  embedded = false,
+  onChanged,
+}: Pick<ProvidersPageProps, "embedded" | "onChanged">) {
+  return <ProvidersPage settingsOnly embedded={embedded} onChanged={onChanged} />;
 }
 
 export function ProvidersPage({
@@ -731,50 +734,84 @@ export function ProvidersPage({
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
             Model auto-sync
           </summary>
-          <Card>
-            <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-              <div className="flex flex-col gap-1">
-                <CardTitle>Model auto-sync</CardTitle>
-                <CardDescription>
-                  While <code>serve</code> is running, Jevonian periodically discovers each
-                  provider&apos;s model list and appends new ids. Removals stick; fixed routings are
-                  never rewritten.
-                </CardDescription>
-              </div>
+          <div className="flex flex-col gap-3 border-t px-4 py-3">
+            <div className="flex items-start justify-between gap-4">
+              <p className="text-xs text-muted-foreground">
+                While <code>serve</code> is running, Jevonian periodically discovers each
+                provider&apos;s model list and appends new ids. Removals stick; fixed routings are
+                never rewritten.
+              </p>
               <Badge variant={modelSync?.config.enabled === false ? "outline" : "secondary"}>
                 {modelSync?.config.enabled === false ? "off" : "on"}
               </Badge>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">
-                {modelSync?.lastCheckedAt
-                  ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
-                  : "No sync has run yet — start serve or Sync now."}
-                {modelSync && modelSync.providersSkipped.length > 0
-                  ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
-                  : ""}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
-                  disabled={busy}
-                >
-                  {modelSync?.config.enabled === false ? "Enable" : "Disable"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void runModelSyncNow()}
-                  disabled={busy}
-                >
-                  Sync now
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {modelSync?.lastCheckedAt
+                ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
+                : "No sync has run yet — start serve or Sync now."}
+              {modelSync && modelSync.providersSkipped.length > 0
+                ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
+                : ""}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
+                disabled={busy}
+              >
+                {modelSync?.config.enabled === false ? "Enable" : "Disable"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void runModelSyncNow()}
+                disabled={busy}
+              >
+                Sync now
+              </Button>
+            </div>
+          </div>
         </details>
+      ) : settingsOnly ? (
+        <div className="order-2 flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-xs text-muted-foreground">
+              While <code>serve</code> is running, Jevonian periodically discovers each
+              provider&apos;s model list and appends new ids. Removals stick; fixed routings are
+              never rewritten.
+            </p>
+            <Badge variant={modelSync?.config.enabled === false ? "outline" : "secondary"}>
+              {modelSync?.config.enabled === false ? "off" : "on"}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {modelSync?.lastCheckedAt
+              ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
+              : "No sync has run yet — start serve or Sync now."}
+            {modelSync && modelSync.providersSkipped.length > 0
+              ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
+              : ""}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
+              disabled={busy}
+            >
+              {modelSync?.config.enabled === false ? "Enable" : "Disable"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runModelSyncNow()}
+              disabled={busy}
+            >
+              Sync now
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {!formOpen && message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
@@ -926,22 +963,8 @@ export function ProvidersPage({
                   : "Assign tasks and save"}
             </SheetDescription>
           </SheetHeader>
-          <Card id="provider-form">
-            <CardHeader className="flex-row items-start justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <CardTitle>{editing ? `Edit provider "${editing}"` : "Add provider"}</CardTitle>
-                <CardDescription>
-                  {presetId === "custom"
-                    ? "Choose the endpoint and protocol first, then authenticate and pick models."
-                    : "Pick a preset, choose how it authenticates, then select models."}
-                </CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={closeForm} disabled={busy}>
-                Close
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-5">
-              <fieldset
+          <div id="provider-form" className="flex flex-col gap-5 px-4 pb-4">
+            <fieldset
                 disabled={busy || Boolean(savedProvider)}
                 className={cn("contents", step !== 1 && "hidden")}
               >
@@ -1510,10 +1533,9 @@ export function ProvidersPage({
                   </Button>
                 ) : null}
                 {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
-                {error ? <span className="text-xs text-destructive">{error}</span> : null}
-              </div>
-            </CardContent>
-          </Card>
+              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </div>
