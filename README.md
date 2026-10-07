@@ -248,16 +248,26 @@ Then run `pi --provider jevonian --model jevonian/auto`.
 
 By default every client shares the one Jevonian on port 8787. To give a client its own port, ledger and keys, run another instance with its own config file and data folder:
 
+```bash
+# macOS and Linux (bash, zsh)
+export JEVONIAN_CONFIG=~/.config/jevonian/config-pi.json
+export JEVONIAN_DATA_DIR=~/.local/share/jevonian-pi
+export JEVONIAN_PORT=8788
+jevonian serve --foreground
+```
+
 ```bat
-:: Windows (cmd). On macOS and Linux use export instead of set.
+:: Windows (cmd)
 set JEVONIAN_CONFIG=%USERPROFILE%\.config\jevonian\config-pi.json
 set JEVONIAN_DATA_DIR=%USERPROFILE%\.local\share\jevonian-pi
 set JEVONIAN_PORT=8788
-jevonian serve
+jevonian serve --foreground
 ```
 
 - The port is `listen.port` in that config file. `JEVONIAN_PORT` overrides it for the process, also when the config file does not exist yet. A command that rewrites the config (for example `jevonian add`) saves the port that is in effect, so the port you set while you run it is kept.
 - `jevonian launch claude` reads the same config and variables, so set the same ones when you launch.
+- **macOS:** plain `jevonian serve`, `start`, `stop` and `restart` manage one LaunchAgent that serves the default config. Start every extra instance with `serve --foreground`, as above, so the LaunchAgent is not touched; stop it with Ctrl+C. Linux and Windows have no background service, so `serve` always runs in the foreground there.
+- **Linux and macOS:** the config and data folders are `$XDG_CONFIG_HOME/jevonian` and `$XDG_DATA_HOME/jevonian` when those variables are set, else `~/.config/jevonian` and `~/.local/share/jevonian`.
 - The ledger, the logs and the Jevonian keys (`keys.json`) live in the data folder, so each instance has its own. Create one key per instance on its **Keys** page.
 - Provider keys in `credentials.json` are shared by every instance, unless `JEVONIAN_CREDENTIALS` points somewhere else.
 - Point each client's `baseURL` at the port of its own instance: `http://127.0.0.1:8788/v1` in the PI Agent example above.
