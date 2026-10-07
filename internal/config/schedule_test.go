@@ -158,6 +158,70 @@ func TestParseSchedulePrunesListsForRemovedWindows(t *testing.T) {
 	}
 }
 
+// routingWithProviders is a "plan" routing with its own model, one model only a window lists,
+// and a provider order for both.
+func routingWithProviders(windowIDs ...string) map[string]any {
+	windows := []any{}
+	for _, id := range windowIDs {
+		windows = append(windows, map[string]any{"id": id, "start": "22:00", "end": "08:00"})
+	}
+	return map[string]any{"routing": map[string]any{
+		"schedule": map[string]any{"windows": windows},
+		"routings": []any{map[string]any{
+			"id": "plan", "label": "Plan",
+			"models":    []any{"day-max"},
+			"windows":   map[string]any{"night": []any{"night-max"}},
+			"providers": map[string]any{"day-max": []any{"a"}, "night-max": []any{"b", "a"}, "unused": []any{"c"}},
+		}},
+	}}
+}
+
+func planOf(t *testing.T, cfg Config) RoutingEntry {
+	t.Helper()
+	for _, r := range cfg.Routing.Routings {
+		if r.ID == "plan" {
+			return r
+		}
+	}
+	t.Fatal("no plan routing")
+	return RoutingEntry{}
+}
+
+func TestProviderOrderCoversModelsThatOnlyAWindowLists(t *testing.T) {
+	cfg, err := ParseConfig(routingWithProviders("night"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planOf(t, cfg)
+	if got := strings.Join(plan.Providers["night-max"], ","); got != "b,a" {
+		t.Fatalf("provider order for the window-only model = %q, want b,a", got)
+	}
+	if got := strings.Join(plan.Providers["day-max"], ","); got != "a" {
+		t.Fatalf("provider order for the base model = %q, want a", got)
+	}
+	if _, ok := plan.Providers["unused"]; ok {
+		t.Fatal("provider order for a model no list uses must still be dropped")
+	}
+}
+
+func TestProviderOrderOfARemovedWindowIsDropped(t *testing.T) {
+	// The schedule only has a "day" window, so the "night" list and the order for its model go away.
+	cfg, err := ParseConfig(routingWithProviders("day"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := planOf(t, cfg)
+	if plan.Windows != nil {
+		t.Fatalf("windows = %v", plan.Windows)
+	}
+	if _, ok := plan.Providers["night-max"]; ok {
+		t.Fatal("provider order for a model only a removed window listed must be dropped")
+	}
+	if got := strings.Join(plan.Providers["day-max"], ","); got != "a" {
+		t.Fatalf("provider order for the base model = %q, want a", got)
+	}
+}
+
 func TestParseClock(t *testing.T) {
 	for in, want := range map[string]int{"00:00": 0, "08:05": 485, "23:59": 1439} {
 		if got, ok := ParseClock(in); !ok || got != want {

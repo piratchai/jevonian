@@ -438,7 +438,9 @@ func parseRoutingEntry(raw any, index int) (RoutingEntry, error) {
 	if providersRaw == nil {
 		providersRaw = value["providerOrder"]
 	}
-	providers := pruneProviderOrder(models, parseProviderOrder(providersRaw))
+	windows := parseRoutingWindows(value["windows"])
+	// Provider order covers the routing's own models and the ones it lists for a window.
+	providers := pruneProviderOrder(routingModels(models, windows), parseProviderOrder(providersRaw))
 	entry := RoutingEntry{
 		ID:          id,
 		Label:       strings.TrimSpace(label),
@@ -451,7 +453,7 @@ func parseRoutingEntry(raw any, index int) (RoutingEntry, error) {
 	if effort, ok := value["effort"].(string); ok && reasoningEfforts[effort] {
 		entry.Effort = effort
 	}
-	if windows := parseRoutingWindows(value["windows"]); windows != nil {
+	if windows != nil {
 		entry.Windows = windows
 	}
 	return entry, nil

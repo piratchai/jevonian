@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -108,8 +109,24 @@ func parseRoutingWindows(raw any) map[string][]string {
 	return out
 }
 
+// routingModels is every model a routing can run: its own list, then the list of each
+// window in a stable order. Provider order applies to all of them.
+func routingModels(models []string, windows map[string][]string) []string {
+	out := append([]string(nil), models...)
+	ids := make([]string, 0, len(windows))
+	for id := range windows {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		out = append(out, windows[id]...)
+	}
+	return out
+}
+
 // pruneWindows drops per-window model lists whose window no longer exists, so
-// deleting a window never leaves orphaned lists behind.
+// deleting a window never leaves orphaned lists behind. Provider order for a model
+// that only those lists used goes with them.
 func pruneWindows(routings []RoutingEntry, schedule *ScheduleConfig) {
 	known := map[string]bool{}
 	if schedule != nil {
@@ -125,6 +142,10 @@ func pruneWindows(routings []RoutingEntry, schedule *ScheduleConfig) {
 		}
 		if len(routings[i].Windows) == 0 {
 			routings[i].Windows = nil
+		}
+		if routings[i].Providers != nil {
+			routings[i].Providers = pruneProviderOrder(
+				routingModels(routings[i].Models, routings[i].Windows), routings[i].Providers)
 		}
 	}
 }
