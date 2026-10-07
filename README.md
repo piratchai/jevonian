@@ -134,6 +134,50 @@ While no Jevonian key exists, the proxy stays open for first-run convenience. On
 
 Every client below ends up talking to the same endpoint with a Jevonian key (`sk-jev-…`) and the model `jevonian/auto`. The only difference is how each one is pointed at it.
 
+### Quick start: Claude Code, OpenCode and PI Agent
+
+The shortest working path for each client, run on a clean config. The commands are the same on Windows, macOS and Linux. Add `JEVONIAN_PORT=<port>` in front of every `jevonian` command (or set it once) to use a port other than 8787.
+
+**Install.** `npm install --global jevonian` is enough once a release has the fixes from this branch (Claude login on Sonnet and Opus, Windows start-up). Until then, build it (about 20 seconds with warm caches; needs Node 22+, pnpm and Go 1.26+):
+
+```bash
+git clone --branch feat/routing-schedule https://github.com/piratchai/jevonian.git
+cd jevonian && pnpm install --frozen-lockfile && pnpm web:build
+go build -o jevonian ./cmd/jevonian        # on Windows: -o jevonian.exe
+```
+
+**Claude Code, on your Claude login (no other account).** Do not run `jevonian init` first: its example config adds a DeepSeek provider.
+
+```bash
+jevonian add claude-subscription
+jevonian serve --foreground                 # leave this running; open another terminal
+jevonian launch claude --model jevonian/execute
+```
+
+`jevonian/auto` needs a [routing brain](docs/brain.md), so start from an explicit route as above. See "With only a Claude login and no routing brain" below.
+
+**OpenCode and PI Agent, on an API-key provider** (the example is an OpenAI-compatible Alibaba endpoint; any provider works):
+
+```bash
+export ALIBABA_API_KEY=...                  # Windows cmd: set ALIBABA_API_KEY=...
+jevonian add custom --name alibaba --type openai --env ALIBABA_API_KEY \
+  --base-url https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 \
+  --models qwen3.6-flash,qwen3.7-plus
+jevonian serve --foreground                 # leave this running; the key variable must be set here too
+jevonian keys create opencode               # prints sk-jev-... once; make one more for pi
+```
+
+Then give each client its key and the endpoint, as in the OpenCode and PI Agent sections below, and ask for `jevonian/execute`:
+
+```bash
+opencode run -m jevonian/execute "explain this repo"      # a project opencode.json works as well as the global one
+pi --provider jevonian --model jevonian/execute -p "explain this repo"
+```
+
+If a thinking model fails with `max_completion_tokens must be greater than thinking_budget`, add `"defaultEffort": "low"` under `routing` in the config file and restart `serve`.
+
+Check each first turn in **Logs** on that instance's dashboard: it shows the model and provider that served it.
+
 ### Cursor
 
 Cursor runs in the cloud and only accepts a **public HTTPS** URL for a custom OpenAI endpoint, so `http://127.0.0.1:8787/v1` will not work — you need a tunnel. Jevonian's tunnel is an explicit opt-in that publishes nothing but `/v1`:
