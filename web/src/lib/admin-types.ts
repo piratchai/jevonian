@@ -15,7 +15,8 @@ export type ProviderTypeName =
   | "both"
   | "gemini"
   | "devin"
-  | "cursor";
+  | "cursor"
+  | "chatgpt-web";
 
 /** Every local sign-in the router can read. */
 export type OAuthSourceName =

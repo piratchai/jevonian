@@ -32,6 +32,7 @@ func TestSyncableMatchesTS(t *testing.T) {
 		{"cursor", config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthCursor}, true},
 		{"workbuddy", config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthWorkbuddyAI}, true},
 		{"api key", config.Provider{Auth: config.AuthAPIKey}, false},
+		{"chatgpt-web", config.Provider{Type: config.ProviderTypeChatGPTWeb}, true},
 	}
 	for _, c := range cases {
 		if got := modelsync.Syncable(c.p); got != c.want {
@@ -40,7 +41,7 @@ func TestSyncableMatchesTS(t *testing.T) {
 	}
 }
 
-// TS syncs by default only the OAuth sources in MODEL_SYNC_DEFAULT_SOURCES.
+// TS syncs by default only the OAuth sources in MODEL_SYNC_DEFAULT_SOURCES (plus chatgpt-web).
 func TestSyncableDefaultRule(t *testing.T) {
 	no := func(p config.Provider) {
 		t.Helper()
@@ -51,6 +52,9 @@ func TestSyncableDefaultRule(t *testing.T) {
 	no(config.Provider{NoKey: true})
 	no(config.Provider{Billing: config.BillingSubscription})
 	no(config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthStatic})
+	if !modelsync.Syncable(config.Provider{Type: config.ProviderTypeChatGPTWeb}) {
+		t.Fatal("chatgpt-web must sync by default")
+	}
 	for _, src := range []config.OAuthSource{config.OAuthCodex, config.OAuthClaudeCode, config.OAuthAntigravity, config.OAuthDevin, config.OAuthCursor, config.OAuthWorkbuddyAI} {
 		if !modelsync.Syncable(config.Provider{Auth: config.AuthOAuth, OAuthSource: src}) {
 			t.Fatalf("%s must sync by default", src)

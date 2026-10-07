@@ -75,6 +75,11 @@ const BRANDS: Brand[] = [
     sources: ["codex"],
   },
   {
+    id: "chatgpt-web",
+    name: "ChatGPT Web",
+    aliases: ["chatgpt-web"],
+  },
+  {
     id: "antigravity",
     name: "Antigravity",
     aliases: ["antigravity"],
@@ -143,6 +148,7 @@ const BRANDS: Brand[] = [
 const TYPE_BRANDS: Record<string, string> = {
   devin: "devin-subscription",
   cursor: "cursor-subscription",
+  "chatgpt-web": "chatgpt-web",
 };
 
 function tokenize(value: string): string[] {

@@ -270,7 +270,7 @@ func ProviderSpeaks(p config.Provider, wire config.ProviderType) bool {
 	}
 	// Gemini, Devin and Cursor wrap their own envelopes around a Chat
 	// Completions body. src/wire.ts.
-	if p.Type == config.ProviderTypeGemini || p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor {
+	if p.Type == config.ProviderTypeGemini || p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor || p.Type == config.ProviderTypeChatGPTWeb {
 		return wire == config.ProviderTypeOpenAI
 	}
 	if wire == config.ProviderTypeOpenAI {
@@ -286,7 +286,7 @@ func CanServeClient(p config.Provider, client RequestKind) bool {
 		return true
 	}
 	// Devin/Cursor take a Chat Completions body; every client folds onto it.
-	if p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor {
+	if p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor || p.Type == config.ProviderTypeChatGPTWeb {
 		return true
 	}
 	if client == KindAnthropic && p.Type == config.ProviderTypeOpenAI {

@@ -274,12 +274,15 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 	if at.CacheEvidenceKnown && at.SentEffort != sentEffort(at.CacheBody, at.Plan.Wire) {
 		at.CacheBody, at.CacheEvidenceKnown = nil, false
 	}
-	auth, err := r.deps.Auth.ResolveProviderAuth(ctx, provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session"))
-	if err != nil {
-		at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
-		at.Status = 401
-		at.Err = err
-		return
+	auth := oauth.AuthResolution{}
+	if provider.Type != config.ProviderTypeChatGPTWeb {
+		auth, err = r.deps.Auth.ResolveProviderAuth(ctx, provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session"))
+		if err != nil {
+			at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
+			at.Status = 401
+			at.Err = err
+			return
+		}
 	}
 	// Adapters that own the whole exchange (Connect-RPC, session-bound hosts).
 	if own, ok := at.Adapter.(attemptRunner); ok {

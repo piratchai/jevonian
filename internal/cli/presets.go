@@ -7,8 +7,7 @@ type preset struct {
 	id, name, typ, url, env, source, billing string
 	keysURL, hint                            string
 	noKey, sync                              bool
-	// explicitAPIKey marks presets that declare `auth: "api-key"` in the TS table.
-	explicitAPIKey bool
+	explicitAPIKey                           bool
 }
 
 var presets = []preset{
@@ -32,6 +31,7 @@ var presets = []preset{
 	{id: "lmstudio", name: "LM Studio", typ: "openai", url: "http://127.0.0.1:1234/v1", noKey: true, sync: true, keysURL: "https://lmstudio.ai", hint: "Start LM Studio's local server; no API key required."},
 	{id: "claude-subscription", name: "Claude (Pro/Max)", typ: "anthropic", url: "https://api.anthropic.com/v1", source: "claude-code", billing: "subscription", keysURL: "https://code.claude.com/docs/en/oauth", hint: "Sign in with `claude`; Jevonian reads ~/.claude/.credentials.json."},
 	{id: "chatgpt-subscription", name: "ChatGPT (Codex)", typ: "responses", url: "https://chatgpt.com/backend-api/codex", source: "codex", billing: "subscription", keysURL: "https://github.com/openai/codex#authentication", hint: "Sign in with `codex`; Jevonian reads ~/.codex/auth.json."},
+	{id: "chatgpt-web", name: "ChatGPT Web", typ: "chatgpt-web", url: "http://127.0.0.1:9222", billing: "subscription", noKey: true, sync: true, keysURL: "https://chatgpt.com", hint: "Connects directly via Chrome DevTools Protocol (CDP) to your logged-in Chrome browser. Launch Chrome with --remote-debugging-port=9222."},
 	{id: "antigravity", name: "Antigravity (Google)", typ: "gemini", url: "https://daily-cloudcode-pa.googleapis.com", source: "antigravity", billing: "subscription", keysURL: "https://antigravity.google", hint: "Sign in with the Antigravity IDE or `agy`; reads the local token and project id."},
 	{id: "devin-subscription", name: "Devin", typ: "devin", url: "https://server.codeium.com", source: "devin", billing: "subscription", keysURL: "https://docs.devin.ai/cli", hint: "Sign in with `devin auth login`; Jevonian reads ~/.local/share/devin/credentials.toml."},
 	{id: "cursor-subscription", name: "Cursor", typ: "cursor", url: "https://api2.cursor.sh", source: "cursor", billing: "subscription", keysURL: "https://cursor.com/install", hint: "Install Cursor's CLI and sign in with `cursor-agent login`; Jevonian reads its keychain entry or auth.json."},
@@ -69,7 +69,7 @@ func PresetViews() []map[string]any {
 		if p.billing != "" {
 			v["billing"] = p.billing
 		}
-		if p.noKey {
+		if p.noKey || p.typ == string(config.ProviderTypeChatGPTWeb) {
 			v["noKey"] = true
 		}
 		if p.sync {
@@ -89,7 +89,7 @@ func (p preset) provider() config.Provider {
 	if p.billing != "" {
 		billing = config.ProviderBilling(p.billing)
 	}
-	out := config.Provider{Name: p.id, Type: config.ProviderType(p.typ), BaseURL: p.url, APIKeyEnv: p.env, Auth: auth, OAuthSource: config.OAuthSource(p.source), Billing: billing, NoKey: p.noKey, Models: []config.ModelEntry{}, InjectStreamUsage: true}
+	out := config.Provider{Name: p.id, Type: config.ProviderType(p.typ), BaseURL: p.url, APIKeyEnv: p.env, Auth: auth, OAuthSource: config.OAuthSource(p.source), Billing: billing, NoKey: p.noKey || p.typ == string(config.ProviderTypeChatGPTWeb), Models: []config.ModelEntry{}, InjectStreamUsage: true}
 	if p.sync {
 		yes := true
 		out.SyncModels = &yes

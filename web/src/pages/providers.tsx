@@ -368,6 +368,7 @@ export function ProvidersPage({
                 : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
+    effectiveType === "chatgpt-web" ||
     (auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource)) ||
     helpPreset?.syncModels === true;
   const syncModels = syncOverride ?? syncDefault;
@@ -703,6 +704,7 @@ export function ProvidersPage({
   };
 
   const noKey =
+    effectiveType === "chatgpt-web" ||
     helpPreset?.noKey === true ||
     Boolean(
       editing && state?.config.providers.find((provider) => provider.name === editing)?.noKey,
@@ -1558,6 +1560,9 @@ export function ProvidersPage({
                             <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
                             <SelectItem value="cursor">
                               cursor — Connect-RPC (Cursor agent)
+                            </SelectItem>
+                            <SelectItem value="chatgpt-web">
+                              chatgpt-web — ChatGPT Web browser bridge
                             </SelectItem>
                           </SelectContent>
                         </Select>

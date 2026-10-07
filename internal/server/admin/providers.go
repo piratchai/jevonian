@@ -19,6 +19,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/oauth"
 	"github.com/xinyao27/jevonian/internal/paths"
+	"github.com/xinyao27/jevonian/internal/provider/chatgptweb"
 	"github.com/xinyao27/jevonian/internal/provider/cursor"
 	"github.com/xinyao27/jevonian/internal/provider/devin"
 	"github.com/xinyao27/jevonian/internal/provider/freebuff"
@@ -38,11 +39,16 @@ func (h *Handler) providerPayload(b map[string]any, previous *config.Provider) (
 		return config.Provider{}, errors.New("baseUrl is required")
 	}
 	p := map[string]any{"name": name, "baseUrl": base, "type": "openai", "auth": "api-key", "billing": "api", "models": b["models"], "injectStreamUsage": true}
-	validType := map[string]bool{"openai": true, "anthropic": true, "responses": true, "both": true, "gemini": true, "devin": true, "cursor": true}
+	validType := map[string]bool{"openai": true, "anthropic": true, "responses": true, "both": true, "gemini": true, "devin": true, "cursor": true, "chatgpt-web": true}
 	if validType[text(b["type"])] {
 		p["type"] = b["type"]
+		if text(b["type"]) == "chatgpt-web" {
+			p["noKey"] = true
+			p["auth"] = "api-key"
+			p["billing"] = "subscription"
+		}
 	}
-	if b["auth"] == "oauth" {
+	if b["auth"] == "oauth" && text(b["type"]) != "chatgpt-web" {
 		p["auth"] = "oauth"
 		p["oauthSource"] = oauth.ParseSource(b["oauthSource"])
 	}
@@ -277,6 +283,14 @@ func sortedIDs(ids []string) []string {
 func (h *Handler) discover(ctx context.Context, p config.Provider) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if p.Type == config.ProviderTypeChatGPTWeb {
+		raw, err := chatgptweb.NewProvider(p, h.deps.HTTP).Models(ctx)
+		ids := []string{}
+		for _, m := range raw {
+			ids = append(ids, m.ID)
+		}
+		return sortedIDs(ids), err
+	}
 	if p.Type == config.ProviderTypeCursor {
 		raw, err := cursor.NewProvider(p, h.deps.HTTP).Models(ctx)
 		ids := []string{}

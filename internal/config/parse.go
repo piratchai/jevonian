@@ -152,7 +152,7 @@ func parseProvider(raw any, index int) (Provider, error) {
 		t := true
 		p.SyncModels = &t
 	}
-	if value["noKey"] == true {
+	if value["noKey"] == true || ptype == ProviderTypeChatGPTWeb {
 		p.NoKey = true
 	}
 	if excl := stringArray(value["excludeModels"]); len(excl) > 0 {
@@ -165,7 +165,7 @@ func parseProviderType(value any, index int) (ProviderType, error) {
 	s, ok := value.(string)
 	if !ok || !providerTypes[s] {
 		return "", fmt.Errorf(
-			`providers[%d].type must be "openai", "anthropic", "responses", "both", "gemini", "devin", or "cursor"`,
+			`providers[%d].type must be "openai", "anthropic", "responses", "both", "gemini", "devin", "cursor", or "chatgpt-web"`,
 			index,
 		)
 	}

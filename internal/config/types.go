@@ -13,13 +13,14 @@ const (
 type ProviderType string
 
 const (
-	ProviderTypeOpenAI    ProviderType = "openai"
-	ProviderTypeAnthropic ProviderType = "anthropic"
-	ProviderTypeResponses ProviderType = "responses"
-	ProviderTypeBoth      ProviderType = "both"
-	ProviderTypeGemini    ProviderType = "gemini"
-	ProviderTypeDevin     ProviderType = "devin"
-	ProviderTypeCursor    ProviderType = "cursor"
+	ProviderTypeOpenAI     ProviderType = "openai"
+	ProviderTypeAnthropic  ProviderType = "anthropic"
+	ProviderTypeResponses  ProviderType = "responses"
+	ProviderTypeBoth       ProviderType = "both"
+	ProviderTypeGemini     ProviderType = "gemini"
+	ProviderTypeDevin      ProviderType = "devin"
+	ProviderTypeCursor     ProviderType = "cursor"
+	ProviderTypeChatGPTWeb ProviderType = "chatgpt-web"
 )
 
 // ProviderAuth is how a provider authenticates.

@@ -61,6 +61,7 @@ export const PROVIDER_ICONS: Record<string, ComponentType<IconProps>> = {
   ollama: brandIcon(Ollama),
   openai: brandIcon(OpenAI),
   "chatgpt-subscription": brandIcon(OpenAI),
+  "chatgpt-web": brandIcon(OpenAI),
   opencode: brandIcon(OpenCode),
   "opencode-go": brandIcon(OpenCode),
   "opencode-zen": brandIcon(OpenCode),

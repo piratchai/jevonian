@@ -64,6 +64,9 @@ var DefaultSources = []config.OAuthSource{
 
 // SyncsByDefault mirrors providerSyncsByDefault in src/config.ts.
 func SyncsByDefault(p config.Provider) bool {
+	if p.Type == config.ProviderTypeChatGPTWeb {
+		return true
+	}
 	for _, s := range DefaultSources {
 		if p.OAuthSource == s {
 			return true
