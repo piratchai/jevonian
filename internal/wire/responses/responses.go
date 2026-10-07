@@ -606,9 +606,8 @@ func ChatToResponses(body wire.Body, model string) wire.Body {
 	if v, present := body["tool_choice"]; present {
 		out["tool_choice"] = v
 	}
-	if v, ok := body["temperature"]; ok && wire.IsNumber(v) {
-		out["temperature"] = v
-	}
+	// Responses models that use reasoning do not accept sampling controls.
+	// Do not forward Chat Completions' temperature into the Responses API.
 	if v, ok := body["top_p"]; ok && wire.IsNumber(v) {
 		out["top_p"] = v
 	}
