@@ -201,6 +201,21 @@ OpenCode v2 reads providers from `~/.config/opencode/opencode.json`. Create a ke
           "name": "Jevonian Plan",
           "package": "@opencode/ai/providers/openai-compatible",
           "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
+        },
+        "execute": {
+          "name": "Jevonian Execute",
+          "package": "@opencode/ai/providers/openai-compatible",
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
+        },
+        "utility": {
+          "name": "Jevonian Utility",
+          "package": "@opencode/ai/providers/openai-compatible",
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
+        },
+        "chat": {
+          "name": "Jevonian Chat",
+          "package": "@opencode/ai/providers/openai-compatible",
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
         }
       }
     }
