@@ -1,6 +1,7 @@
 const NAME_OVERRIDES: Record<string, string> = {
   deepseek: "DeepSeek",
   openai: "OpenAI",
+  "openai-decisions": "OpenAI Decisions",
   openrouter: "OpenRouter",
   anthropic: "Anthropic",
   moonshotai: "Moonshot",
