@@ -189,13 +189,8 @@ func (h *Handler) providers(w http.ResponseWriter, r *http.Request) {
 			}
 			signed = result.Email
 		}
-		if p.Auth == config.AuthOAuth && p.OAuthSource == config.OAuthWorkbuddyAI && !workbuddy.HasCredential(p.Login) {
-			result, err := h.deps.Workbuddy.SignIn(r.Context(), workbuddy.EndpointFromBaseURL(p.BaseURL), p.Login)
-			if err != nil {
-				return nil, 400, fmt.Errorf("WorkBuddy AI sign-in failed: %w", err)
-			}
-			signed = result.User
-		}
+		// Saving a provider must not launch a browser. This request only persists
+		// provider settings; the user can start sign-in from the dedicated action.
 		if len(p.Models) == 0 {
 			probe := p
 			probe.APIKey = key
@@ -415,16 +410,8 @@ func (h *Handler) discoverAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ids, err := h.discover(r.Context(), p)
 	out := map[string]any{"models": sortedIDs(ids)}
-	if err != nil && p.OAuthSource == config.OAuthWorkbuddyAI && !workbuddy.HasCredential(p.Login) {
-		signed, signErr := h.deps.Workbuddy.SignIn(r.Context(), workbuddy.EndpointFromBaseURL(p.BaseURL), p.Login)
-		if signErr == nil {
-			out["signedInAs"] = signed.User
-			ids, err = h.discover(r.Context(), p)
-			out["models"] = sortedIDs(ids)
-		} else {
-			err = signErr
-		}
-	}
+	// Discovery errors can mean quota exhaustion or a network problem. Never
+	// start an interactive browser sign-in as a side effect of discovery.
 	if err != nil {
 		out["error"] = err.Error()
 	}
