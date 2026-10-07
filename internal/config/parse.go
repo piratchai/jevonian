@@ -13,6 +13,19 @@ var routingIDRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 const maxPromptPatternLength = 500
 
+// envPort is JEVONIAN_PORT when it holds a positive integer, else 0
+// (src/config.ts: Number.isInteger(envPort) && envPort > 0).
+func envPort() int {
+	raw := strings.TrimSpace(os.Getenv("JEVONIAN_PORT"))
+	if raw == "" {
+		return 0
+	}
+	if p, err := strconv.Atoi(raw); err == nil && p > 0 {
+		return p
+	}
+	return 0
+}
+
 // ParseConfig builds a Config from a decoded JSON object (map[string]any or nil).
 // Missing sections fall back to the same defaults as src/config.ts parseConfig.
 func ParseConfig(raw any) (Config, error) {
@@ -28,10 +41,8 @@ func ParseConfig(raw any) (Config, error) {
 	if p, ok := asInt(listen["port"]); ok && p > 0 {
 		port = p
 	}
-	if envPort := strings.TrimSpace(os.Getenv("JEVONIAN_PORT")); envPort != "" {
-		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
-			port = p
-		}
+	if p := envPort(); p > 0 {
+		port = p
 	}
 
 	var providers []Provider
