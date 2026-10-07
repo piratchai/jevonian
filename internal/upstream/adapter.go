@@ -535,8 +535,12 @@ func applyClaudeCodeSystem(in wire.Body) wire.Body {
 	default:
 		next["system"] = []any{prompt(true)}
 	}
+	// Anthropic accepts context_management only together with its beta header. This
+	// wire sends just oauth-2025-04-20, so a field a client set (Claude Code sends one
+	// for Sonnet and Opus) fails with 400 "context_management: Extra inputs are not
+	// permitted". Drop it for every model, not only the legacy ones below.
+	delete(next, "context_management")
 	if !anthropicwire.ThinkingSupportFor(next["model"]).Adaptive {
-		delete(next, "context_management")
 		delete(next, "output_config")
 		if wire.AsRecord(next["thinking"])["type"] == "adaptive" {
 			delete(next, "thinking")
