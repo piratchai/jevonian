@@ -78,6 +78,13 @@ type LogRanger interface {
 type LogBucket struct {
 	Requests, Errors   int64
 	CostUSD, LatencyMS float64
+	// CacheReadTokens and PromptTokens sum the bucket's input accounting, so the
+	// caller can report the window's cache coverage without a second query.
+	CacheReadTokens, PromptTokens int64
+	// UncachedInputTokens is the cache-miss half of the denominator. It applies
+	// each row's usage convention: prompt_tokens alone for exclusive-input rows,
+	// prompt_tokens minus cache_read_tokens for inclusive rows.
+	UncachedInputTokens int64
 }
 type LogSeriesQuerier interface {
 	QueryLogSeries(context.Context, LogFilter, time.Time, time.Time, int) ([]LogBucket, error)

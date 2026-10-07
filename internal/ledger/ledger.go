@@ -69,6 +69,13 @@ type Record struct {
 	Cache        json.RawMessage // cache-affinity estimate
 	CacheKeep    string          // why the conversation stayed or moved
 	BrainChannel string          // brain channel that chose the route
+
+	// ExclusiveInput records the usage convention the serving wire used. When
+	// true, PromptTokens already excludes CacheReadTokens (Anthropic Messages,
+	// Connect-RPC hosts); when false, PromptTokens includes them (OpenAI,
+	// Responses). It is *bool so pre-existing rows stay NULL, and readers keep
+	// the historical "prompt is uncached" reading for them.
+	ExclusiveInput *bool
 }
 
 // SpendTotal is a windowed (or all-time) money rollup.
@@ -164,6 +171,14 @@ func Open(path string) (*DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ledger: schema: %w", err)
 	}
+	// exclusive_input is written by the plain Append path too, so it must exist
+	// even before ExtendSchema runs. Add it only when the table lacks it.
+	if !tableHasColumn(db, "records", "exclusive_input") {
+		if _, err := db.Exec(`ALTER TABLE records ADD COLUMN exclusive_input INTEGER`); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("ledger: add exclusive_input: %w", err)
+		}
+	}
 	read, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		_ = db.Close()
@@ -194,19 +209,20 @@ func (d *DB) Append(record Record) error {
 	if d.extended {
 		return d.appendExtended(record, ts)
 	}
+	// Open guarantees exclusive_input exists, so Append can always write it.
 	_, err := d.db.Exec(`
 INSERT INTO records (
 	id, request_id, ts_ms, ts, session, path, provider, model, stream, status, latency_ms,
 	prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
 	cost_usd, pricing_known, kind, billing, requested_model, phase, routed, reason,
 	brain, confidence, canonical, effort, effort_note, saved_tokens, retries, failovers,
-	ttft_ms, error, key_id, key_name, switch_penalty_usd
+	ttft_ms, error, key_id, key_name, switch_penalty_usd, exclusive_input
 ) VALUES (
 	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?,
-	?, ?, ?, ?, ?
+	?, ?, ?, ?, ?, ?
 )`,
 		record.ID,
 		record.RequestID,
@@ -244,6 +260,7 @@ INSERT INTO records (
 		record.KeyID,
 		record.KeyName,
 		nullFloat(record.SwitchPenaltyUSD),
+		nullBool(record.ExclusiveInput),
 	)
 	if err != nil {
 		return fmt.Errorf("ledger: append: %w", err)
@@ -340,6 +357,26 @@ func (d *DB) querySpend(query string, args ...any) (SpendTotal, error) {
 		APIUsd:          api,
 		Requests:        requests,
 	}, nil
+}
+
+// tableHasColumn reports whether a table carries a column, using the live schema.
+// The table name is a code constant, never user input.
+func tableHasColumn(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(fmt.Sprintf("SELECT name FROM pragma_table_info('%s')", table))
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
 }
 
 func boolToInt(v bool) int {

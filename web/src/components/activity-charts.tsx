@@ -392,7 +392,14 @@ export function RequestsChart({
   title = "Requests over time",
   description = "Volume and error count across all models",
   compact = false,
-}: ChartBaseProps & { title?: string; description?: string; compact?: boolean }) {
+  coverage,
+}: ChartBaseProps & {
+  title?: string;
+  description?: string;
+  compact?: boolean;
+  /** Whole-window cache coverage, or null when the window has no accounting. */
+  coverage?: number | null;
+}) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const height = compact ? 112 : 180;
@@ -439,6 +446,17 @@ export function RequestsChart({
             <span className="flex items-center gap-1.5">
               <span className="size-2 rounded-sm bg-destructive" /> Errors
             </span>
+            {coverage !== null && coverage !== undefined ? (
+              <span
+                className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-0.5 font-mono"
+                title="Share of input tokens served from the prompt cache in this window"
+              >
+                <span className="font-sans">Cache</span>
+                <span className="font-medium text-foreground">
+                  {Math.round(coverage * 100)}%
+                </span>
+              </span>
+            ) : null}
           </div>
         )}
       </CardHeader>

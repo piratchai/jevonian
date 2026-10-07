@@ -34,6 +34,12 @@ import {
   type LogRecord,
   type LogSeries,
 } from "@/lib/api";
+import {
+  cacheCoverage,
+  cacheCoverageTitle,
+  cacheCoverageTone,
+  formatCacheCoverage,
+} from "@/lib/cache";
 import { cn, formatTime, money } from "@/lib/utils";
 
 const ROW_ESTIMATE_HEIGHT = 44;
@@ -226,8 +232,12 @@ export function LogsPage() {
     const window = series?.minutes ?? 60;
     const count = total !== null ? total : logs.length;
     const scope = filtered ? "matching the current filters" : "across the ledger";
-    return `Last ${window} minutes ${scope}. Primary bars are request volume; red marks intervals that include errors. ${count} ${count === 1 ? "record" : "records"} loaded.`;
-  }, [series?.minutes, total, logs.length, filtered]);
+    const coverage =
+      series?.cacheCoverage !== null && series?.cacheCoverage !== undefined
+        ? ` Cache covers ${Math.round(series.cacheCoverage * 100)}% of input tokens in this window.`
+        : "";
+    return `Last ${window} minutes ${scope}. Primary bars are request volume; red marks intervals that include errors.${coverage} ${count} ${count === 1 ? "record" : "records"} loaded.`;
+  }, [series?.minutes, series?.cacheCoverage, total, logs.length, filtered]);
 
   const selectRecord = useCallback((log: LogRecord) => {
     if (log.id) setSelectedId(log.id);
@@ -331,6 +341,7 @@ export function LogsPage() {
             series={requestSeries}
             title="Requests over time"
             description={chartDescription}
+            coverage={series?.cacheCoverage}
             compact
           />
         </div>
@@ -343,11 +354,14 @@ export function LogsPage() {
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
           <div className="grid shrink-0 grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
             <div className="col-span-1">Time</div>
-            <div className="col-span-3">Model</div>
+            <div className="col-span-2">Model</div>
             <div className="col-span-2">Provider</div>
             <div className="col-span-1">Phase</div>
             <div className="col-span-1">Effort</div>
             <div className="col-span-1">Status</div>
+            <div className="col-span-1" title="Share of input tokens served from the prompt cache">
+              Cache
+            </div>
             <div className="col-span-1">Cost</div>
             <div className="col-span-1">Latency</div>
             <div className="col-span-1 text-right">Details</div>
@@ -374,6 +388,7 @@ export function LogsPage() {
                   const isNew = newLogIds.has(key);
                   const isSelected = Boolean(log.id) && log.id === selectedId;
                   const failed = log.status >= 400;
+                  const coverage = cacheCoverage(log);
 
                   return (
                     <div
@@ -415,7 +430,7 @@ export function LogsPage() {
                         />
                         {formatTime(log.ts)}
                       </div>
-                      <div className="col-span-3 flex min-w-0 items-center gap-1.5 pr-2">
+                      <div className="col-span-2 flex min-w-0 items-center gap-1.5 pr-2">
                         <span className="truncate font-medium text-foreground">{log.model}</span>
                         {log.billing === "subscription" ? (
                           <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
@@ -481,6 +496,38 @@ export function LogsPage() {
                           </span>
                         ) : null}
                       </div>
+                      <div className="col-span-1 flex min-w-0 items-center gap-1.5">
+                        {coverage === null ? (
+                          <span className="text-muted-foreground" title={cacheCoverageTitle(log)}>
+                            —
+                          </span>
+                        ) : (
+                          <>
+                            <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-muted">
+                              <span
+                                className={cn(
+                                  "block h-full rounded-full",
+                                  coverage >= 0.5
+                                    ? "bg-emerald-500"
+                                    : coverage >= 0.1
+                                      ? "bg-amber-500"
+                                      : "bg-muted-foreground/40",
+                                )}
+                                style={{ width: `${Math.min(100, coverage * 100)}%` }}
+                              />
+                            </span>
+                            <span
+                              className={cn(
+                                "font-mono tabular-nums",
+                                cacheCoverageTone(coverage),
+                              )}
+                              title={cacheCoverageTitle(log)}
+                            >
+                              {formatCacheCoverage(coverage)}
+                            </span>
+                          </>
+                        )}
+                      </div>
                       <div className="col-span-1 font-mono text-muted-foreground">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
@@ -515,9 +562,9 @@ export function LogsPage() {
                 {Array.from({ length: 3 }, (_, index) => (
                   <div key={index} className="grid grid-cols-12 items-center gap-2 py-1.5">
                     <Skeleton className="col-span-1 h-3 w-10" />
-                    <Skeleton className="col-span-3 h-3 w-[80%]" />
+                    <Skeleton className="col-span-2 h-3 w-[80%]" />
                     <Skeleton className="col-span-2 h-3 w-16" />
-                    <Skeleton className="col-span-6 h-3 w-full" />
+                    <Skeleton className="col-span-7 h-3 w-full" />
                   </div>
                 ))}
               </div>

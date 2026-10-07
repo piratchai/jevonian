@@ -77,7 +77,7 @@ func decodeLogRows(rows *sql.Rows) ([]LogRecord, error) {
 }
 
 func decodeLogRow(rows *sql.Rows, columns []string) (LogRecord, error) {
-	names := map[string]string{"request_id": "requestId", "latency_ms": "latencyMs", "prompt_tokens": "promptTokens", "completion_tokens": "completionTokens", "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "cost_usd": "costUsd", "pricing_known": "pricingKnown", "requested_model": "requestedModel", "effort_note": "effortNote", "saved_tokens": "savedTokens", "ttft_ms": "ttftMs", "key_id": "keyId", "key_name": "keyName", "switch_penalty_usd": "switchPenaltyUsd", "brain_channel": "brainChannel", "cache_keep": "cacheKeep"}
+	names := map[string]string{"request_id": "requestId", "latency_ms": "latencyMs", "prompt_tokens": "promptTokens", "completion_tokens": "completionTokens", "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "cost_usd": "costUsd", "pricing_known": "pricingKnown", "requested_model": "requestedModel", "effort_note": "effortNote", "saved_tokens": "savedTokens", "ttft_ms": "ttftMs", "key_id": "keyId", "key_name": "keyName", "switch_penalty_usd": "switchPenaltyUsd", "brain_channel": "brainChannel", "cache_keep": "cacheKeep", "exclusive_input": "exclusiveInput"}
 	required := map[string]bool{"id": true, "ts": true, "session": true, "path": true, "provider": true, "model": true, "stream": true, "status": true, "latencyMs": true, "promptTokens": true, "completionTokens": true, "cacheReadTokens": true, "cacheWriteTokens": true, "costUsd": true, "pricingKnown": true}
 	v := make([]any, len(columns))
 	ptr := make([]any, len(columns))
@@ -106,7 +106,7 @@ func decodeLogRow(rows *sql.Rows, columns []string) (LogRecord, error) {
 		if x == "" && !required[key] {
 			continue
 		}
-		if key == "stream" || key == "pricingKnown" || key == "routed" {
+		if key == "stream" || key == "pricingKnown" || key == "routed" || key == "exclusiveInput" {
 			x = number(x) != 0
 		}
 		if key == "tries" || key == "skipped" || key == "cache" {

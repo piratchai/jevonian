@@ -257,9 +257,10 @@ export function LogsTableSkeleton({ rows = 10 }: { rows?: number }) {
           className="grid grid-cols-12 items-center gap-2 border-b border-border/40 px-4 py-2.5"
         >
           <Skeleton className="col-span-1 h-3 w-12" />
-          <Skeleton className="col-span-3 h-3 w-full max-w-[90%]" />
+          <Skeleton className="col-span-2 h-3 w-full max-w-[90%]" />
           <Skeleton className="col-span-2 h-3 w-20" />
           <Skeleton className="col-span-1 h-3 w-12" />
+          <Skeleton className="col-span-1 h-3 w-10" />
           <Skeleton className="col-span-1 h-3 w-10" />
           <Skeleton className="col-span-1 h-3 w-10" />
           <Skeleton className="col-span-1 h-3 w-12" />
