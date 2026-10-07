@@ -167,6 +167,16 @@ jevonian launch claude
 jevonian launch claude --model jevonian/auto -- -p "summarize this repo"
 ```
 
+**With only a Claude login and no routing brain.** `launch claude` starts on `jevonian/auto`, and `auto` needs a [routing brain](docs/brain.md). Without one, the router answers HTTP 400 ("No Jev brain is configured"), and Claude Code only prints an `unrecognized_model` warning. Start from an explicit route instead:
+
+```bash
+jevonian add claude-subscription        # do not run `jevonian init` first: its example config adds a DeepSeek provider
+jevonian serve
+jevonian launch claude --model jevonian/execute
+```
+
+`jevonian/execute` serves the Opus, Sonnet and subagent slots, and `jevonian/utility` serves the Haiku slot. The routes that `add` picks are the strongest Claude models for every task (for example Fable for utility and chat). To spend less, set Plan to Opus, Execute to Sonnet, and Utility and Chat to Haiku under **Models & Routing**. Claude plans cost the same at every hour, so the **Schedule** card is hidden when every provider is a Claude login.
+
 ### ChatGPT / Codex
 
 **Connect ChatGPT** on the **Clients** page writes `~/.codex/config.toml` (`openai_base_url` plus an injected model catalog) and points the Codex desktop app at the loopback endpoint. An existing `auth.json` login is never overwritten.
@@ -218,6 +228,24 @@ PI Agent reads `~/.pi/agent/models.json` (or the folder in `PI_CODING_AGENT_DIR`
 ```
 
 Then run `pi --provider jevonian --model jevonian/auto`.
+
+### One instance per client
+
+By default every client shares the one Jevonian on port 8787. To give a client its own port, ledger and keys, run another instance with its own config file and data folder:
+
+```bat
+:: Windows (cmd). On macOS and Linux use export instead of set.
+set JEVONIAN_CONFIG=%USERPROFILE%\.config\jevonian\config-pi.json
+set JEVONIAN_DATA_DIR=%USERPROFILE%\.local\share\jevonian-pi
+set JEVONIAN_PORT=8788
+jevonian serve
+```
+
+- The port is `listen.port` in that config file. `JEVONIAN_PORT` overrides it for the process, also when the config file does not exist yet. A command that rewrites the config (for example `jevonian add`) saves the port that is in effect, so the port you set while you run it is kept.
+- `jevonian launch claude` reads the same config and variables, so set the same ones when you launch.
+- The ledger, the logs and the Jevonian keys (`keys.json`) live in the data folder, so each instance has its own. Create one key per instance on its **Keys** page.
+- Provider keys in `credentials.json` are shared by every instance, unless `JEVONIAN_CREDENTIALS` points somewhere else.
+- Point each client's `baseURL` at the port of its own instance: `http://127.0.0.1:8788/v1` in the PI Agent example above.
 
 ### Anything else
 

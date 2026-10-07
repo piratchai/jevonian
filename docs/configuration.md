@@ -181,6 +181,7 @@ touches messages that already carry tool output, so a fresh first turn is sent b
 | Variable                        | Overrides                                                                         |
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | `JEVONIAN_CONFIG`               | config path                                                                       |
+| `JEVONIAN_PORT`                 | listen port; overrides `listen.port`, also when there is no config file yet       |
 | `JEVONIAN_CREDENTIALS`          | credentials path                                                                  |
 | `JEVONIAN_DATA_DIR`             | data directory (ledger, catalog, pricing, quota)                                  |
 | `JEVONIAN_LEDGER`               | ledger path                                                                       |
