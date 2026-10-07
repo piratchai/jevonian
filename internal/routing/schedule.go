@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"sort"
 	"time"
 
 	"github.com/xinyao27/jevonian/internal/config"
@@ -62,12 +63,22 @@ func ActiveWindow(schedule *config.ScheduleConfig, at time.Time) *config.Schedul
 	return nil
 }
 
-// nextBoundary is the first start or end time of any window after at.
+// sameWindow reports whether two ActiveWindow results are the same window (or both none).
+func sameWindow(a, b *config.ScheduleWindow) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.ID == b.ID
+}
+
+// nextBoundary is the first start or end time after at where the applicable window
+// changes. A boundary of a window that the first-match rule hides behind an earlier
+// one (a lunch window inside a work window) changes nothing, so it is skipped.
+// It returns false when the applicable window never changes.
 func nextBoundary(schedule *config.ScheduleConfig, at time.Time) (time.Time, bool) {
 	loc := scheduleLocation(schedule)
 	local := at.In(loc)
-	var best time.Time
-	found := false
+	var candidates []time.Time
 	for day := 0; day <= 2; day++ {
 		for _, window := range schedule.Windows {
 			for _, clock := range []string{window.Start, window.End} {
@@ -76,13 +87,20 @@ func nextBoundary(schedule *config.ScheduleConfig, at time.Time) (time.Time, boo
 					continue
 				}
 				candidate := time.Date(local.Year(), local.Month(), local.Day()+day, minutes/60, minutes%60, 0, 0, loc)
-				if candidate.After(at) && (!found || candidate.Before(best)) {
-					best, found = candidate, true
+				if candidate.After(at) {
+					candidates = append(candidates, candidate)
 				}
 			}
 		}
 	}
-	return best, found
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Before(candidates[j]) })
+	current := ActiveWindow(schedule, at)
+	for _, candidate := range candidates {
+		if !sameWindow(current, ActiveWindow(schedule, candidate)) {
+			return candidate, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // Status reports the window that applies at at. It returns nil when no schedule is set.

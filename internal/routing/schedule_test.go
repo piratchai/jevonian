@@ -84,6 +84,48 @@ func TestStatusReportsNextChange(t *testing.T) {
 	}
 }
 
+func TestStatusSkipsBoundariesThatDoNotChangeTheActiveWindow(t *testing.T) {
+	// lunch sits inside work and is listed after it, so first-match keeps work active at 12:00.
+	hidden := &config.ScheduleConfig{Timezone: "UTC", Windows: []config.ScheduleWindow{
+		{ID: "work", Start: "09:00", End: "17:00"},
+		{ID: "lunch", Start: "12:00", End: "13:00"},
+	}}
+	for at, want := range map[string][2]string{
+		"2026-10-07T08:00:00Z": {"2026-10-07T09:00:00Z", "work"}, // work starts
+		"2026-10-07T10:00:00Z": {"2026-10-07T17:00:00Z", ""},     // 12:00 and 13:00 change nothing
+		"2026-10-07T13:30:00Z": {"2026-10-07T17:00:00Z", ""},
+		"2026-10-07T17:30:00Z": {"2026-10-08T09:00:00Z", "work"}, // lunch never shows, so next is work
+	} {
+		st := Status(hidden, utc(at))
+		next, err := time.Parse(time.RFC3339, st.NextChange)
+		if err != nil || !next.Equal(utc(want[0])) || st.NextActive != want[1] {
+			t.Errorf("at %s: next change %q (next active %q), want %s (%q)", at, st.NextChange, st.NextActive, want[0], want[1])
+		}
+	}
+
+	// With lunch listed first it wins inside work, so both of its edges are real changes.
+	visible := &config.ScheduleConfig{Timezone: "UTC", Windows: []config.ScheduleWindow{
+		{ID: "lunch", Start: "12:00", End: "13:00"},
+		{ID: "work", Start: "09:00", End: "17:00"},
+	}}
+	st := Status(visible, utc("2026-10-07T10:00:00Z"))
+	if st.Active != "work" || st.NextChange != "2026-10-07T12:00:00Z" || st.NextActive != "lunch" {
+		t.Errorf("lunch listed first: %+v", st)
+	}
+	st = Status(visible, utc("2026-10-07T12:30:00Z"))
+	if st.Active != "lunch" || st.NextChange != "2026-10-07T13:00:00Z" || st.NextActive != "work" {
+		t.Errorf("inside lunch: %+v", st)
+	}
+
+	// Two windows with the same hours: the first one wins, and it is reported once.
+	same := &config.ScheduleConfig{Timezone: "UTC", Windows: []config.ScheduleWindow{
+		{ID: "a", Start: "00:00", End: "12:00"}, {ID: "b", Start: "00:00", End: "12:00"},
+	}}
+	if st := Status(same, utc("2026-10-07T13:00:00Z")); st.NextChange != "2026-10-08T00:00:00Z" || st.NextActive != "a" {
+		t.Errorf("duplicate windows: %+v", st)
+	}
+}
+
 func TestStatusAcrossADaylightSavingChange(t *testing.T) {
 	s := &config.ScheduleConfig{Timezone: "America/New_York", Windows: []config.ScheduleWindow{{ID: "night", Start: "22:00", End: "08:00"}}}
 	// 2026-11-01 05:30 UTC is 01:30 EDT, one hour before the clocks go back.
