@@ -354,6 +354,12 @@ func parseRouting(raw any) (RoutingConfig, error) {
 	if de, ok := value["defaultEffort"].(string); ok && reasoningEfforts[de] {
 		rc.DefaultEffort = de
 	}
+	schedule, err := parseSchedule(value["schedule"])
+	if err != nil {
+		return RoutingConfig{}, err
+	}
+	rc.Schedule = schedule
+	pruneWindows(rc.Routings, schedule)
 	return rc, nil
 }
 
@@ -433,6 +439,9 @@ func parseRoutingEntry(raw any, index int) (RoutingEntry, error) {
 	}
 	if effort, ok := value["effort"].(string); ok && reasoningEfforts[effort] {
 		entry.Effort = effort
+	}
+	if windows := parseRoutingWindows(value["windows"]); windows != nil {
+		entry.Windows = windows
 	}
 	return entry, nil
 }
