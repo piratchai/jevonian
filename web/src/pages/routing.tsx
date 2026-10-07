@@ -19,7 +19,7 @@ import { ArrowDown, ArrowUp, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { RoutingSkeleton } from "@/components/page-skeletons";
-import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
@@ -866,12 +866,14 @@ export function RoutingPage({
                                     >
                                       {(provider) => (
                                         <div className="flex items-center justify-between gap-2 text-xs">
-                                          <span className="flex items-center gap-2">
-                                            <ProviderLogo id={provider} />
-                                            {providerDisplayName(provider)} ·{" "}
-                                            {stale.includes(provider)
-                                              ? "not available"
-                                              : (statuses.get(provider) ?? "quota unknown")}
+                                          <span className="flex min-w-0 items-center gap-2">
+                                            <ProviderIdentity provider={provider} size="size-4" />
+                                            <span className="shrink-0 text-muted-foreground">
+                                              ·{" "}
+                                              {stale.includes(provider)
+                                                ? "not available"
+                                                : (statuses.get(provider) ?? "quota unknown")}
+                                            </span>
                                           </span>
                                           <button
                                             type="button"

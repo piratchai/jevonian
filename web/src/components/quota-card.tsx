@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,6 @@ import type {
   QuotaHealthView,
   QuotaWindow,
 } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
 import { cn, formatTime, money } from "@/lib/utils";
 
 function usedLabel(usage: QuotaWindow): string {
@@ -140,8 +139,7 @@ export function ProviderQuotaCard({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">
-            <ProviderLogo id={quota.provider} />
-            {providerDisplayName(quota.provider)}
+            <ProviderIdentity provider={quota.provider} />
           </p>
           <p className="text-xs text-muted-foreground">
             {quota.billing === "subscription" ? "subscription" : "pay per token"}

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KeysHelp } from "@/components/keys-help";
 import { ProvidersSkeleton } from "@/components/page-skeletons";
 import { ProviderLogo } from "@/components/provider-logo";
+import { AccountChip, ProviderIdentity } from "@/components/provider-identity";
 import { QuotaGrid } from "@/components/quota-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ import {
   type StateResponse,
 } from "@/lib/api";
 import { assignProviderModels } from "@/lib/provider-assignment";
+import { resolveProviderIdentity } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
 const CUSTOM_PRESET: PresetView = {
@@ -290,6 +292,37 @@ export function ProvidersPage({
     [selected, discovered],
   );
 
+  /**
+   * Providers grouped by brand, so several accounts of one agent sit together and read as one
+   * product. Groups keep first-seen order; within a group the agent's own sign-in comes first,
+   * then second accounts by label, so the primary row is always on top.
+   */
+  const providerGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { brand: string; name: string; providers: ProviderView[] }
+    >();
+    for (const provider of state?.config.providers ?? []) {
+      const identity = resolveProviderIdentity(provider);
+      const group = groups.get(identity.brand) ?? {
+        brand: identity.brand,
+        name: identity.name,
+        providers: [],
+      };
+      group.providers.push(provider);
+      groups.set(identity.brand, group);
+    }
+    for (const group of groups.values()) {
+      group.providers.sort((a, b) => {
+        const aAccount = resolveProviderIdentity(a).account;
+        const bAccount = resolveProviderIdentity(b).account;
+        if (!aAccount !== !bAccount) return aAccount ? 1 : -1;
+        return (aAccount ?? "").localeCompare(bAccount ?? "") || a.name.localeCompare(b.name);
+      });
+    }
+    return [...groups.values()];
+  }, [state]);
+
   function resetForm(id = "deepseek") {
     applyPreset(allPresets.find((item) => item.id === id) ?? allPresets[0]);
   }
@@ -436,7 +469,7 @@ export function ProvidersPage({
             billing,
             quota: Object.keys(quota).length > 0 ? quota : undefined,
             models: selected,
-            syncModels: syncOverride,
+            syncModels: syncOverride ?? syncDefault,
             ...(noKey ? { noKey: true } : {}),
           });
       const providerName = savedProvider ?? name;
@@ -689,6 +722,61 @@ export function ProvidersPage({
     LOGIN_SOURCE_HINTS[oauthSource] ?? ({ name: "Claude Code", home: "~/.claude-work" } as const);
   const loginSourceName = loginHint.name;
 
+  /**
+   * The identity the second-account fields currently describe, for the live preview. Only built
+   * when a sign-in is actually named, so a blank fieldset stays quiet.
+   */
+  const loginIdentityPreview = useMemo(() => {
+    if (!loginSource) return null;
+    const hasAny = Boolean(
+      loginLabel.trim() || loginHome.trim() || loginFile.trim() || loginKeychain.trim(),
+    );
+    if (!hasAny) return null;
+    return {
+      name: name || loginHint.home || "account",
+      oauthSource,
+      type: effectiveType,
+      login: {
+        label: loginLabel.trim() || undefined,
+        home: loginHome.trim() || undefined,
+        credentialsPath: loginFile.trim() || undefined,
+        keychainService: loginKeychain.trim().split(":")[0]?.trim() || undefined,
+      },
+    };
+  }, [
+    loginSource,
+    loginLabel,
+    loginHome,
+    loginFile,
+    loginKeychain,
+    name,
+    oauthSource,
+    effectiveType,
+    loginHint.home,
+  ]);
+
+  /**
+   * A provider name that will not collide, derived from the account label: `claude-work` when
+   * the brand is Claude and the label is `work`. Falls back to appending a counter.
+   */
+  const suggestedSecondAccountName = useMemo(() => {
+    const brand =
+      resolveProviderIdentity({ name, oauthSource, type: effectiveType }).brand || name || "account";
+    // `claude-subscription` reads better as `claude` in a provider name.
+    const base = brand.replace(/-subscription$/, "");
+    const slug = loginLabel
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const candidate = slug ? `${base}-${slug}` : `${base}-account`;
+    const taken = new Set((state?.config.providers ?? []).map((provider) => provider.name));
+    if (!taken.has(candidate)) return candidate;
+    let index = 2;
+    while (taken.has(`${candidate}-${index}`)) index += 1;
+    return `${candidate}-${index}`;
+  }, [name, oauthSource, effectiveType, loginLabel, state]);
+
   /** Assemble the `login` payload; `null` clears an existing one, `undefined` sends nothing. */
   function loginPayload(): ProviderLoginView | null | undefined {
     const label = loginLabel.trim();
@@ -829,84 +917,112 @@ export function ProvidersPage({
             </Button>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>provider</TableHead>
-                  <TableHead>protocol</TableHead>
-                  <TableHead>billing</TableHead>
-                  <TableHead>credential</TableHead>
-                  <TableHead>models</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(state?.config.providers ?? []).map((provider) => (
-                  <TableRow key={provider.name}>
-                    <TableCell>
-                      <span className="flex items-center gap-2 font-medium">
-                        <ProviderLogo id={provider.name} />
-                        <span className="flex flex-col">
-                          <span>{provider.name}</span>
-                          <span className="max-w-[280px] truncate text-[11px] font-normal text-muted-foreground">
-                            {provider.baseUrl}
-                          </span>
-                        </span>
+            {providerGroups.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No providers yet — choose Add provider to connect one.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {providerGroups.map((group) => (
+                  <div key={group.brand} className="flex flex-col">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <ProviderLogo id={group.brand} className="size-4" />
+                      <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                        {group.name}
                       </span>
-                    </TableCell>
-                    <TableCell>{provider.type}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={provider.billing === "subscription" ? "default" : "secondary"}
-                      >
-                        {provider.billing ?? "api"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={provider.keySource === "none" ? "destructive" : "secondary"}>
-                        {provider.keySource}
-                      </Badge>
-                      {provider.login ? (
-                        <span className="ml-1.5 text-[11px] text-muted-foreground">
-                          {provider.login.label ??
-                            provider.login.home ??
-                            provider.login.credentialsPath ??
-                            provider.login.keychainService ??
-                            "account"}
-                        </span>
+                      {group.providers.length > 1 ? (
+                        <Badge variant="outline" className="text-[10px] font-normal">
+                          {group.providers.length} accounts
+                        </Badge>
                       ) : null}
-                    </TableCell>
-                    <TableCell>{provider.models.length}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => edit(provider)}
-                        disabled={busy}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => void remove(provider.name)}
-                        disabled={busy}
-                      >
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>account</TableHead>
+                          <TableHead>protocol</TableHead>
+                          <TableHead>billing</TableHead>
+                          <TableHead>credential</TableHead>
+                          <TableHead>models</TableHead>
+                          <TableHead />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {group.providers.map((provider) => {
+                          const identity = resolveProviderIdentity(provider);
+                          return (
+                            <TableRow key={provider.name}>
+                              <TableCell>
+                                <span className="flex flex-col">
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    {identity.account ? (
+                                      <AccountChip
+                                        label={identity.account}
+                                        detail={identity.accountDetail}
+                                      />
+                                    ) : (
+                                      <Badge
+                                        variant="secondary"
+                                        className="px-1.5 py-0 text-[10px] font-normal"
+                                      >
+                                        default
+                                      </Badge>
+                                    )}
+                                    <span className="font-mono text-xs">{provider.name}</span>
+                                  </span>
+                                  <span className="max-w-[280px] truncate text-[11px] font-normal text-muted-foreground">
+                                    {provider.baseUrl}
+                                  </span>
+                                </span>
+                              </TableCell>
+                              <TableCell>{provider.type}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    provider.billing === "subscription" ? "default" : "secondary"
+                                  }
+                                >
+                                  {provider.billing ?? "api"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    provider.keySource === "none" ? "destructive" : "secondary"
+                                  }
+                                >
+                                  {provider.keySource}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{provider.models.length}</TableCell>
+                              <TableCell className="whitespace-nowrap text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => edit(provider)}
+                                  disabled={busy}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => void remove(provider.name)}
+                                  disabled={busy}
+                                >
+                                  Remove
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 ))}
-                {(state?.config.providers.length ?? 0) === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                      No providers yet — choose Add provider to connect one.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : null}
@@ -1119,19 +1235,22 @@ export function ProvidersPage({
                     }
                   />
                   {loginSource ? (
-                    <details className="rounded-md border border-dashed p-3">
+                    <details className="rounded-md border border-dashed p-3" open={Boolean(loginLabel || loginHome || loginFile || loginKeychain)}>
                       <summary className="cursor-pointer text-xs font-medium">
                         Second account (optional)
                       </summary>
-                      <div>
-                        <p className="text-xs font-medium">Second account (optional)</p>
+                      <div className="flex flex-col gap-1 pt-2">
+                        <p className="text-xs font-medium">
+                          Point this provider at another {loginSourceName} sign-in
+                        </p>
                         <p className="text-[11px] text-muted-foreground">
-                          Point this provider at another local {loginSourceName} sign-in — a work
-                          and a home account can each have their own quota, fallback place, and
-                          ledger. Blank reads the agent&apos;s own sign-in.
+                          A work and a home account can each have their own quota, fallback place,
+                          and ledger. Blank reads the agent&apos;s own sign-in. Sign in to that
+                          account once with the {loginSourceName} CLI first, then point Jevonian at
+                          where it stored the sign-in.
                         </p>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                      <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-4">
                         <div className="flex flex-col gap-1.5">
                           <Label htmlFor="loginLabel">Label</Label>
                           <Input
@@ -1140,6 +1259,9 @@ export function ProvidersPage({
                             value={loginLabel}
                             onChange={(event) => setLoginLabel(event.target.value)}
                           />
+                          <span className="text-[11px] text-muted-foreground">
+                            Shown beside the provider name.
+                          </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <Label htmlFor="loginHome">Config dir</Label>
@@ -1149,6 +1271,9 @@ export function ProvidersPage({
                             value={loginHome}
                             onChange={(event) => setLoginHome(event.target.value)}
                           />
+                          <span className="text-[11px] text-muted-foreground">
+                            Directory the agent keeps this sign-in in.
+                          </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <Label htmlFor="loginFile">Credential file</Label>
@@ -1158,6 +1283,9 @@ export function ProvidersPage({
                             value={loginFile}
                             onChange={(event) => setLoginFile(event.target.value)}
                           />
+                          <span className="text-[11px] text-muted-foreground">
+                            Wins over the config dir when both are set.
+                          </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
                           <Label htmlFor="loginKeychain">Keychain</Label>
@@ -1167,8 +1295,31 @@ export function ProvidersPage({
                             value={loginKeychain}
                             onChange={(event) => setLoginKeychain(event.target.value)}
                           />
+                          <span className="text-[11px] text-muted-foreground">
+                            macOS keychain item, as service[:account].
+                          </span>
                         </div>
                       </div>
+                      {loginIdentityPreview ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+                          <span className="text-[11px] text-muted-foreground">Reads as</span>
+                          <ProviderIdentity provider={loginIdentityPreview} showAccount />
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {suggestedSecondAccountName}
+                          </span>
+                          {name !== suggestedSecondAccountName ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="ml-auto h-6 px-2 text-[11px]"
+                              onClick={() => setName(suggestedSecondAccountName)}
+                            >
+                              Use this name
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </details>
                   ) : null}
                   <span className="text-[11px] text-muted-foreground">
@@ -1294,11 +1445,11 @@ export function ProvidersPage({
                     <span>
                       <span className="font-medium">Auto-sync new models</span>
                       <span className="block text-xs text-muted-foreground">
-                        Append ids this provider newly lists. On by default for Codex, Claude Code,
-                        Antigravity, Devin, Cursor, WorkBuddy AI, and presets that discover live
-                        (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code); off for other
-                        API/reseller catalogs until you enable it. Unchecking a model remembers the
-                        removal so sync does not bring it back.
+                        Append ids this provider newly lists. On by default for ChatGPT Web, Codex,
+                        Claude Code, Antigravity, Devin, Cursor, WorkBuddy AI, and presets that
+                        discover live (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code);
+                        off for other API/reseller catalogs until you enable it. Unchecking a model
+                        remembers the removal so sync does not bring it back.
                       </span>
                     </span>
                   </label>

@@ -72,6 +72,11 @@ export const PROVIDER_ICONS: Record<string, ComponentType<IconProps>> = {
   "workbuddy-ai-subscription": brandIcon(CodeBuddy),
   xai: brandIcon(XAI),
   zai: brandIcon(Zhipu),
+  // Brand tokens a second-account name can carry (`grok-work`, `glm-team`, `kimi-eu`).
+  grok: brandIcon(XAI),
+  glm: brandIcon(Zhipu),
+  kimi: brandIcon(Moonshot),
+  gemini: brandIcon(Google),
 };
 
 /** Raster fallbacks for brands Lobe does not ship yet. */

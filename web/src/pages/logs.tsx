@@ -18,7 +18,7 @@ import { StatusPills } from "@/components/logs/status-pills";
 import { useLogFacets } from "@/components/logs/use-log-facets";
 import { useMediaQuery } from "@/components/logs/use-media-query";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
-import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,7 +34,6 @@ import {
   type LogRecord,
   type LogSeries,
 } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
 import { cn, formatTime, money } from "@/lib/utils";
 
 const ROW_ESTIMATE_HEIGHT = 44;
@@ -425,10 +424,11 @@ export function LogsPage() {
                         ) : null}
                       </div>
                       <div className="col-span-2 flex min-w-0 items-center gap-1.5">
-                        <ProviderLogo id={log.provider} />
-                        <span className="truncate text-muted-foreground">
-                          {providerDisplayName(log.provider)}
-                        </span>
+                        <ProviderIdentity
+                          provider={log.provider}
+                          size="size-4"
+                          nameClassName="text-muted-foreground"
+                        />
                       </div>
                       <div className="col-span-1">
                         <Badge
