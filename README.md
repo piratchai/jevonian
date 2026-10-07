@@ -171,6 +171,54 @@ jevonian launch claude --model jevonian/auto -- -p "summarize this repo"
 
 **Connect ChatGPT** on the **Clients** page writes `~/.codex/config.toml` (`openai_base_url` plus an injected model catalog) and points the Codex desktop app at the loopback endpoint. An existing `auth.json` login is never overwritten.
 
+### OpenCode
+
+OpenCode v2 reads providers from `~/.config/opencode/opencode.json`. Create a key on the **Keys** page first. With a Jevonian key, the bare route names (`plan`, `execute`, `utility`, `chat`, `auto`) all route. Without one, only `auto` and `jevonian/*` names route; any other name is treated as a native OpenAI model.
+
+```json
+{
+  "providers": {
+    "jevonian": {
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://127.0.0.1:8787/v1", "apiKey": "sk-jev-…" },
+      "models": {
+        "auto": {
+          "name": "Jevonian Auto",
+          "package": "@opencode/ai/providers/openai-compatible",
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
+        },
+        "plan": {
+          "name": "Jevonian Plan",
+          "package": "@opencode/ai/providers/openai-compatible",
+          "capabilities": { "tools": true, "input": ["text"], "output": ["text"] }
+        }
+      }
+    }
+  }
+}
+```
+
+Then run `opencode run -m jevonian/auto "…"`.
+
+### PI Agent
+
+PI Agent reads `~/.pi/agent/models.json` (or the folder in `PI_CODING_AGENT_DIR`). Point an OpenAI-compatible provider at Jevonian and give it a Jevonian key:
+
+```json
+{
+  "providers": {
+    "jevonian": {
+      "baseUrl": "http://127.0.0.1:8787/v1",
+      "api": "openai-completions",
+      "apiKey": "$JEVONIAN_API_KEY",
+      "models": [{ "id": "jevonian/auto" }, { "id": "jevonian/plan" }, { "id": "jevonian/execute" }]
+    }
+  }
+}
+```
+
+Then run `pi --provider jevonian --model jevonian/auto`.
+
 ### Anything else
 
 Any client speaking OpenAI Chat Completions, Anthropic Messages, or OpenAI Responses can be configured by hand:
