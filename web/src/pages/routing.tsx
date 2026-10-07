@@ -46,7 +46,7 @@ import {
   type TokenSaverConfigView,
 } from "@/lib/api";
 import { providerDisplayName } from "@/lib/provider-name";
-import { pruneWindowLists, windowRange } from "@/lib/schedule";
+import { offersTimeBasedModels, pruneWindowLists, windowRange } from "@/lib/schedule";
 
 import {
   allowedProviders,
@@ -662,15 +662,17 @@ export function RoutingPage({
               Add task
             </Button>
           </div>
-          <ScheduleSection
-            routes={drafts}
-            schedule={schedule}
-            status={scheduleStatus}
-            derived={derived}
-            names={names}
-            disabled={busy || editingId !== null}
-            onSave={saveSchedule}
-          />
+          {schedule || offersTimeBasedModels(state?.config.providers ?? []) ? (
+            <ScheduleSection
+              routes={drafts}
+              schedule={schedule}
+              status={scheduleStatus}
+              derived={derived}
+              names={names}
+              disabled={busy || editingId !== null}
+              onSave={saveSchedule}
+            />
+          ) : null}
           <div className="divide-y rounded-lg border">
             {drafts.map((entry) => {
               const automatic = entry.models.length === 0;

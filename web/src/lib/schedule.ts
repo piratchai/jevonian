@@ -1,4 +1,5 @@
 import type {
+  ProviderView,
   RoutingEntryView,
   ScheduleStatusView,
   ScheduleView,
@@ -7,6 +8,15 @@ import type {
 
 /** The server accepts at most this many windows. */
 export const MAX_SCHEDULE_WINDOWS = 12;
+
+/**
+ * Claude plans cost the same at every hour, so there is nothing to schedule when every connected
+ * provider signs in with the Claude Code login. An empty Schedule card would only be noise there.
+ * Providers on other plans (an API key, or a token plan with an off-peak discount) keep the card.
+ */
+export function offersTimeBasedModels(providers: Pick<ProviderView, "oauthSource">[]): boolean {
+  return providers.length === 0 || providers.some((provider) => provider.oauthSource !== "claude-code");
+}
 
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
 
