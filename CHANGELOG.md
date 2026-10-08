@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.6] - 2026-10-08
+
+### Fixed
+
+- **Provider discovery across canonical model variants in routing UI.** Providers configured with namespaced model spellings (such as `deepseek/deepseek-v4.1-flash`) now appear in source options when routing the bare canonical model ID (`deepseek-v4.1-flash`), and vice versa.
+- **Provider source sheet model editing and card ordering.** Restored model editing within provider sheets and stabilized provider card ordering.
+
 ## [0.6.5] - 2026-10-08
 
 ### Added

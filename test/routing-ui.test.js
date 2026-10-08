@@ -72,4 +72,3 @@ test("collectProvidersByModel indexes canonical variants across different model 
   // Canonical ID sees both providers
   assert.deepEqual(map.get("deepseek-v4-1-flash"), ["deepseek", "commandcode2"]);
 });
-
