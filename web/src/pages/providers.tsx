@@ -285,8 +285,9 @@ export function ProvidersPage({
   );
 
   /**
-   * One card per connected source. Quota rows come first (they already carry usage), then any
-   * saved provider that has no quota yet — so a plain API key still shows with Edit / Remove.
+   * One card per connected source: quota rows plus saved providers that have no quota yet —
+   * so a plain API key still shows with Edit / Remove. Cards sort alphabetically by the brand
+   * label the card header renders, so order does not depend on fetch order.
    */
   const usageEntries = useMemo(() => {
     const providers = state?.config.providers ?? [];
@@ -304,6 +305,16 @@ export function ProvidersPage({
       seen.add(provider.name);
       names.push(provider.name);
     }
+    // Deterministic order: sort by the same brand label the card header renders
+    // (`ProviderIdentity`), then by provider name so two accounts of one brand stay stable.
+    const label = (entry: { provider?: ProviderView; name: string }) =>
+      resolveProviderIdentity(entry.provider ?? entry.name).name;
+    names.sort((a, b) => {
+      const byLabel = label({ name: a, provider: providerByName.get(a) }).localeCompare(
+        label({ name: b, provider: providerByName.get(b) }),
+      );
+      return byLabel !== 0 ? byLabel : a.localeCompare(b);
+    });
     return names.map((name) => ({
       name,
       quota: quotaByName.get(name),
@@ -635,7 +646,9 @@ export function ProvidersPage({
     setSelected(provider.models);
     setSyncOverride(typeof provider.syncModels === "boolean" ? provider.syncModels : null);
     setEditing(provider.name);
-    setStep(1);
+    // Open on the models step: the models section is the only editable list an existing
+    // source has, and step 1 settings stay reachable via Back.
+    setStep(2);
     setTasks([]);
     setConvertAuto(false);
     setSavedProvider(null);
@@ -962,6 +975,7 @@ export function ProvidersPage({
                 : step === 2
                   ? "Check connection and choose models"
                   : "Assign tasks and save"}
+              {editing && step === 1 ? " — settings keep their values" : ""}
             </SheetDescription>
           </SheetHeader>
           <div id="provider-form" className="flex flex-col gap-5 px-4 pb-4">
