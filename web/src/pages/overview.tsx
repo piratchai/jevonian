@@ -1,12 +1,15 @@
-import { ArrowUpRight, Gauge, Layers3, ShieldCheck } from "lucide-react";
+import { Gauge, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
+import {
+  OverviewDashboardGrid,
+  OverviewStatusStrip,
+} from "@/components/overview-dashboard";
 import { OverviewSkeleton } from "@/components/page-skeletons";
 import { QuotaGrid } from "@/components/quota-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import {
   api,
+  type ActivityReportView,
   type ProviderQuotaView,
   type QuotaHealthView,
   type StateResponse,
@@ -26,46 +30,22 @@ import {
   type LanResponse,
   type UpdateResponse,
 } from "@/lib/api";
-import { money, percent } from "@/lib/utils";
-
-function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-  return String(value);
-}
+import { money } from "@/lib/utils";
 import { ActivitySection } from "@/pages/activity";
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card className="flex min-h-36 min-w-0 flex-col justify-between">
-      <CardHeader className="gap-3">
-        <CardDescription className="text-[11px] font-medium tracking-[0.12em] uppercase">
-          {label}
-        </CardDescription>
-        <CardTitle className="break-all text-[clamp(1.2rem,2vw,1.85rem)] font-semibold tracking-[-0.04em] tabular-nums">
-          {value}
-        </CardTitle>
-      </CardHeader>
-      {hint ? (
-        <CardContent>
-          <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
-        </CardContent>
-      ) : null}
-    </Card>
-  );
-}
 
 function Panel({
   title,
   summary,
   children,
+  defaultOpen = false,
 }: {
   title: string;
   summary: string;
   children: ReactNode;
+  defaultOpen?: boolean;
 }) {
   return (
-    <details className="rounded-xl border bg-card p-5">
+    <details className="rounded-xl border bg-card p-5" open={defaultOpen || undefined}>
       <summary className="cursor-pointer text-sm font-semibold tracking-tight">
         {title} <span className="font-normal text-muted-foreground">· {summary}</span>
       </summary>
@@ -77,8 +57,13 @@ function Panel({
 type TunnelDraft = { provider: TunnelProviderView; command: string; url: string };
 
 export function OverviewPage() {
+  const { hash } = useLocation();
   const [state, setState] = useState<StateResponse | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [today, setToday] = useState<ActivityReportView | null>(null);
+  const [week, setWeek] = useState<ActivityReportView | null>(null);
+  const [month, setMonth] = useState<ActivityReportView | null>(null);
+  const [history, setHistory] = useState<ActivityReportView | null>(null);
   const [quotas, setQuotas] = useState<ProviderQuotaView[]>([]);
   const [health, setHealth] = useState<QuotaHealthView[]>([]);
   const [tunnel, setTunnel] = useState<TunnelStatusView | null>(null);
@@ -100,11 +85,16 @@ export function OverviewPage() {
   const draftDirty = useRef(false);
   const [draftUnsaved, setDraftUnsaved] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadCore = useCallback(async () => {
     try {
-      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate, nextLan] = await Promise.all(
-        [api.state(), api.stats(), api.quota(), api.tunnel(), api.update(), api.lan()],
-      );
+      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate, nextLan] = await Promise.all([
+        api.state(),
+        api.stats(),
+        api.quota(),
+        api.tunnel(),
+        api.update(),
+        api.lan(),
+      ]);
       setState(nextState);
       setStats(nextStats);
       setQuotas(nextQuotas.quotas);
@@ -122,11 +112,36 @@ export function OverviewPage() {
     }
   }, []);
 
+  const loadActivity = useCallback(async () => {
+    try {
+      const [nextToday, nextWeek, nextMonth, nextHistory] = await Promise.all([
+        api.activity({ range: "today" }),
+        api.activity({ range: "7d" }),
+        api.activity({ range: "30d" }),
+        api.activity({ range: "all" }),
+      ]);
+      setToday(nextToday);
+      setWeek(nextWeek);
+      setMonth(nextMonth);
+      setHistory(nextHistory);
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadCore(), loadActivity()]);
+  }, [loadCore, loadActivity]);
+
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 10_000);
-    return () => clearInterval(timer);
-  }, [load]);
+    const coreTimer = setInterval(() => void loadCore(), 10_000);
+    const activityTimer = setInterval(() => void loadActivity(), 30_000);
+    return () => {
+      clearInterval(coreTimer);
+      clearInterval(activityTimer);
+    };
+  }, [load, loadCore, loadActivity]);
 
   function currentDraft(): TunnelDraft {
     return { provider: tunnelProvider, command: tunnelCommand, url: tunnelUrl };
@@ -213,275 +228,178 @@ export function OverviewPage() {
   }
 
   if (error) return <p className="text-sm text-destructive">{error}</p>;
-  if (!state || !stats) return <OverviewSkeleton />;
+  if (!state || !stats || !today || !week || !month || !history) return <OverviewSkeleton />;
 
   const localUrl = `http://${state.config.listen.host}:${state.config.listen.port}/v1`;
   const publicUrl = tunnel?.status === "on" && tunnel.url ? `${tunnel.url}/v1` : undefined;
   const authed = state.keys.length > 0;
+  const firstKey = state.keys[0];
+  const apiKeyHint = firstKey ? `${firstKey.prefix}••••` : "";
   const curl = (base: string) =>
     `curl ${base}/chat/completions \\
   -H "authorization: Bearer <key>" \\
   -H "content-type: application/json" \\
   -d '{"model":"jevonian/auto","messages":[{"role":"user","content":"hi"}]}'`;
 
-  const apiSpendHint =
-    stats.apiUsd > 0
-      ? `pay-per-token estimate · ${money(stats.apiUsd)} api${
-          stats.brainUsd > 0
-            ? ` (${money(stats.brainUsd)} brain · ${stats.brainRequests} calls)`
-            : ""
-        }`
-      : "no pay-per-token calls logged yet";
+  const nowLabel = new Date().toLocaleString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
   return (
-    <div className="flex flex-col gap-8">
-      <section className="relative overflow-hidden rounded-2xl border bg-card px-6 py-8 sm:px-10 sm:py-10">
-        <div className="pointer-events-none absolute -top-28 -right-20 size-72 rounded-full border border-border" />
-        <div className="pointer-events-none absolute -top-12 -right-4 size-48 rounded-full border border-border" />
-        <div className="relative max-w-2xl">
-          <p className="mb-4 flex items-center gap-2 text-[11px] font-semibold tracking-[0.18em] text-primary uppercase">
-            <span className="size-1.5 rounded-full bg-primary" />
-            Your local model router
-          </p>
-          <h1 className="text-3xl font-semibold tracking-[-0.045em] text-foreground sm:text-4xl">
-            The right model for every turn.
-          </h1>
-          <p className="mt-3 max-w-xl text-sm leading-7 text-muted-foreground">
-            One endpoint for your agents. See how each request was routed, where it ran, and what it
-            cost — without switching models by hand.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-2">
-            <Button size="sm" render={<Link to="/models#task-routes" />}>
-              <Layers3 className="size-3.5" /> Explore routing <ArrowUpRight className="size-3.5" />
-            </Button>
-            <Button variant="outline" size="sm" render={<Link to="/logs" />}>
-              View request logs
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <div className="flex items-end justify-between gap-4">
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-4">
         <div>
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-primary uppercase">
-            At a glance
-          </p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight">Your workspace</h2>
+          <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-[1.75rem]">
+            Welcome back
+          </h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">{nowLabel}</p>
         </div>
-        <span className="hidden text-xs text-muted-foreground sm:block">
-          Local ledger · all time
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        <Stat label="Requests" value={String(stats.requests)} hint={`${stats.sessions} sessions`} />
-        <Stat label="Spend · API estimate" value={money(stats.apiUsd)} hint={apiSpendHint} />
-        <Stat
-          label="Spend · subscription value"
-          value={money(stats.subscriptionUsd)}
-          hint={
-            stats.subscriptionRequests > 0
-              ? `${stats.subscriptionRequests} calls on subscription plans · equivalent pay-per-token value, not billed`
-              : "no subscription calls logged yet"
-          }
+        <OverviewStatusStrip
+          running
+          routingMode={state.config.routing.mode}
+          localUrl={localUrl}
+          apiKeyHint={apiKeyHint}
+          copied={copied}
+          onCopyUrl={(value, id) => void copy(value, id)}
         />
-        <Stat
-          label="Cached input"
-          value={percent(stats.cacheHitRate)}
-          hint="share of prompt tokens served from cache"
-        />
-        {stats.savedTokens > 0 ? (
-          <Stat
-            label="Tokens saved"
-            value={formatTokens(stats.savedTokens)}
-            hint="estimated prompt tokens the tool-result saver removed"
-          />
-        ) : null}
-      </div>
+      </header>
 
-      <ActivitySection />
+      <OverviewDashboardGrid
+        today={today}
+        week={week}
+        month={month}
+        history={history}
+        cacheHitRate={stats.cacheHitRate}
+      />
 
-      <div className="flex items-center gap-2">
+      <details className="rounded-xl border bg-card p-5" open={hash === "#activity" || undefined}>
+        <summary className="cursor-pointer text-sm font-semibold tracking-tight">
+          Activity detail{" "}
+          <span className="font-normal text-muted-foreground">
+            · filters, tables, and full charts
+          </span>
+        </summary>
+        <div className="mt-4">
+          <ActivitySection />
+        </div>
+      </details>
+
+      <div className="flex items-center gap-2 pt-2">
         <ShieldCheck className="size-4 text-primary" />
-        <h2 className="text-xl font-semibold tracking-tight">Connect your agents</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Connect &amp; maintain</h2>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Agent endpoints</CardTitle>
-          <CardDescription>
-            {authed
-              ? "Both endpoints speak OpenAI and Anthropic protocols; every request needs a Jevonian key."
-              : "OpenAI- and Anthropic-compatible. No keys exist yet, so requests are accepted without authentication — create one on the Keys page."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">local</Badge>
-              <span className="text-xs text-muted-foreground">
-                on this machine — no tunnel, nothing published
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="rounded-md bg-muted px-3 py-2 text-sm">{localUrl}</code>
-              <Button variant="outline" size="sm" onClick={() => void copy(localUrl, "local")}>
-                {copied === "local" ? "Copied" : "Copy"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Agents running locally (Cursor, CLI) can use this URL directly. It is not reachable
-              from other machines.
-            </p>
-            <details>
-              <summary className="cursor-pointer text-xs text-muted-foreground">
-                curl example
-              </summary>
-              <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">
-                {curl(localUrl)}
-              </pre>
-            </details>
-          </div>
+      <p className="-mt-3 text-sm text-muted-foreground">
+        Endpoints, provider limits, tunnel, LAN, and updates. Open a section when you need it.
+      </p>
 
-          <div className="flex flex-col gap-2 border-t pt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={publicUrl ? "default" : "outline"}>
-                public{publicUrl ? "" : " · off"}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {publicUrl
-                  ? `tunneled via ${tunnel?.provider} — kept across restarts until you stop it`
-                  : "explicit opt-in: nobody can reach this machine until you start a tunnel"}
-              </span>
-            </div>
+      <Panel
+        title="Agent endpoints"
+        summary={publicUrl ? "local + public" : "local only"}
+      >
+        <p className="text-xs text-muted-foreground">
+          {authed
+            ? "Both endpoints speak OpenAI and Anthropic protocols; every request needs a Jevonian key."
+            : "OpenAI- and Anthropic-compatible. No keys exist yet, so requests are accepted without authentication — create one on the Keys page."}
+        </p>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">local</Badge>
+            <code className="rounded-md bg-muted px-3 py-2 text-sm">{localUrl}</code>
+            <Button variant="outline" size="sm" onClick={() => void copy(localUrl, "local-ops")}>
+              {copied === "local-ops" ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <details>
+            <summary className="cursor-pointer text-xs text-muted-foreground">curl example</summary>
+            <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">{curl(localUrl)}</pre>
+          </details>
+        </div>
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={publicUrl ? "default" : "outline"}>
+              public{publicUrl ? "" : " · off"}
+            </Badge>
             {publicUrl ? (
               <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className="rounded-md bg-muted px-3 py-2 text-sm">{publicUrl}</code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copy(publicUrl, "public")}
-                  >
-                    {copied === "public" ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Only <code>/v1</code> is exposed and every request must carry a Jevonian API key.
-                  {tunnel?.startedAt
-                    ? ` Up since ${new Date(tunnel.startedAt).toLocaleTimeString()}.`
-                    : ""}
-                </p>
-                <details>
-                  <summary className="cursor-pointer text-xs text-muted-foreground">
-                    curl example
-                  </summary>
-                  <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">
-                    {curl(publicUrl)}
-                  </pre>
-                </details>
+                <code className="rounded-md bg-muted px-3 py-2 text-sm">{publicUrl}</code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copy(publicUrl, "public")}
+                >
+                  {copied === "public" ? "Copied" : "Copy"}
+                </Button>
               </>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Start a tunnel under “Public tunnel” below to get a public URL. Until then the local
-                URL above is the only endpoint.
+              <span className="text-xs text-muted-foreground">
+                Start a tunnel under “Public tunnel” below to publish this machine.
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Prefer <code>jevonian/auto</code>. Tier setup lives on{" "}
+          <Link to="/models#task-routes" className="underline hover:text-foreground">
+            Models &amp; Routing
+          </Link>
+          .
+        </p>
+      </Panel>
+
+      <Panel
+        title="Provider availability"
+        summary={`${quotas.length} provider${quotas.length === 1 ? "" : "s"}`}
+      >
+        <QuotaGrid quotas={quotas} health={health} bare />
+        <details className="border-t pt-3">
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            Savings and baseline
+          </summary>
+          <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+            {stats.apiBaselineUsd > 0 ? (
+              <>
+                <p className="text-foreground">
+                  {stats.savingsPct.toFixed(1)}% lower on pay-per-token traffic (
+                  {money(stats.savingsUsd)} saved) against baseline model{" "}
+                  <code>{stats.baselineModel ?? "unknown"}</code>.
+                </p>
+                <p>
+                  Baseline: the same tokens priced at{" "}
+                  <code>{stats.baselineModel ?? "the configured baseline"}</code> (
+                  {money(stats.apiBaselineUsd)} estimated) instead of what was actually paid (
+                  {money(stats.apiUsd)}).
+                </p>
+              </>
+            ) : (
+              <p>
+                No pay-per-token traffic yet
+                {stats.subscriptionBaselineUsd > 0
+                  ? `; ${money(stats.subscriptionBaselineUsd)} of baseline usage ran on subscription plans.`
+                  : "."}
               </p>
             )}
           </div>
+        </details>
+      </Panel>
 
-          <details className="border-t pt-4">
-            <summary className="cursor-pointer text-xs text-muted-foreground">
-              Advanced: virtual models
-            </summary>
-            <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
-              <p>
-                <code>jevonian/auto</code> is recommended: Jevonian picks a model per conversation
-                phase and sticks to it while the prompt cache stays warm.
-              </p>
-              <p>
-                <code>jevonian/plan</code>, <code>jevonian/execute</code>,{" "}
-                <code>jevonian/utility</code>, and <code>jevonian/chat</code> force a single tier. A
-                real model id (for example <code>claude-sonnet-4</code>) is passed through
-                untouched, so provider-native ids keep working.
-              </p>
-              <p>
-                Tier configuration lives on the Routing page; tier mappings are listed under “Model
-                routing” below.
-              </p>
-            </div>
-          </details>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center gap-2">
-        <Gauge className="size-4 text-primary" />
-        <h2 className="text-xl font-semibold tracking-tight">Usage &amp; limits</h2>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Provider availability</CardTitle>
-          <CardDescription>
-            Remaining quota and reset time per provider. Open a provider for source, note, and
-            window-by-window detail.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <QuotaGrid quotas={quotas} health={health} bare />
-          <details className="border-t pt-3">
-            <summary className="cursor-pointer text-xs text-muted-foreground">
-              Savings and baseline
-            </summary>
-            <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
-              {stats.apiBaselineUsd > 0 ? (
-                <>
-                  <p className="text-foreground">
-                    {stats.savingsPct.toFixed(1)}% lower on pay-per-token traffic (
-                    {money(stats.savingsUsd)} saved) against baseline model{" "}
-                    <code>{stats.baselineModel ?? "unknown"}</code>.
-                  </p>
-                  <p>
-                    Baseline: the same tokens priced at{" "}
-                    <code>{stats.baselineModel ?? "the configured baseline"}</code> (
-                    {money(stats.apiBaselineUsd)} estimated) instead of what was actually paid (
-                    {money(stats.apiUsd)}).
-                  </p>
-                  {stats.subscriptionBaselineUsd > 0 ? (
-                    <p>
-                      Separately, {money(stats.subscriptionBaselineUsd)} of baseline usage ran on
-                      subscription plans and is excluded from the savings figure. Recent-window
-                      spend per provider is listed on the Providers page.
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <p>
-                  No pay-per-token traffic yet
-                  {stats.subscriptionBaselineUsd > 0
-                    ? `; ${money(stats.subscriptionBaselineUsd)} of baseline usage ran on subscription plans.`
-                    : "."}
-                </p>
-              )}
-            </div>
-          </details>
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center gap-2">
-        <span className="size-1.5 rounded-full bg-primary" />
-        <h2 className="text-xl font-semibold tracking-tight">Settings &amp; maintenance</h2>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Jevonian updates</CardTitle>
-          <CardDescription>
-            Installed through the package manager that owns this copy. New requests pause only for
-            the final restart; active streams finish first, or are cancelled after 60s if stuck.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
+      <Panel
+        title="Jevonian updates"
+        summary={
+          update?.update?.updateAvailable
+            ? `v${update.update.latest} available`
+            : `v${update?.update?.current ?? "—"}`
+        }
+      >
+        <div className="flex flex-wrap items-center gap-3">
           {(() => {
             const status = update?.update;
             const restartOnly = Boolean(
               status?.restartRequired &&
-              (!status.updateAvailable || status.installed === status.latest),
+                (!status.updateAvailable || status.installed === status.latest),
             );
             const needsAction = Boolean(status?.updateAvailable || status?.restartRequired);
             return (
@@ -531,181 +449,134 @@ export function OverviewPage() {
               </>
             );
           })()}
-        </CardContent>
-      </Card>
+        </div>
+      </Panel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Public tunnel</CardTitle>
-          <CardDescription>
-            Explicit opt-in. Jevonian never publishes this machine on its own — a tunnel runs only
-            after you start it here.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <details className="rounded-md border p-4">
-            <summary className="cursor-pointer text-sm font-semibold">
-              Tunnel configuration{" "}
-              <span className="font-normal text-muted-foreground">
-                ·{" "}
-                {tunnel?.status === "on"
-                  ? `${tunnel.provider} · on`
-                  : tunnel?.status === "error"
-                    ? "error"
-                    : `${tunnelProvider} · off`}
-              </span>
-            </summary>
-            <div className="mt-3 flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant={
-                    tunnel?.status === "on"
-                      ? "default"
-                      : tunnel?.status === "error"
-                        ? "destructive"
-                        : "secondary"
-                  }
-                >
-                  {tunnel?.status ?? "off"}
-                </Badge>
-                {tunnelProvider === "cloudflare" ? (
-                  <span className="text-[11px] text-muted-foreground">
-                    quick tunnel URL is kept across restarts — stop the tunnel to release it
-                  </span>
-                ) : tunnelProvider === "ngrok" ? (
-                  <span className="text-[11px] text-muted-foreground">
-                    leave domain empty for a random URL, or paste your ngrok reserved domain
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={tunnelProvider}
-                  onValueChange={(value) => editDraft({ provider: value as TunnelProviderView })}
-                >
-                  <SelectTrigger className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cloudflare">cloudflare (quick tunnel)</SelectItem>
-                    <SelectItem value="ngrok">ngrok</SelectItem>
-                    <SelectItem value="custom">custom command</SelectItem>
-                  </SelectContent>
-                </Select>
-                {tunnelProvider === "ngrok" ? (
-                  <Input
-                    className="max-w-md"
-                    placeholder="casqued-….ngrok-free.dev (optional static domain)"
-                    value={tunnelUrl}
-                    onChange={(event) => editDraft({ url: event.target.value })}
-                  />
-                ) : null}
-                {tunnelProvider === "custom" ? (
-                  <>
-                    <Input
-                      className="max-w-md"
-                      placeholder="cloudflared tunnel run my-named-tunnel"
-                      value={tunnelCommand}
-                      onChange={(event) => editDraft({ command: event.target.value })}
-                    />
-                    <Input
-                      className="max-w-xs"
-                      placeholder="https://ai.example.com (stable URL, optional)"
-                      value={tunnelUrl}
-                      onChange={(event) => editDraft({ url: event.target.value })}
-                    />
-                  </>
-                ) : null}
-                <Button onClick={() => void toggleTunnel()} disabled={tunnelBusy}>
-                  {tunnel?.status === "on" ? "Stop tunnel" : "Start tunnel"}
-                </Button>
-                {draftUnsaved ? (
-                  <span className="text-[11px] font-medium text-amber-600">unsaved draft</span>
-                ) : null}
-              </div>{" "}
-              {tunnel?.url ? (
-                <div className="flex items-center gap-2">
-                  <code className="rounded-md bg-muted px-3 py-2 text-sm">{tunnel.url}/v1</code>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void copy(`${tunnel.url}/v1`, "tunnel")}
-                  >
-                    {copied === "tunnel" ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-              ) : null}
-              {tunnel?.command ? (
-                <p className="text-xs text-muted-foreground">{tunnel.command}</p>
-              ) : null}
-              {tunnelError || tunnel?.error ? (
-                <p className="text-xs text-destructive">{tunnelError || tunnel?.error}</p>
-              ) : null}
-              <p className="text-[11px] text-amber-600">
-                Security: a tunnel exposes this proxy to the internet. Keep at least one API key
-                active, rotate keys you have shared, and stop the tunnel when you are done.
-              </p>
-            </div>
-          </details>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-          <div className="flex flex-col gap-1">
-            <CardTitle>LAN access</CardTitle>
-            <CardDescription>
-              Let another machine on this network use this instance as a provider. Only{" "}
-              <code>/v1</code> is served — the dashboard stays on loopback.
-            </CardDescription>
-          </div>
-          <Badge variant={lan?.config.enabled ? "default" : "secondary"}>
-            {lan?.config.enabled ? "on" : "off"}
+      <Panel
+        title="Public tunnel"
+        summary={
+          tunnel?.status === "on"
+            ? `${tunnel.provider} · on`
+            : tunnel?.status === "error"
+              ? "error"
+              : `${tunnelProvider} · off`
+        }
+      >
+        <p className="text-xs text-muted-foreground">
+          Explicit opt-in. Jevonian never publishes this machine on its own.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge
+            variant={
+              tunnel?.status === "on"
+                ? "default"
+                : tunnel?.status === "error"
+                  ? "destructive"
+                  : "secondary"
+            }
+          >
+            {tunnel?.status ?? "off"}
           </Badge>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void toggleLan()} disabled={lanBusy}>
-              {lan?.config.enabled ? "Disable" : "Enable"}
+          <Select
+            value={tunnelProvider}
+            onValueChange={(value) => editDraft({ provider: value as TunnelProviderView })}
+          >
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cloudflare">cloudflare (quick tunnel)</SelectItem>
+              <SelectItem value="ngrok">ngrok</SelectItem>
+              <SelectItem value="custom">custom command</SelectItem>
+            </SelectContent>
+          </Select>
+          {tunnelProvider === "ngrok" ? (
+            <Input
+              className="max-w-md"
+              placeholder="casqued-….ngrok-free.dev (optional static domain)"
+              value={tunnelUrl}
+              onChange={(event) => editDraft({ url: event.target.value })}
+            />
+          ) : null}
+          {tunnelProvider === "custom" ? (
+            <>
+              <Input
+                className="max-w-md"
+                placeholder="cloudflared tunnel run my-named-tunnel"
+                value={tunnelCommand}
+                onChange={(event) => editDraft({ command: event.target.value })}
+              />
+              <Input
+                className="max-w-xs"
+                placeholder="https://ai.example.com (stable URL, optional)"
+                value={tunnelUrl}
+                onChange={(event) => editDraft({ url: event.target.value })}
+              />
+            </>
+          ) : null}
+          <Button onClick={() => void toggleTunnel()} disabled={tunnelBusy}>
+            {tunnel?.status === "on" ? "Stop tunnel" : "Start tunnel"}
+          </Button>
+          {draftUnsaved ? (
+            <span className="text-[11px] font-medium text-amber-600">unsaved draft</span>
+          ) : null}
+        </div>
+        {tunnel?.url ? (
+          <div className="flex items-center gap-2">
+            <code className="rounded-md bg-muted px-3 py-2 text-sm">{tunnel.url}/v1</code>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void copy(`${tunnel.url}/v1`, "tunnel")}
+            >
+              {copied === "tunnel" ? "Copied" : "Copy"}
             </Button>
-            <span className="text-[11px] text-muted-foreground">
-              {lan?.bindHost ?? "0.0.0.0"}:{lan?.port ?? "—"}
-              {lan?.restartRequired ? " · restart Jevonian to apply" : ""}
-            </span>
           </div>
-          {(lan?.urls.length ?? 0) > 0 ? (
-            <div className="flex flex-col gap-2">
-              {lan?.urls.map((url) => (
-                <div key={url} className="flex items-center gap-2">
-                  <code className="rounded-md bg-muted px-3 py-2 text-sm">{url}</code>
-                  <Button variant="outline" size="sm" onClick={() => void copy(url, url)}>
-                    {copied === url ? "Copied" : "Copy"}
-                  </Button>
-                </div>
-              ))}
-              <p className="text-xs text-muted-foreground">
-                On the other machine, add a provider with this base URL and a Jevonian API key from
-                this dashboard.
-              </p>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No non-loopback IPv4 address was found on this machine.
-            </p>
-          )}
-          {lanError ? <p className="text-xs text-destructive">{lanError}</p> : null}
-          <p className="text-[11px] text-amber-600">
-            Security: anyone on this network who holds a Jevonian API key can spend against your
-            providers. Keep the surface on a trusted network and rotate keys you have shared.
+        ) : null}
+        {tunnelError || tunnel?.error ? (
+          <p className="text-xs text-destructive">{tunnelError || tunnel?.error}</p>
+        ) : null}
+        <p className="text-[11px] text-amber-600">
+          Security: a tunnel exposes this proxy to the internet. Keep at least one API key active
+          and stop the tunnel when you are done.
+        </p>
+      </Panel>
+
+      <Panel title="LAN access" summary={lan?.config.enabled ? "on" : "off"}>
+        <p className="text-xs text-muted-foreground">
+          Let another machine on this network use this instance. Only <code>/v1</code> is served.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => void toggleLan()} disabled={lanBusy}>
+            {lan?.config.enabled ? "Disable" : "Enable"}
+          </Button>
+          <span className="text-[11px] text-muted-foreground">
+            {lan?.bindHost ?? "0.0.0.0"}:{lan?.port ?? "—"}
+            {lan?.restartRequired ? " · restart Jevonian to apply" : ""}
+          </span>
+        </div>
+        {(lan?.urls.length ?? 0) > 0 ? (
+          <div className="flex flex-col gap-2">
+            {lan?.urls.map((url) => (
+              <div key={url} className="flex items-center gap-2">
+                <code className="rounded-md bg-muted px-3 py-2 text-sm">{url}</code>
+                <Button variant="outline" size="sm" onClick={() => void copy(url, url)}>
+                  {copied === url ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No non-loopback IPv4 address was found on this machine.
           </p>
-        </CardContent>
-      </Card>
+        )}
+        {lanError ? <p className="text-xs text-destructive">{lanError}</p> : null}
+      </Panel>
 
       <Panel
         title="Model routing"
-        summary={`mode ${state.config.routing.mode} · pricing ${state.pricing.source} · baseline ${
-          stats.baselineModel ?? "—"
-        }`}
+        summary={`mode ${state.config.routing.mode} · pricing ${state.pricing.source}`}
       >
         <div className="flex flex-col gap-2 text-sm">
           {(state.routings ?? state.config.routing.routings ?? []).map((entry) => (
@@ -733,6 +604,14 @@ export function OverviewPage() {
           )}
         </div>
       </Panel>
+
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Gauge className="size-3.5" />
+        <span>
+          Dashboard uses today / 7d / 30d activity windows. All-time ledger totals stay in the
+          sections above when opened.
+        </span>
+      </div>
     </div>
   );
 }
