@@ -413,7 +413,7 @@ export function LogsPage() {
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-medium text-kumo-default">{log.model}</span>
                         {log.billing === "subscription" ? (
-                          <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
+                          <Badge variant="outline" className="shrink-0 px-1 py-0 text-xs">
                             sub
                           </Badge>
                         ) : null}
@@ -434,7 +434,7 @@ export function LogsPage() {
                                 ? "secondary"
                                 : "outline"
                           }
-                          className="text-[10px]"
+                          className="text-xs"
                         >
                           {log.phase ?? "-"}
                         </Badge>
@@ -442,7 +442,7 @@ export function LogsPage() {
                       <div className="min-w-0 truncate">
                         {log.effort ? (
                           <span title={log.effortNote ?? undefined}>
-                            <Badge variant="outline" className="text-[10px]">
+                            <Badge variant="outline" className="text-xs">
                               {log.effort}
                             </Badge>
                           </span>

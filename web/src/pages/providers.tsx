@@ -983,7 +983,7 @@ export function ProvidersPage({
                         <span className="flex min-w-0 flex-col">
                           <span className="leading-tight">{preset.name}</span>
                           {preset.billing === "subscription" ? (
-                            <span className="text-[10px] text-kumo-subtle">subscription</span>
+                            <span className="text-xs text-kumo-subtle">subscription</span>
                           ) : null}
                         </span>
                       </button>
@@ -1111,7 +1111,7 @@ export function ProvidersPage({
                         <p className="text-xs font-medium">
                           Point this provider at another {loginSourceName} sign-in
                         </p>
-                        <p className="text-[11px] text-kumo-subtle">
+                        <p className="text-xs text-kumo-subtle">
                           A work and a home account can each have their own quota, fallback place, and
                           ledger. Blank reads the agent&apos;s own sign-in. Sign in to that account
                           once with the {loginSourceName} CLI first, then point Jevonian at where it
@@ -1154,9 +1154,9 @@ export function ProvidersPage({
                       </div>
                       {loginIdentityPreview ? (
                         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-kumo-tint/50 px-3 py-2">
-                          <span className="text-[11px] text-kumo-subtle">Reads as</span>
+                          <span className="text-xs text-kumo-subtle">Reads as</span>
                           <ProviderIdentity provider={loginIdentityPreview} showAccount />
-                          <span className="font-mono text-[11px] text-kumo-subtle">
+                          <span className="font-mono text-xs text-kumo-subtle">
                             {suggestedSecondAccountName}
                           </span>
                           {name !== suggestedSecondAccountName ? (
@@ -1164,7 +1164,7 @@ export function ProvidersPage({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="ml-auto h-6 px-2 text-[11px]"
+                              className="ml-auto h-6 px-2 text-xs"
                               onClick={() => setName(suggestedSecondAccountName)}
                             >
                               Use this name
@@ -1174,7 +1174,7 @@ export function ProvidersPage({
                       ) : null}
                     </details>
                   ) : null}
-                  <span className="text-[11px] text-kumo-subtle">
+                  <span className="text-xs text-kumo-subtle">
                     Secrets stay on this machine; a blank API key keeps the stored value when editing.
                   </span>
                 </div>
@@ -1393,7 +1393,7 @@ export function ProvidersPage({
                         }}
                       />
                       {lockedType ? (
-                        <span className="mt-1 block text-[11px] text-kumo-subtle">
+                        <span className="mt-1 block text-xs text-kumo-subtle">
                           Set by the {lockedBy} credential source.
                         </span>
                       ) : null}

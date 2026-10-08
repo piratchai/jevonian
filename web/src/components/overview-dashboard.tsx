@@ -79,7 +79,7 @@ function MiniBars({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border border-dashed border-kumo-hairline bg-kumo-tint/40 text-[11px] text-kumo-subtle",
+          "flex items-center justify-center rounded-lg border border-dashed border-kumo-hairline bg-kumo-tint/40 text-xs text-kumo-subtle",
           className,
         )}
         style={{ height }}
@@ -92,7 +92,7 @@ function MiniBars({
   return (
     <div className={cn("relative w-full", className)}>
       {hovered ? (
-        <div className="pointer-events-none absolute -top-0.5 right-0 z-10 rounded-md border border-kumo-hairline bg-kumo-elevated px-2 py-0.5 font-mono text-[10px] text-kumo-default shadow-xs">
+        <div className="pointer-events-none absolute -top-0.5 right-0 z-10 rounded-md border border-kumo-hairline bg-kumo-elevated px-2 py-0.5 font-mono text-xs text-kumo-default shadow-xs">
           <span className="font-sans text-kumo-subtle">{hovered.label}</span>{" "}
           {formatValue(valueOf(hovered))}
         </div>
@@ -191,7 +191,7 @@ export function TodayTokensCard({
             {formatCompact(todayTokens)}
           </h2>
         </div>
-        <span className="rounded-md bg-kumo-tint px-2 py-0.5 text-[11px] text-kumo-subtle tabular-nums">
+        <span className="rounded-md bg-kumo-tint px-2 py-0.5 text-xs text-kumo-subtle tabular-nums">
           {dateLabel}
         </span>
       </div>
@@ -206,15 +206,15 @@ export function TodayTokensCard({
         <div className="grid grid-cols-3 gap-0 border-t border-kumo-hairline pt-3 text-xs">
           <div className="pr-3">
             <p className="font-medium tabular-nums text-kumo-default">{weekShare}% of week</p>
-            <p className="mt-0.5 text-[11px] text-kumo-subtle">vs last 7 days</p>
+            <p className="mt-0.5 text-xs text-kumo-subtle">vs last 7 days</p>
           </div>
           <div className="border-l border-kumo-hairline px-3">
             <p className="font-medium tabular-nums text-kumo-default">{usd(todaySpend)} today</p>
-            <p className="mt-0.5 text-[11px] text-kumo-subtle">estimated spend</p>
+            <p className="mt-0.5 text-xs text-kumo-subtle">estimated spend</p>
           </div>
           <div className="border-l border-kumo-hairline pl-3">
             <p className="font-medium tabular-nums text-kumo-default">{usd(monthSpend)} month</p>
-            <p className="mt-0.5 text-[11px] text-kumo-subtle">last 30 days</p>
+            <p className="mt-0.5 text-xs text-kumo-subtle">last 30 days</p>
           </div>
         </div>
       </div>
@@ -280,13 +280,13 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
                   >
                     {m.label ?? m.model}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-kumo-subtle tabular-nums">
+                  <p className="mt-0.5 text-xs text-kumo-subtle tabular-nums">
                     {m.requests.toLocaleString()} req
                     {m.percentSpend > 0 ? ` · ${m.percentSpend.toFixed(0)}% spend` : ""}
                   </p>
                 </div>
                 <ShareSpark ratio={ratio} />
-                <div className="min-w-[5.5rem] shrink-0 text-right font-mono text-[11px] text-kumo-subtle tabular-nums">
+                <div className="min-w-[5.5rem] shrink-0 text-right font-mono text-xs text-kumo-subtle tabular-nums">
                   <span className="text-kumo-default">{formatCompact(m.totalTokens)}</span>
                   <span className="text-kumo-subtle"> · {usd(cost)}</span>
                 </div>
@@ -299,8 +299,11 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
   );
 }
 
-const CELL = 11;
-const CELL_GAP = 3;
+// The heatmap distributes across the full card width instead of using fixed-size cells, so
+// the grid always fills its container. MAX_CELL only matters for very short histories,
+// where an unclamped column would render enormous squares.
+const HEATMAP_GAP = 3;
+const HEATMAP_MAX_CELL = 32;
 
 /** GitHub-style contribution grid from daily activity buckets. */
 export function UsageHeatmapCard({
@@ -368,7 +371,9 @@ export function UsageHeatmapCard({
     return "bg-kumo-brand";
   }
 
-  const gridWidth = weeks.length * CELL + Math.max(0, weeks.length - 1) * CELL_GAP;
+  // Columns stretch to fill the card, capped so a short history cannot render giant
+  // squares. A full 90-day window reaches the cap and spans the whole row.
+  const heatmapColumns = `repeat(${weeks.length}, minmax(0, ${HEATMAP_MAX_CELL}px))`;
 
   return (
     <LayerCard className="overflow-hidden shadow-none">
@@ -381,7 +386,7 @@ export function UsageHeatmapCard({
             Daily token activity
           </Text>
         </div>
-        <div className="space-y-1 text-right text-[11px] text-kumo-subtle">
+        <div className="space-y-1 text-right text-xs text-kumo-subtle">
           <p>
             This week{" "}
             <span className="font-medium text-kumo-default tabular-nums">
@@ -400,68 +405,65 @@ export function UsageHeatmapCard({
         {weeks.length === 0 ? (
           <p className="py-6 text-center text-xs text-kumo-subtle">No usage yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <div style={{ width: gridWidth, minWidth: gridWidth }}>
-              <div
-                className="mb-1.5 grid text-[10px] text-kumo-subtle"
-                style={{
-                  gridTemplateColumns: `repeat(${weeks.length}, ${CELL}px)`,
-                  columnGap: CELL_GAP,
-                }}
-              >
-                {weeks.map((_, col) => {
-                  const label = monthLabels.find((m) => m.col === col);
-                  return (
-                    <span key={col} className="truncate leading-none">
-                      {label?.text ?? ""}
-                    </span>
-                  );
-                })}
-              </div>
-              <div
-                className="grid"
-                style={{
-                  gridTemplateRows: `repeat(7, ${CELL}px)`,
-                  gridAutoFlow: "column",
-                  gridTemplateColumns: `repeat(${weeks.length}, ${CELL}px)`,
-                  gap: CELL_GAP,
-                  width: gridWidth,
-                }}
-                onMouseLeave={() => setHover(null)}
-              >
-                {weeks.flatMap((week, col) =>
-                  week.map((cell, row) => {
-                    if (!cell) {
-                      return <span key={`${col}-${row}`} style={{ width: CELL, height: CELL }} />;
-                    }
-                    if (cell.empty) {
-                      return (
-                        <span
-                          key={`${col}-${row}`}
-                          className="rounded-[3px] bg-transparent"
-                          style={{ width: CELL, height: CELL }}
-                        />
-                      );
-                    }
+          <>
+            {/* Fluid columns: the grid spans the card width, so the cells scale instead of
+                leaving empty space and clipping the month labels. */}
+            <div
+              className="mb-1.5 grid text-xs text-kumo-subtle"
+              style={{
+                gridTemplateColumns: heatmapColumns,
+                columnGap: HEATMAP_GAP,
+              }}
+            >
+              {weeks.map((_, col) => {
+                const label = monthLabels.find((m) => m.col === col);
+                return (
+                  <span key={col} className="overflow-visible whitespace-nowrap leading-none">
+                    {label?.text ?? ""}
+                  </span>
+                );
+              })}
+            </div>
+            <div
+              className="grid w-full"
+              style={{
+                gridTemplateRows: "repeat(7, auto)",
+                gridAutoFlow: "column",
+                gridTemplateColumns: heatmapColumns,
+                gap: HEATMAP_GAP,
+              }}
+              onMouseLeave={() => setHover(null)}
+            >
+              {weeks.flatMap((week, col) =>
+                week.map((cell, row) => {
+                  if (!cell) {
+                    return <span key={`${col}-${row}`} className="aspect-square w-full" />;
+                  }
+                  if (cell.empty) {
                     return (
-                      <button
+                      <span
                         key={`${col}-${row}`}
-                        type="button"
-                        title={`${cell.label}: ${formatCompact(cell.tokens)} tokens`}
-                        className={cn(
-                          "rounded-[3px] outline-none transition-[transform,opacity] duration-150 ease-out",
-                          "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-kumo-line",
-                          level(cell.tokens),
-                        )}
-                        style={{ width: CELL, height: CELL }}
-                        onMouseEnter={() => setHover({ label: cell.label, tokens: cell.tokens })}
+                        className="aspect-square w-full rounded-[3px] bg-transparent"
                       />
                     );
-                  }),
-                )}
-              </div>
+                  }
+                  return (
+                    <button
+                      key={`${col}-${row}`}
+                      type="button"
+                      title={`${cell.label}: ${formatCompact(cell.tokens)} tokens`}
+                      className={cn(
+                        "aspect-square w-full rounded-[3px] outline-none transition-[transform,opacity] duration-150 ease-out",
+                        "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-kumo-line",
+                        level(cell.tokens),
+                      )}
+                      onMouseEnter={() => setHover({ label: cell.label, tokens: cell.tokens })}
+                    />
+                  );
+                }),
+              )}
             </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-kumo-subtle">
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-kumo-subtle">
               <p className="min-h-[1rem] tabular-nums">
                 {hover ? (
                   <>
@@ -485,7 +487,7 @@ export function UsageHeatmapCard({
                 <span>More</span>
               </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </LayerCard>
@@ -508,7 +510,7 @@ export function SpendCard({
         <h3 className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums text-kumo-default">
           {usd(summary.totalSpendUsd)}
         </h3>
-        <p className="text-[11px] text-kumo-subtle">
+        <p className="text-xs text-kumo-subtle">
           api {usd(summary.apiSpendUsd)} · sub {usd(summary.subscriptionValueUsd)}
         </p>
       </div>
@@ -543,7 +545,7 @@ export function TokensCard({
         <h3 className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums text-kumo-default">
           {formatCompact(summary.totalTokens)}
         </h3>
-        <p className="text-[11px] text-kumo-subtle">
+        <p className="text-xs text-kumo-subtle">
           prompt {formatCompact(summary.promptTokens)} · out{" "}
           {formatCompact(summary.completionTokens)} · cache {formatCompact(summary.cacheReadTokens)}{" "}
           · hit {(cacheHitRate * 100).toFixed(0)}%
@@ -577,7 +579,7 @@ function StripChip({
         className,
       )}
     >
-      <span className="text-[11px] text-kumo-subtle">{label}</span>
+      <span className="text-xs text-kumo-subtle">{label}</span>
       {children}
     </div>
   );
@@ -604,20 +606,20 @@ export function OverviewStatusStrip({
         <Badge
           variant={running ? "success" : "neutral"}
           appearance="dot"
-          className="h-5 px-1.5 text-[11px] font-medium"
+          className="h-5 px-1.5 text-xs font-medium"
         >
           {running ? "Running" : "Offline"}
         </Badge>
       </StripChip>
 
       <StripChip label="Mode">
-        <Badge variant="outline" className="h-5 px-1.5 text-[11px] font-medium capitalize">
+        <Badge variant="outline" className="h-5 px-1.5 text-xs font-medium capitalize">
           {routingMode || "auto"}
         </Badge>
       </StripChip>
 
       <StripChip label="Local URL" className="min-w-0 max-w-full">
-        <code className="max-w-[14rem] truncate font-mono text-[11px] text-kumo-default sm:max-w-[18rem]">
+        <code className="max-w-[14rem] truncate font-mono text-xs text-kumo-default sm:max-w-[18rem]">
           {localUrl}
         </code>
         <IconCopyButton text={localUrl} copiedId={copied} activeId="local" onCopy={onCopyUrl} />
@@ -625,7 +627,7 @@ export function OverviewStatusStrip({
 
       {apiKeyHint ? (
         <StripChip label="API key">
-          <code className="font-mono text-[11px] tracking-wide text-kumo-default">{apiKeyHint}</code>
+          <code className="font-mono text-xs tracking-wide text-kumo-default">{apiKeyHint}</code>
         </StripChip>
       ) : null}
     </div>

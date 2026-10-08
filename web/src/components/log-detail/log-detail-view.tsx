@@ -119,7 +119,7 @@ function PanelHeader({
       />
       <div className="flex min-w-0 flex-col">
         <span className="min-w-0 truncate text-sm font-medium">{record.model}</span>
-        <span className="text-[11px] text-kumo-subtle">{formatTime(record.ts)}</span>
+        <span className="text-xs text-kumo-subtle">{formatTime(record.ts)}</span>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <LinkButton href={`/logs/${id}`} variant="outline" size="xs">

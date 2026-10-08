@@ -15,7 +15,7 @@ export function StatusPills({
   const errorsOnly = status.length === 1 && status[0] === "error";
   const pill = (active: boolean) =>
     cn(
-      "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+      "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
       active
         ? "border-kumo-brand/40 bg-kumo-brand/10 text-kumo-brand"
         : "border-transparent text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default",

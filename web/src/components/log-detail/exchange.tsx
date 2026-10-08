@@ -15,7 +15,7 @@ function Panel({ title, meta, children }: { title: string; meta?: string; childr
     <LayerCard className="min-w-0">
       <LayerCard.Secondary>
         <Text variant="heading">{title}</Text>
-        {meta ? <span className="min-w-0 truncate text-[11px] text-kumo-subtle">{meta}</span> : null}
+        {meta ? <span className="min-w-0 truncate text-xs text-kumo-subtle">{meta}</span> : null}
       </LayerCard.Secondary>
       <LayerCard.Primary>{children}</LayerCard.Primary>
     </LayerCard>
@@ -86,10 +86,10 @@ function ToolCall({ call }: { call: { id?: string; name: string; arguments: stri
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 font-mono text-xs font-medium break-all">{call.name}</span>
         {call.id ? (
-          <span className="min-w-0 truncate text-[10px] text-kumo-subtle">{call.id}</span>
+          <span className="min-w-0 truncate text-xs text-kumo-subtle">{call.id}</span>
         ) : null}
         {!parsed ? (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-xs">
             unparsed
           </Badge>
         ) : null}
@@ -117,20 +117,20 @@ function ResponseSide({ response }: { response?: CapturedResponse }) {
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Badge variant="outline" className="font-mono text-[10px]">
+        <Badge variant="outline" className="font-mono text-xs">
           {response.wire}
         </Badge>
         <Badge
           variant={response.status >= 400 ? "error" : "secondary"}
-          className="font-mono text-[10px]"
+          className="font-mono text-xs"
         >
           {response.status}
         </Badge>
-        <Badge variant="outline" className="text-[10px]">
+        <Badge variant="outline" className="text-xs">
           {response.stream ? "streamed" : "buffered"}
         </Badge>
         {response.finishReason ? (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-xs">
             finish: {response.finishReason}
           </Badge>
         ) : null}
@@ -169,7 +169,7 @@ function ResponseSide({ response }: { response?: CapturedResponse }) {
 
       {response.toolCalls && response.toolCalls.length > 0 ? (
         <div className="flex min-w-0 flex-col gap-2">
-          <span className="text-[11px] tracking-[0.12em] text-kumo-subtle uppercase">
+          <span className="text-xs tracking-[0.12em] text-kumo-subtle uppercase">
             Tool calls ({response.toolCalls.length})
           </span>
           {response.toolCalls.map((call, index) => (

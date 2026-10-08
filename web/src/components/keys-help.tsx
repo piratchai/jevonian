@@ -17,7 +17,7 @@ export function KeysHelp({
   if (!url && !text) return null;
 
   return (
-    <p className="text-[11px] text-kumo-subtle">
+    <p className="text-xs text-kumo-subtle">
       {url ? (
         <>
           <a

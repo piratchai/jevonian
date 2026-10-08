@@ -76,7 +76,7 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
         <span className="flex items-baseline gap-1.5">
           <span className="font-medium">{window.label}</span>
           {window.model ? (
-            <span className="text-[10px] tracking-wide text-kumo-subtle uppercase">model</span>
+            <span className="text-xs tracking-wide text-kumo-subtle uppercase">model</span>
           ) : null}
         </span>
         <span className="text-kumo-subtle">
@@ -91,7 +91,7 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
         />
       </div>
       {reset || window.status ? (
-        <span className="text-[11px] text-kumo-subtle">
+        <span className="text-xs text-kumo-subtle">
           {[reset, window.status && window.status !== "ok" ? window.status : undefined]
             .filter(Boolean)
             .join(" · ")}
@@ -113,7 +113,7 @@ function ModelCooldownRow({ model, now }: { model: ModelQuotaHealthView; now: nu
         <Badge variant={exhausted ? "error" : "secondary"}>{model.status}</Badge>
       </div>
       {model.reason ? <p className="text-xs text-kumo-subtle">{model.reason}</p> : null}
-      {reset ? <p className="text-[11px] text-kumo-subtle">{reset}</p> : null}
+      {reset ? <p className="text-xs text-kumo-subtle">{reset}</p> : null}
     </div>
   );
 }
@@ -190,7 +190,7 @@ export function ProviderQuotaCard({
       )}
 
       {windows.length > 0 && quota?.error ? (
-        <p className="text-[11px] text-kumo-subtle">{quota.error}</p>
+        <p className="text-xs text-kumo-subtle">{quota.error}</p>
       ) : null}
 
       {quota?.resets && quota.resets.count > 0 ? (
@@ -217,14 +217,14 @@ export function ProviderQuotaCard({
           {quota.resets.each?.map((reset, index) => (
             <p
               key={`${reset.expiresAt ?? "never"}-${index}`}
-              className="text-[11px] text-kumo-subtle"
+              className="text-xs text-kumo-subtle"
             >
               Reset {index + 1}:{" "}
               {reset.expiresAt ? resetLabel(reset.expiresAt, now) : "no expiry reported"}
             </p>
           ))}
           {!quota.resets.each?.length && quota.resets.until ? (
-            <p className="text-[11px] text-kumo-subtle">
+            <p className="text-xs text-kumo-subtle">
               Next expiry: {resetLabel(quota.resets.until, now)}
             </p>
           ) : null}
@@ -238,7 +238,7 @@ export function ProviderQuotaCard({
         >
           <div>
             <p className="text-xs font-medium">Model-specific limits</p>
-            <p className="text-[11px] text-kumo-subtle">
+            <p className="text-xs text-kumo-subtle">
               Account quota can be OK while an individual model is rate-limited.
             </p>
           </div>
@@ -249,7 +249,7 @@ export function ProviderQuotaCard({
       ) : null}
 
       {health?.remainingUsd !== undefined ? (
-        <p className="text-[11px] text-kumo-subtle">
+        <p className="text-xs text-kumo-subtle">
           {money(health.remainingUsd)} left in the {health.window ?? "current"} window
           {health.avgRequestUsd === undefined
             ? ""
@@ -259,15 +259,15 @@ export function ProviderQuotaCard({
 
       {quota && spend ? (
         <details className="border-t border-kumo-hairline pt-2">
-          <summary className="cursor-pointer text-[11px] text-kumo-subtle">
+          <summary className="cursor-pointer text-xs text-kumo-subtle">
             Periods &amp; source
           </summary>
           <div className="mt-2 flex flex-col gap-2">
-            <p className="text-[11px] text-kumo-subtle">
+            <p className="text-xs text-kumo-subtle">
               Read {SOURCE_LABEL[quota.source]} · fetched {formatTime(quota.fetchedAt)}
               {payPerToken ? " · pay per token, no window" : ""}
             </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-kumo-subtle">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-kumo-subtle">
               <span>5h {money(spend.fiveHourUsd)}</span>
               <span>24h {money(spend.dayUsd)}</span>
               <span>7d {money(spend.weekUsd)}</span>
@@ -281,7 +281,7 @@ export function ProviderQuotaCard({
 
       {provider ? (
         <div className="flex items-center justify-between gap-2 border-t border-kumo-hairline pt-3">
-          <span className="truncate font-mono text-[11px] text-kumo-subtle">
+          <span className="truncate font-mono text-xs text-kumo-subtle">
             {provider.name}
             {" · "}
             {provider.models.length} model{provider.models.length === 1 ? "" : "s"}

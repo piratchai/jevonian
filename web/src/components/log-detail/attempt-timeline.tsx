@@ -31,7 +31,7 @@ function AttemptLabel({ attempt, index }: { attempt: LogAttempt; index: number }
       <span className="min-w-0 break-all text-kumo-subtle">{attempt.model}</span>
       <Badge
         variant={attempt.cause === "failover" ? "primary" : "outline"}
-        className="px-1 py-0 text-[10px]"
+        className="px-1 py-0 text-xs"
       >
         {attempt.cause}
       </Badge>
@@ -47,14 +47,14 @@ function AttemptLabel({ attempt, index }: { attempt: LogAttempt; index: number }
 function Axis({ total, onAxis }: { total: number; onAxis: boolean }) {
   if (!onAxis) {
     return (
-      <div className="flex justify-between text-[10px] text-kumo-subtle">
+      <div className="flex justify-between text-xs text-kumo-subtle">
         <span>0</span>
         <span>relative duration</span>
       </div>
     );
   }
   return (
-    <div className="flex justify-between text-[10px] text-kumo-subtle">
+    <div className="flex justify-between text-xs text-kumo-subtle">
       <span>0</span>
       <span>{Math.round(total / 2)}ms</span>
       <span>{total}ms</span>
@@ -121,7 +121,7 @@ export function AttemptTimeline({ record }: { record: LogRecord }) {
                 </div>
                 <span
                   className={cn(
-                    "shrink-0 text-[11px]",
+                    "shrink-0 text-xs",
                     failed ? "text-kumo-danger" : "text-kumo-subtle",
                   )}
                 >

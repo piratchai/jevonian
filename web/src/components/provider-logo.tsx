@@ -41,7 +41,7 @@ export function ProviderLogo({ id, className }: { id: string; className?: string
   return (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-sm border border-kumo-hairline bg-kumo-tint text-[9px] font-semibold text-kumo-subtle",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-sm border border-kumo-hairline bg-kumo-tint text-xs font-semibold text-kumo-subtle",
         className,
       )}
     >

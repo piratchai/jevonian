@@ -60,7 +60,7 @@ export function Layout() {
 
   return (
     <Sidebar.Provider defaultOpen resizable>
-      <div className="flex min-h-svh w-full bg-kumo-canvas text-kumo-default">
+      <div className="flex h-svh w-full overflow-hidden bg-kumo-canvas text-kumo-default">
         <Sidebar className="bg-kumo-base">
           <Sidebar.Header className="border-b-0 px-3">
             <NavLink
@@ -72,7 +72,7 @@ export function Layout() {
               </span>
               <span className="grid min-w-0 flex-1 text-left leading-tight group-data-[state=collapsed]/sidebar:hidden">
                 <span className="truncate text-sm font-semibold">jevonian</span>
-                <span className="truncate text-[11px] text-kumo-subtle">Local model router</span>
+                <span className="truncate text-xs text-kumo-subtle">Local model router</span>
               </span>
             </NavLink>
           </Sidebar.Header>
@@ -118,30 +118,30 @@ export function Layout() {
               </a>
               <ModeToggle />
             </div>
-            <div className="text-[11px] text-kumo-subtle group-data-[state=collapsed]/sidebar:hidden">
+            <div className="text-xs text-kumo-subtle group-data-[state=collapsed]/sidebar:hidden">
               v{version} · running locally
             </div>
           </Sidebar.Footer>
           <Sidebar.Rail />
         </Sidebar>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <header className="sticky top-0 z-10 flex h-[58px] shrink-0 items-center justify-between gap-3 border-b border-kumo-hairline bg-kumo-base/90 px-5 backdrop-blur-sm md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <Sidebar.Trigger className="md:hidden" />
-              <span className="text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase">
+              <span className="text-xs font-semibold tracking-wider text-kumo-subtle uppercase">
                 Workspace
               </span>
               <span className="text-kumo-subtle/50">/</span>
               <span className="truncate text-xs font-semibold text-kumo-default">{pageName}</span>
             </div>
-            <span className="hidden items-center gap-2 text-[11px] text-kumo-subtle sm:flex">
+            <span className="hidden items-center gap-2 text-xs text-kumo-subtle sm:flex">
               <span className="size-1.5 rounded-full bg-kumo-success" />
               Local dashboard
             </span>
           </header>
 
-          <main className="min-w-0 flex-1 px-5 py-6 md:px-8 md:py-8">
+          <main className="min-w-0 flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-8">
             <div className="mx-auto max-w-7xl">
               <ErrorBoundary>
                 <Outlet />

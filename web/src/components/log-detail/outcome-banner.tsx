@@ -6,7 +6,7 @@ import { cn, money } from "@/lib/utils";
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-[10px] tracking-[0.12em] text-kumo-subtle uppercase">{label}</span>
+      <span className="text-xs tracking-[0.12em] text-kumo-subtle uppercase">{label}</span>
       <span className="min-w-0 font-mono text-xs break-words">{value}</span>
     </div>
   );
@@ -48,7 +48,7 @@ export function OutcomeBanner({
         <span className={cn("text-sm font-semibold", failed ? "text-kumo-danger" : "")}>
           {failed ? "Failed" : "Succeeded"}
         </span>
-        <Badge variant="outline" className="font-mono text-[10px]">
+        <Badge variant="outline" className="font-mono text-xs">
           {record.status}
         </Badge>
         <span className="flex min-w-0 items-center gap-1.5">
@@ -56,11 +56,11 @@ export function OutcomeBanner({
         </span>
         <span className="min-w-0 text-sm break-all text-kumo-subtle">· {record.model}</span>
         {record.requestedModel && record.requestedModel !== record.model ? (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-xs">
             requested {record.requestedModel}
           </Badge>
         ) : null}
-        <Badge variant="outline" className="ml-auto text-[10px]">
+        <Badge variant="outline" className="ml-auto text-xs">
           {record.stream ? "streamed" : "buffered"}
         </Badge>
       </div>

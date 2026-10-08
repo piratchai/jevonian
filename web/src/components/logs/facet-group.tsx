@@ -78,7 +78,7 @@ export function FacetRowButton({
         />
       ) : null}
       <span className="min-w-0 flex-1 truncate">{row.label ?? facetLabel(group, row.value)}</span>
-      <span className="shrink-0 font-mono text-[10px] text-kumo-subtle/80 tabular-nums">
+      <span className="shrink-0 font-mono text-xs text-kumo-subtle/80 tabular-nums">
         {row.count ?? 0}
       </span>
     </label>
@@ -120,7 +120,7 @@ export function FacetGroup({
     <section className="flex min-h-0 shrink-0 flex-col border-b border-kumo-hairline last:border-b-0">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase hover:text-kumo-default"
+        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-xs font-semibold tracking-wider text-kumo-subtle uppercase hover:text-kumo-default"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((current) => !current)}
@@ -132,7 +132,7 @@ export function FacetGroup({
         />
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {selected.length > 0 ? (
-          <span className="shrink-0 rounded-full bg-kumo-brand/10 px-1.5 py-px font-mono text-[10px] font-medium text-kumo-brand normal-case">
+          <span className="shrink-0 rounded-full bg-kumo-brand/10 px-1.5 py-px font-mono text-xs font-medium text-kumo-brand normal-case">
             {selected.length}
           </span>
         ) : null}
@@ -140,7 +140,7 @@ export function FacetGroup({
       {open ? (
         <div id={listId} className="max-h-48 overflow-y-auto px-1.5 pb-2">
           {allRows.length === 0 ? (
-            <p className="px-1.5 py-1 text-[11px] text-kumo-subtle/70">No values yet.</p>
+            <p className="px-1.5 py-1 text-xs text-kumo-subtle/70">No values yet.</p>
           ) : (
             allRows.map((row) => (
               <FacetRowButton

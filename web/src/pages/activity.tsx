@@ -72,7 +72,7 @@ export function ActivitySection() {
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-kumo-brand uppercase">
+          <p className="text-xs font-semibold tracking-[0.16em] text-kumo-brand uppercase">
             Usage trends
           </p>
           <Text variant="heading" size="lg" as="h2" id="activity-heading">
@@ -194,7 +194,7 @@ export function ActivitySection() {
                       {m.label ?? m.model}
                     </span>
                     {(m.variants?.length ?? 0) > 1 ? (
-                      <span className="shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-[9px] text-kumo-subtle">
+                      <span className="shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-xs text-kumo-subtle">
                         ×{m.variants!.length}
                       </span>
                     ) : null}
@@ -310,10 +310,10 @@ export function ActivitySection() {
                     <Table.Head className="text-right">Requests</Table.Head>
                     <Table.Head className="text-right">Prompt</Table.Head>
                     <Table.Head className="text-right">Completion</Table.Head>
-                    <Table.Head className="text-right">Cache Read</Table.Head>
-                    <Table.Head className="text-right">Total Tokens</Table.Head>
-                    <Table.Head className="text-right">API Spend</Table.Head>
-                    <Table.Head className="text-right">Sub Value</Table.Head>
+                    <Table.Head className="text-right">Cache read</Table.Head>
+                    <Table.Head className="text-right">Total tokens</Table.Head>
+                    <Table.Head className="text-right">API spend</Table.Head>
+                    <Table.Head className="text-right">Sub value</Table.Head>
                     <Table.Head className="text-right w-28">Share</Table.Head>
                   </Table.Row>
                 </Table.Header>
@@ -327,7 +327,7 @@ export function ActivitySection() {
                           </span>
                           {m.label && m.label !== m.model ? (
                             <span
-                              className="truncate font-mono text-[10px] text-kumo-subtle"
+                              className="truncate font-mono text-xs text-kumo-subtle"
                               title={m.variants?.join(", ") ?? m.model}
                             >
                               {m.model}
@@ -335,7 +335,7 @@ export function ActivitySection() {
                             </span>
                           ) : (m.variants?.length ?? 0) > 1 ? (
                             <span
-                              className="truncate font-mono text-[10px] text-kumo-subtle"
+                              className="truncate font-mono text-xs text-kumo-subtle"
                               title={m.variants?.join(", ")}
                             >
                               {m.variants!.length} ids
@@ -408,10 +408,10 @@ export function ActivitySection() {
               <Table>
                 <Table.Header>
                   <Table.Row>
-                    <Table.Head>Key Name</Table.Head>
+                    <Table.Head>Key name</Table.Head>
                     <Table.Head className="text-right">Requests</Table.Head>
-                    <Table.Head className="text-right">API Spend</Table.Head>
-                    <Table.Head className="text-right">Subscription Value</Table.Head>
+                    <Table.Head className="text-right">API spend</Table.Head>
+                    <Table.Head className="text-right">Subscription value</Table.Head>
                     <Table.Head className="text-right">Filter</Table.Head>
                   </Table.Row>
                 </Table.Header>

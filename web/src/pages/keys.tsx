@@ -177,7 +177,7 @@ export function KeysPage() {
                 onValueChange={setName}
               />
             </div>
-            <div className="w-40">
+            <div className="w-52 shrink-0">
               <Input
                 id="keyLimit"
                 label="Credit limit (USD)"
@@ -232,12 +232,12 @@ export function KeysPage() {
           <Table>
             <Table.Header>
               <Table.Row>
-                <Table.Head>name</Table.Head>
-                <Table.Head>prefix</Table.Head>
-                <Table.Head className="text-right">key usage</Table.Head>
-                <Table.Head>key limit</Table.Head>
-                <Table.Head>last used</Table.Head>
-                <Table.Head className="text-right">requests</Table.Head>
+                <Table.Head>Name</Table.Head>
+                <Table.Head>Prefix</Table.Head>
+                <Table.Head className="text-right">Key usage</Table.Head>
+                <Table.Head>Key limit</Table.Head>
+                <Table.Head>Last used</Table.Head>
+                <Table.Head className="text-right">Requests</Table.Head>
                 <Table.Head />
               </Table.Row>
             </Table.Header>
@@ -255,7 +255,7 @@ export function KeysPage() {
                       <div className="flex items-center gap-2">
                         <span>{key.name}</span>
                         {overLimit ? (
-                          <Badge variant="error" className="text-[10px]">
+                          <Badge variant="error" className="text-xs">
                             limit reached
                           </Badge>
                         ) : null}
@@ -265,7 +265,7 @@ export function KeysPage() {
                     <Table.Cell className="text-right">
                       <span className="font-mono text-xs font-medium">{money(spend)}</span>
                       {subscription > 0 ? (
-                        <span className="ml-1 text-[10px] text-kumo-subtle">
+                        <span className="ml-1 text-xs text-kumo-subtle">
                           +{money(subscription)} sub
                         </span>
                       ) : null}
@@ -314,7 +314,7 @@ export function KeysPage() {
                             </Button>
                           </div>
                           {limitError ? (
-                            <span className="text-[10px] text-kumo-danger">{limitError}</span>
+                            <span className="text-xs text-kumo-danger">{limitError}</span>
                           ) : null}
                         </div>
                       ) : (
@@ -336,7 +336,7 @@ export function KeysPage() {
                             </span>
                             <Badge
                               variant="outline"
-                              className="h-5 px-1.5 text-[9px] tracking-wider"
+                              className="h-5 px-1.5 text-xs tracking-wider"
                             >
                               TOTAL
                             </Badge>

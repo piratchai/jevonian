@@ -518,7 +518,7 @@ export function OverviewPage() {
             {tunnel?.status === "on" ? "Stop tunnel" : "Start tunnel"}
           </Button>
           {draftUnsaved ? (
-            <span className="text-[11px] font-medium text-kumo-warning">unsaved draft</span>
+            <span className="text-xs font-medium text-kumo-warning">unsaved draft</span>
           ) : null}
         </div>
         {tunnel?.url ? (
@@ -536,7 +536,7 @@ export function OverviewPage() {
         {tunnelError || tunnel?.error ? (
           <p className="text-xs text-kumo-danger">{tunnelError || tunnel?.error}</p>
         ) : null}
-        <p className="text-[11px] text-kumo-warning">
+        <p className="text-xs text-kumo-warning">
           Security: a tunnel exposes this proxy to the internet. Keep at least one API key active
           and stop the tunnel when you are done.
         </p>
@@ -550,7 +550,7 @@ export function OverviewPage() {
           <Button variant="outline" size="sm" onClick={() => void toggleLan()} disabled={lanBusy}>
             {lan?.config.enabled ? "Disable" : "Enable"}
           </Button>
-          <span className="text-[11px] text-kumo-subtle">
+          <span className="text-xs text-kumo-subtle">
             {lan?.bindHost ?? "0.0.0.0"}:{lan?.port ?? "—"}
             {lan?.restartRequired ? " · restart Jevonian to apply" : ""}
           </span>

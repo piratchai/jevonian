@@ -42,7 +42,7 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
       <LayerCard.Secondary>
         <Text variant="heading">Session</Text>
         {total !== null ? (
-          <span className="ml-auto text-[11px] text-kumo-subtle">
+          <span className="ml-auto text-xs text-kumo-subtle">
             {total} turn{total === 1 ? "" : "s"}
           </span>
         ) : null}

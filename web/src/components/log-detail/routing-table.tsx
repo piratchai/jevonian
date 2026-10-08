@@ -78,11 +78,11 @@ function RoutingTableRow({ row, max }: { row: RoutingRow; max: number }) {
     >
       <span className="flex min-w-0 items-center gap-2">
         {row.chosen ? (
-          <Badge variant="secondary" className="px-1 py-0 text-[10px]">
+          <Badge variant="secondary" className="px-1 py-0 text-xs">
             chosen
           </Badge>
         ) : row.withheld ? (
-          <Badge variant="error" className="px-1 py-0 text-[10px]">
+          <Badge variant="error" className="px-1 py-0 text-xs">
             withheld
           </Badge>
         ) : (
@@ -92,10 +92,10 @@ function RoutingTableRow({ row, max }: { row: RoutingRow; max: number }) {
       <span className="min-w-0">
         <span className="block break-all font-medium">{row.model}</span>
         {row.provider ? (
-          <span className="block break-all text-[11px] text-kumo-subtle">{row.provider}</span>
+          <span className="block break-all text-xs text-kumo-subtle">{row.provider}</span>
         ) : null}
         {row.withheld ? (
-          <span className="block text-[11px] text-kumo-subtle">
+          <span className="block text-xs text-kumo-subtle">
             {row.withheld.reason}: {row.withheld.detail}
           </span>
         ) : null}
@@ -134,13 +134,13 @@ function BrainCallDetails({ detail }: { detail: LogDetailResponse }) {
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
                 <Badge
                   variant={call.status === 200 ? "secondary" : "error"}
-                  className="text-[10px]"
+                  className="text-xs"
                 >
                   {call.status}
                 </Badge>
                 <span className="font-medium">{call.provider}</span>
                 <span className="min-w-0 break-all text-kumo-subtle">{call.model}</span>
-                <span className="ml-auto text-[11px] text-kumo-subtle">
+                <span className="ml-auto text-xs text-kumo-subtle">
                   {call.latencyMs}ms · {call.promptTokens} in / {call.completionTokens} out
                 </span>
               </div>
@@ -223,7 +223,7 @@ export function RoutingTable({ detail }: { detail: LogDetailResponse }) {
 
         {effortRanking.length > 0 ? (
           <div className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] tracking-[0.12em] text-kumo-subtle uppercase">
+            <span className="text-xs tracking-[0.12em] text-kumo-subtle uppercase">
               Effort options
             </span>
             <ul className="list-none space-y-0.5 font-mono text-xs">

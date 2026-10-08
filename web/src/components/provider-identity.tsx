@@ -65,7 +65,7 @@ export function AccountChip({
   const chip = (
     <Badge
       variant="outline"
-      className={cn("shrink-0 px-1.5 py-0 text-[10px] font-normal text-kumo-subtle", className)}
+      className={cn("shrink-0 px-1.5 py-0 text-xs font-normal text-kumo-subtle", className)}
     >
       {text}
     </Badge>

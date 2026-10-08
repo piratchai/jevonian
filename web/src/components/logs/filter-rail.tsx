@@ -41,7 +41,7 @@ function ModelAddInput({ onAdd }: { onAdd: (value: string) => void }) {
       placeholder="Add model id…"
       autoComplete="off"
       aria-label="Add a model filter"
-      className="mt-1 h-7 px-1.5 text-[11px]"
+      className="mt-1 h-7 px-1.5 text-xs"
     />
   );
 }
@@ -75,7 +75,7 @@ export function FilterRail({
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
       <div className="flex shrink-0 items-center gap-1 border-b border-kumo-hairline px-2.5 py-2">
-        <span className="min-w-0 flex-1 text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase">
+        <span className="min-w-0 flex-1 text-xs font-semibold tracking-wider text-kumo-subtle uppercase">
           Filters
         </span>
         {filtersActive(filters) ? (
@@ -117,7 +117,7 @@ export function FilterTriggerFace({ filters }: { filters: LogFilters }) {
     <span className="relative inline-flex">
       <FunnelSimple size={16} aria-hidden />
       {count > 0 ? (
-        <span className="absolute -top-1.5 -right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-kumo-brand px-0.5 font-mono text-[9px] font-semibold text-white">
+        <span className="absolute -top-1.5 -right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-kumo-brand px-0.5 font-mono text-xs font-semibold text-white">
           {count}
         </span>
       ) : null}

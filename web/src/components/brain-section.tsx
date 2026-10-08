@@ -223,9 +223,9 @@ export function BrainSection({
           <Table>
             <Table.Header>
               <Table.Row>
-                <Table.Head>order</Table.Head>
-                <Table.Head>channel</Table.Head>
-                <Table.Head>key</Table.Head>
+                <Table.Head>Order</Table.Head>
+                <Table.Head>Channel</Table.Head>
+                <Table.Head>Key</Table.Head>
                 <Table.Head />
               </Table.Row>
             </Table.Header>
@@ -243,7 +243,7 @@ export function BrainSection({
                   <Table.Cell>
                     <Badge
                       variant={keyLabel(brain) === "none" ? "error" : "secondary"}
-                      className="text-[10px]"
+                      className="text-xs"
                     >
                       {keyLabel(brain)}
                     </Badge>
@@ -336,7 +336,7 @@ export function BrainSection({
                     onValueChange={(value) => setKey(value)}
                   />
                   <KeysHelp keysUrl={active?.keysUrl} hint={active?.hint} />
-                  <span className="text-[11px] text-kumo-subtle">
+                  <span className="text-xs text-kumo-subtle">
                     Stored encrypted on this machine; leave empty to keep the stored key.
                   </span>
                 </div>
@@ -349,11 +349,11 @@ export function BrainSection({
                       placeholder="Cloudflare account id from the dashboard overview"
                       onValueChange={(value) => setDraft({ ...draft, accountId: value })}
                     />
-                    <span className="text-[11px] text-kumo-subtle">
+                    <span className="text-xs text-kumo-subtle">
                       Used to call{" "}
-                      <code className="text-[10px]">/client/v4/accounts/{"{id}"}/ai/run</code> with
+                      <code className="text-xs">/client/v4/accounts/{"{id}"}/ai/run</code> with
                       model{" "}
-                      <code className="text-[10px]">
+                      <code className="text-xs">
                         {draft.model || active.model || "typesafe/jev"}
                       </code>
                       .
@@ -375,7 +375,7 @@ export function BrainSection({
                         (value ? `${value} (custom)` : undefined)
                       }
                     />
-                    <span className="text-[11px] text-kumo-subtle">
+                    <span className="text-xs text-kumo-subtle">
                       {selectedModelHint ??
                         (customModel
                           ? "A model id not on this channel's preset list."
@@ -442,7 +442,7 @@ export function BrainSection({
                           setDraft({ ...draft, minConfidence: Number(value) })
                         }
                       />
-                      <span className="text-[11px] text-kumo-subtle">
+                      <span className="text-xs text-kumo-subtle">
                         Below this the turn is marked low-confidence. Later brains are only tried
                         when this channel fails.
                       </span>
@@ -461,7 +461,7 @@ export function BrainSection({
                           setDraft({ ...draft, fullPrompt: value === "full" })
                         }
                       />
-                      <span className="text-[11px] text-kumo-subtle">
+                      <span className="text-xs text-kumo-subtle">
                         compact sends only the goal, recent turns, and tool activity. full prompt
                         sends every message verbatim, which is more private-data exposure but more
                         accurate. This content is sent to the channel above, not stored locally.
