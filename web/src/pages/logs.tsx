@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 
 import { RequestsChart } from "@/components/activity-charts";
 import { LogDetailView } from "@/components/log-detail/log-detail-view";
@@ -16,7 +15,6 @@ import {
 } from "@/components/logs/filter-types";
 import { StatusPills } from "@/components/logs/status-pills";
 import { useLogFacets } from "@/components/logs/use-log-facets";
-import { useMediaQuery } from "@/components/logs/use-media-query";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
 import { ProviderIdentity } from "@/components/provider-identity";
 import { Badge } from "@/components/ui/badge";
@@ -77,10 +75,8 @@ export function LogsPage() {
   // The log table is the point of this page, so filters live in a dropdown
   // beside the search input instead of a rail that costs layout width.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
+  /** Selected record id; opens the detail Sheet. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Tailwind's xl breakpoint; the drawer only opens below it. */
-  const isXl = useMediaQuery("(min-width: 80rem)");
 
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -521,17 +517,19 @@ export function LogsPage() {
                       </div>
                       <div className="truncate text-right text-muted-foreground">
                         {log.id ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span>open →</span>
-                            <Link
-                              to={`/logs/${log.id}`}
-                              className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                              title="Open the full detail page"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              page
-                            </Link>
-                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="text-xs"
+                            title="Inspect this request"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectRecord(log);
+                            }}
+                          >
+                            Details
+                          </Button>
                         ) : (
                           "no id"
                         )}
@@ -566,24 +564,13 @@ export function LogsPage() {
         </Card>
       </div>
 
-      {/* Inline panel on xl and up; below xl the same view lives in the Sheet. */}
-      <aside className="hidden min-h-0 w-[30rem] shrink-0 overflow-hidden rounded-xl border bg-card xl:block">
-        {selectedId ? (
-          <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
-        ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            Select a request to inspect it here.
-          </div>
-        )}
-      </aside>
-
       <Sheet
-        open={Boolean(selectedId) && !isXl}
+        open={Boolean(selectedId)}
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}
       >
-        <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-lg">
+        <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-[30rem]">
           {selectedId ? (
             <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
           ) : null}
