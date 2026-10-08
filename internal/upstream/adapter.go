@@ -446,6 +446,7 @@ func (a *openaiAdapter) Prepare(in PrepInput) (wire.Body, error) {
 	if in.Effort != "" {
 		body = withEffort(body, in.Effort)
 	}
+	body = fitThinkingBudget(body)
 	// src/prepare.ts: ask streaming Chat Completions hosts to report usage.
 	if in.ClientKind == KindOpenAI && (in.Provider.Type == config.ProviderTypeOpenAI || in.Provider.Type == config.ProviderTypeChatGPTWeb) &&
 		in.ClientStream && in.Provider.InjectStreamUsage {
@@ -642,6 +643,82 @@ func withEffort(body wire.Body, effort string) wire.Body {
 	}
 	out["reasoning_effort"] = effort
 	return out
+}
+
+// fitThinkingBudget ensures thinking_budget is strictly lower than max_completion_tokens
+// or max_tokens. On DashScope/Qwen, reasoning models default thinking_budget to 32768,
+// which errors with HTTP 400 "max_completion_tokens [X] must be greater than thinking_budget [32768]"
+// whenever a client restricts max_completion_tokens <= 32768.
+func fitThinkingBudget(body wire.Body) wire.Body {
+	var maxTokens int
+	if v, ok := body["max_completion_tokens"]; ok {
+		maxTokens = bodyToInt(v)
+	} else if v, ok := body["max_tokens"]; ok {
+		maxTokens = bodyToInt(v)
+	}
+	if maxTokens <= 0 {
+		return body
+	}
+
+	budget := 0
+	if v, ok := body["thinking_budget"]; ok {
+		budget = bodyToInt(v)
+	}
+
+	if (budget > 0 && budget >= maxTokens) || maxTokens <= 32768 {
+		headroom := maxTokens / 5
+		if headroom < 512 {
+			headroom = 512
+		}
+		if headroom >= maxTokens {
+			headroom = maxTokens / 2
+		}
+		newBudget := maxTokens - headroom
+		if newBudget <= 0 {
+			newBudget = maxTokens - 1
+		}
+		if budget > 0 && budget < newBudget {
+			newBudget = budget
+		}
+
+		out := make(wire.Body, len(body)+1)
+		for k, v := range body {
+			out[k] = v
+		}
+		out["thinking_budget"] = newBudget
+		if th, ok := out["thinking"].(map[string]any); ok {
+			if b, ok := th["budget_tokens"]; ok {
+				tb := bodyToInt(b)
+				if tb >= maxTokens {
+					thCopy := make(map[string]any, len(th))
+					for k, v := range th {
+						thCopy[k] = v
+					}
+					thCopy["budget_tokens"] = newBudget
+					out["thinking"] = thCopy
+				}
+			}
+		}
+		return out
+	}
+
+	return body
+}
+
+func bodyToInt(v any) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return int(i)
+		}
+	}
+	return 0
 }
 
 // MarshalBody serializes a prepared body once per attempt.
