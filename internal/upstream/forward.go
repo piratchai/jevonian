@@ -364,9 +364,14 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 	}
 	at.Response = resp
 	at.Outcome = Classify(at.Status, at.Text, nil)
-	// Header exhaustion is a same-request quota failover, even with an
-	// otherwise unclassified refusal. Do not replace the measured window.
-	if at.Status >= 300 && at.Outcome.Kind != OutcomeContextOverflow && at.Outcome.Signal == quota.SignalNone && r.deps.Quota != nil &&
+	// Header exhaustion is a same-request quota failover for provider-side
+	// refusals (401/403/429/5xx), even when the body carried no spend token.
+	// Do not rewrite a client error (400 Unsupported parameter, …) — that
+	// would hide the real failure behind a fake "quota" label and keep
+	// failover walking. Do not replace the measured window.
+	if at.Status >= 300 && at.Outcome.Signal == quota.SignalNone &&
+		(at.Outcome.Kind == OutcomeHostFailure || at.Outcome.Kind == OutcomeRateLimit || at.Outcome.Kind == OutcomeProviderRefusal) &&
+		r.deps.Quota != nil &&
 		r.deps.Quota.ProviderHealth(provider, quota.HealthOptions{}).Status == quota.StatusExhausted {
 		at.Outcome.Kind = OutcomeQuotaRefusal
 		return

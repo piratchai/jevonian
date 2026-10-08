@@ -594,7 +594,15 @@ func (a *responsesAdapter) AlwaysStreams() bool       { return true }
 
 func (a *responsesAdapter) Prepare(in PrepInput) (wire.Body, error) {
 	if in.ClientKind == KindResponses {
-		body := in.ClientBody
+		// Clone and drop sampling controls. A Responses client (Codex) may send
+		// temperature/top_p; reasoning models reject them with HTTP 400.
+		body := make(wire.Body, len(in.ClientBody)+2)
+		for k, v := range in.ClientBody {
+			if k == "temperature" || k == "top_p" {
+				continue
+			}
+			body[k] = v
+		}
 		body["model"] = in.Model
 		body["stream"] = true
 		if in.Provider.Auth == config.AuthOAuth {

@@ -607,10 +607,7 @@ func ChatToResponses(body wire.Body, model string) wire.Body {
 		out["tool_choice"] = v
 	}
 	// Responses models that use reasoning do not accept sampling controls.
-	// Do not forward Chat Completions' temperature into the Responses API.
-	if v, ok := body["top_p"]; ok && wire.IsNumber(v) {
-		out["top_p"] = v
-	}
+	// Do not forward Chat Completions' temperature or top_p into the Responses API.
 	if wire.IsNumber(max) {
 		out["max_output_tokens"] = max
 	}

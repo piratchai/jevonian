@@ -238,6 +238,29 @@ func TestResponsesOAuthSetsStoreFalse(t *testing.T) {
 	}
 }
 
+func TestResponsesPassthroughOmitsSamplingControls(t *testing.T) {
+	p := config.Provider{Name: "chatgpt", Type: "responses", BaseURL: "/v1", Auth: "api-key", APIKey: "k"}
+	sse := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	client := wire.Body{
+		"input":       "hi",
+		"temperature": 0.7,
+		"top_p":       0.9,
+	}
+	body, _, _, at := capture(t, p, AttemptRequest{ClientKind: KindResponses, ClientBody: client}, "gpt-5", sse, "text/event-stream")
+	if at.Outcome.Kind != OutcomeSuccess {
+		t.Fatalf("%+v %v", at.Outcome, at.Err)
+	}
+	if _, present := body["temperature"]; present {
+		t.Fatalf("Responses passthrough must omit temperature: %v", body)
+	}
+	if _, present := body["top_p"]; present {
+		t.Fatalf("Responses passthrough must omit top_p: %v", body)
+	}
+	if _, present := client["temperature"]; !present {
+		t.Fatal("Prepare must not mutate the client body")
+	}
+}
+
 func TestChatGPTWebStructuredErrorsPreserveFailureClassification(t *testing.T) {
 	for _, tc := range []struct {
 		name string
