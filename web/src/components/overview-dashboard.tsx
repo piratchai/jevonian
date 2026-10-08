@@ -371,9 +371,12 @@ export function UsageHeatmapCard({
     return "bg-kumo-brand";
   }
 
-  // Columns stretch to fill the card, capped so a short history cannot render giant
-  // squares. A full 90-day window reaches the cap and spans the whole row.
-  const heatmapColumns = `repeat(${weeks.length}, minmax(0, ${HEATMAP_MAX_CELL}px))`;
+  // Columns stretch to fill the card. The max-width caps growth on short histories, where
+  // an unclamped 1fr row would render enormous squares; a full 90-day window is wider than
+  // the cap, so it just fills the card as before.
+  const heatmapMaxWidth =
+    weeks.length * HEATMAP_MAX_CELL + Math.max(0, weeks.length - 1) * HEATMAP_GAP;
+  const heatmapColumns = `repeat(${weeks.length}, minmax(0, 1fr))`;
 
   return (
     <LayerCard className="overflow-hidden shadow-none">
@@ -406,62 +409,62 @@ export function UsageHeatmapCard({
           <p className="py-6 text-center text-xs text-kumo-subtle">No usage yet.</p>
         ) : (
           <>
-            {/* Fluid columns: the grid spans the card width, so the cells scale instead of
-                leaving empty space and clipping the month labels. */}
-            <div
-              className="mb-1.5 grid text-xs text-kumo-subtle"
-              style={{
-                gridTemplateColumns: heatmapColumns,
-                columnGap: HEATMAP_GAP,
-              }}
-            >
-              {weeks.map((_, col) => {
-                const label = monthLabels.find((m) => m.col === col);
-                return (
-                  <span key={col} className="overflow-visible whitespace-nowrap leading-none">
-                    {label?.text ?? ""}
-                  </span>
-                );
-              })}
-            </div>
-            <div
-              className="grid w-full"
-              style={{
-                gridTemplateRows: "repeat(7, auto)",
-                gridAutoFlow: "column",
-                gridTemplateColumns: heatmapColumns,
-                gap: HEATMAP_GAP,
-              }}
-              onMouseLeave={() => setHover(null)}
-            >
-              {weeks.flatMap((week, col) =>
-                week.map((cell, row) => {
-                  if (!cell) {
-                    return <span key={`${col}-${row}`} className="aspect-square w-full" />;
-                  }
-                  if (cell.empty) {
+            {/* Fluid columns: each grid spans the card width, so the cells scale instead of
+                leaving empty space and clipping the month labels. The max-width only bites
+                when the history is short, so a two-week window cannot render giant squares. */}
+            <div style={{ maxWidth: heatmapMaxWidth }}>
+              <div
+                className="mb-1.5 grid text-xs text-kumo-subtle"
+                style={{
+                  gridTemplateColumns: heatmapColumns,
+                  columnGap: HEATMAP_GAP,
+                }}
+              >
+                {weeks.map((_, col) => {
+                  const label = monthLabels.find((m) => m.col === col);
+                  return (
+                    <span key={col} className="overflow-visible whitespace-nowrap leading-none">
+                      {label?.text ?? ""}
+                    </span>
+                  );
+                })}
+              </div>
+              <div
+                className="grid w-full"
+                style={{
+                  gridTemplateRows: "repeat(7, auto)",
+                  gridAutoFlow: "column",
+                  gridTemplateColumns: heatmapColumns,
+                  gap: HEATMAP_GAP,
+                }}
+                onMouseLeave={() => setHover(null)}
+              >
+                {weeks.flatMap((week, col) =>
+                  week.map((cell, row) => {
+                    if (!cell || cell.empty) {
+                      return (
+                        <span
+                          key={`${col}-${row}`}
+                          className="aspect-square w-full rounded-[3px] bg-transparent"
+                        />
+                      );
+                    }
                     return (
-                      <span
+                      <button
                         key={`${col}-${row}`}
-                        className="aspect-square w-full rounded-[3px] bg-transparent"
+                        type="button"
+                        title={`${cell.label}: ${formatCompact(cell.tokens)} tokens`}
+                        className={cn(
+                          "aspect-square w-full rounded-[3px] outline-none transition-[transform,opacity] duration-150 ease-out",
+                          "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-kumo-line",
+                          level(cell.tokens),
+                        )}
+                        onMouseEnter={() => setHover({ label: cell.label, tokens: cell.tokens })}
                       />
                     );
-                  }
-                  return (
-                    <button
-                      key={`${col}-${row}`}
-                      type="button"
-                      title={`${cell.label}: ${formatCompact(cell.tokens)} tokens`}
-                      className={cn(
-                        "aspect-square w-full rounded-[3px] outline-none transition-[transform,opacity] duration-150 ease-out",
-                        "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-kumo-line",
-                        level(cell.tokens),
-                      )}
-                      onMouseEnter={() => setHover({ label: cell.label, tokens: cell.tokens })}
-                    />
-                  );
-                }),
-              )}
+                  }),
+                )}
+              </div>
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 text-xs text-kumo-subtle">
               <p className="min-h-[1rem] tabular-nums">
