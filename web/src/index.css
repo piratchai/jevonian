@@ -44,3 +44,30 @@
     min-height: 100svh;
   }
 }
+
+/*
+ * Kumo sizes its sidebar internals in `rem`, but this app pins the root font to
+ * 14px. Two collapsed-state artifacts follow from that mismatch:
+ *
+ *   1. The nav icon keeps Kumo's `translate-x-[-3px]` nudge, which only centres
+ *      the icon at a 16px root. At 14px the icon drifts left, so the hover tint
+ *      reveals an uneven gap on the right of the icon.
+ *   2. The `Sidebar.Rail` hover bar is drawn at `left-1/2` of a strip that is
+ *      already offset `-translate-x-1/2`. That lands mid-pane instead of on the
+ *      pane edge, painting a stray full-height line across the icon column.
+ *
+ * These rules stay unlayered so they win over Kumo's `utilities` layer without
+ * `!important`.
+ */
+[data-sidebar-wrapper][data-state="collapsed"] [data-sidebar="menu-button"] > div {
+  translate: none;
+}
+
+[data-sidebar-wrapper] [data-sidebar="rail"] {
+  translate: none;
+}
+
+[data-sidebar-wrapper] [data-sidebar="rail"]::after {
+  left: auto;
+  right: 0;
+}
