@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { RequestsChart } from "@/components/activity-charts";
 import { LogDetailView } from "@/components/log-detail/log-detail-view";
+import { LOG_COLUMNS } from "@/components/logs/columns";
 import { CollapsedRail, FilterRail } from "@/components/logs/filter-rail";
 import {
   EMPTY_FILTERS,
@@ -73,7 +74,9 @@ export function LogsPage() {
   const [filters, setFilters] = useState<LogFilters>(EMPTY_FILTERS);
   const [searchDraft, setSearchDraft] = useState("");
   const [live, setLive] = useState(true);
-  const [railOpen, setRailOpen] = useState(true);
+  // The log table is the point of this page, so the filter rail starts
+  // collapsed as a thin strip. Expanding it is one click.
+  const [railOpen, setRailOpen] = useState(false);
   /** Mobile-only rail drawer; the md+ rail is controlled by `railOpen`. */
   const [railDrawerOpen, setRailDrawerOpen] = useState(false);
   /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
@@ -352,19 +355,25 @@ export function LogsPage() {
         />
 
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
-          <div className="grid shrink-0 grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            <div className="col-span-1">Time</div>
-            <div className="col-span-2">Model</div>
-            <div className="col-span-2">Provider</div>
-            <div className="col-span-1">Phase</div>
-            <div className="col-span-1">Effort</div>
-            <div className="col-span-1">Status</div>
-            <div className="col-span-1" title="Share of input tokens served from the prompt cache">
+          <div
+            className="grid shrink-0 items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+            style={{ gridTemplateColumns: LOG_COLUMNS }}
+          >
+            <div className="truncate">Time</div>
+            <div className="truncate">Model</div>
+            <div className="truncate">Provider</div>
+            <div className="truncate">Phase</div>
+            <div className="truncate">Effort</div>
+            <div className="truncate">Status</div>
+            <div
+              className="truncate"
+              title="Share of input tokens served from the prompt cache"
+            >
               Cache
             </div>
-            <div className="col-span-1">Cost</div>
-            <div className="col-span-1">Latency</div>
-            <div className="col-span-1 text-right">Details</div>
+            <div className="truncate">Cost</div>
+            <div className="truncate">Latency</div>
+            <div className="truncate text-right">Details</div>
           </div>
 
           <div
@@ -404,6 +413,7 @@ export function LogsPage() {
                         left: 0,
                         width: "100%",
                         transform: `translateY(${virtualRow.start}px)`,
+                        gridTemplateColumns: LOG_COLUMNS,
                       }}
                       onClick={() => selectRecord(log)}
                       onKeyDown={(event) => {
@@ -413,14 +423,14 @@ export function LogsPage() {
                         }
                       }}
                       className={cn(
-                        "grid grid-cols-12 items-center gap-2 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
+                        "grid items-center gap-3 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
                         log.id ? "cursor-pointer" : "",
                         isNew ? "animate-flash-new" : "",
                         isSelected ? "bg-muted hover:bg-muted" : failed ? "bg-destructive/5" : "",
                       )}
                       title={log.id ? "Inspect this request" : "No record ID captured"}
                     >
-                      <div className="col-span-1 flex items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
+                      <div className="flex min-w-0 items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
                         <span
                           aria-hidden
                           className={cn(
@@ -430,7 +440,7 @@ export function LogsPage() {
                         />
                         {formatTime(log.ts)}
                       </div>
-                      <div className="col-span-2 flex min-w-0 items-center gap-1.5 pr-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-medium text-foreground">{log.model}</span>
                         {log.billing === "subscription" ? (
                           <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
@@ -438,14 +448,14 @@ export function LogsPage() {
                           </Badge>
                         ) : null}
                       </div>
-                      <div className="col-span-2 flex min-w-0 items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <ProviderIdentity
                           provider={log.provider}
                           size="size-4"
                           nameClassName="text-muted-foreground"
                         />
                       </div>
-                      <div className="col-span-1">
+                      <div className="min-w-0 truncate">
                         <Badge
                           variant={
                             log.phase === "plan"
@@ -459,7 +469,7 @@ export function LogsPage() {
                           {log.phase ?? "-"}
                         </Badge>
                       </div>
-                      <div className="col-span-1">
+                      <div className="min-w-0 truncate">
                         {log.effort ? (
                           <Badge
                             variant="outline"
@@ -474,7 +484,7 @@ export function LogsPage() {
                       </div>
                       <div
                         className={cn(
-                          "col-span-1 flex min-w-0 items-center gap-1.5 font-mono font-medium",
+                          "flex min-w-0 items-center gap-1.5 font-mono font-medium",
                           failed ? "text-destructive" : "text-muted-foreground",
                         )}
                       >
@@ -496,7 +506,7 @@ export function LogsPage() {
                           </span>
                         ) : null}
                       </div>
-                      <div className="col-span-1 flex min-w-0 items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         {coverage === null ? (
                           <span className="text-muted-foreground" title={cacheCoverageTitle(log)}>
                             —
@@ -528,13 +538,13 @@ export function LogsPage() {
                           </>
                         )}
                       </div>
-                      <div className="col-span-1 font-mono text-muted-foreground">
+                      <div className="truncate font-mono text-muted-foreground">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
-                      <div className="col-span-1 font-mono text-muted-foreground">
+                      <div className="truncate font-mono text-muted-foreground">
                         {log.latencyMs}ms
                       </div>
-                      <div className="col-span-1 text-right text-muted-foreground">
+                      <div className="truncate text-right text-muted-foreground">
                         {log.id ? (
                           <span className="inline-flex items-center gap-1.5">
                             <span>open →</span>
@@ -560,11 +570,15 @@ export function LogsPage() {
             {loadingMore ? (
               <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
                 {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className="grid grid-cols-12 items-center gap-2 py-1.5">
-                    <Skeleton className="col-span-1 h-3 w-10" />
-                    <Skeleton className="col-span-2 h-3 w-[80%]" />
-                    <Skeleton className="col-span-2 h-3 w-16" />
-                    <Skeleton className="col-span-7 h-3 w-full" />
+                  <div
+                    key={index}
+                    className="grid items-center gap-3 py-1.5"
+                    style={{ gridTemplateColumns: LOG_COLUMNS }}
+                  >
+                    <Skeleton className="h-3 w-10" />
+                    <Skeleton className="h-3 w-[80%]" />
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-3 w-full" style={{ gridColumn: "4 / -1" }} />
                   </div>
                 ))}
               </div>
