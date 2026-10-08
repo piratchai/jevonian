@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type {
   ModelQuotaHealthView,
   ProviderQuotaView,
+  ProviderView,
   QuotaHealthView,
   QuotaWindow,
 } from "@/lib/api";
@@ -121,33 +122,46 @@ function ModelCooldownRow({ model, now }: { model: ModelQuotaHealthView; now: nu
 
 export function ProviderQuotaCard({
   quota,
+  provider,
   health,
   onReset,
   resetDisabled,
+  onEdit,
+  onRemove,
 }: {
-  quota: ProviderQuotaView;
+  /** Live quota for this provider. Absent when the provider has no quota source. */
+  quota?: ProviderQuotaView;
+  /** Saved provider record — enables the account row and Edit / Remove. */
+  provider?: ProviderView;
   health?: QuotaHealthView;
   /** Clears Jevonian's local quota state for this provider. Omit to hide the control. */
   onReset?: (provider: string) => void;
   resetDisabled?: boolean;
+  onEdit?: (provider: ProviderView) => void;
+  onRemove?: (provider: string) => void;
 }) {
-  const spend = quota.spend;
+  const name = provider?.name ?? quota?.provider ?? "";
+  const billing = provider?.billing ?? quota?.billing ?? "api";
+  const spend = quota?.spend;
   const now = useResetClock();
-  const payPerToken = quota.billing === "api" && quota.windows.length === 0;
+  const windows = quota?.windows ?? [];
+  const payPerToken = billing === "api" && windows.length === 0;
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-xs">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">
-            <ProviderIdentity provider={quota.provider} />
+            <ProviderIdentity provider={provider ?? name} />
           </p>
           <p className="text-xs text-muted-foreground">
-            {quota.billing === "subscription" ? "subscription" : "pay per token"}
-            {quota.plan ? ` · ${quota.plan}` : ""}
-            {quota.note ? ` · ${quota.note}` : ""}
+            {billing === "subscription" ? "subscription" : "pay per token"}
+            {quota?.plan ? ` · ${quota.plan}` : ""}
+            {quota?.note ? ` · ${quota.note}` : ""}
           </p>
         </div>
-        {payPerToken ? (
+        {!quota ? (
+          <Badge variant="outline">no quota</Badge>
+        ) : payPerToken ? (
           <Badge variant="outline">no quota windows</Badge>
         ) : (
           <Badge variant={quota.source === "live" ? "default" : "secondary"}>
@@ -156,30 +170,32 @@ export function ProviderQuotaCard({
         )}
       </div>
 
-      {quota.windows.length > 0 ? (
+      {windows.length > 0 ? (
         <div className="flex flex-col gap-3">
-          {quota.windows.map((window) => (
+          {windows.map((window) => (
             <QuotaWindowRow key={window.id} window={window} />
           ))}
         </div>
-      ) : quota.balance ? (
+      ) : quota?.balance ? (
         <p className="text-sm">
           <span className="text-muted-foreground">remaining balance </span>
           <span className="font-medium">{balanceLabel(quota.balance)}</span>
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          {quota.billing === "api"
-            ? "Pay per token — no quota window."
-            : (quota.error ?? "No quota source for this provider.")}
+          {!quota
+            ? "No quota source for this provider."
+            : billing === "api"
+              ? "Pay per token — no quota window."
+              : (quota.error ?? "No quota source for this provider.")}
         </p>
       )}
 
-      {quota.windows.length > 0 && quota.error ? (
+      {windows.length > 0 && quota?.error ? (
         <p className="text-[11px] text-muted-foreground">{quota.error}</p>
       ) : null}
 
-      {quota.resets && quota.resets.count > 0 ? (
+      {quota?.resets && quota.resets.count > 0 ? (
         <section className="flex flex-col gap-1 border-t pt-3" aria-label="Available resets">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-medium">
@@ -189,7 +205,7 @@ export function ProviderQuotaCard({
               <Button
                 variant="outline"
                 size="xs"
-                onClick={() => onReset(quota.provider)}
+                onClick={() => onReset(name)}
                 disabled={resetDisabled}
                 title="Clears Jevonian's local cooldown and cached response quota only."
               >
@@ -237,25 +253,62 @@ export function ProviderQuotaCard({
         </p>
       ) : null}
 
-      <details className="border-t pt-2">
-        <summary className="cursor-pointer text-[11px] text-muted-foreground">
-          Periods &amp; source
-        </summary>
-        <div className="mt-2 flex flex-col gap-2">
-          <p className="text-[11px] text-muted-foreground">
-            Read {SOURCE_LABEL[quota.source]} · fetched {formatTime(quota.fetchedAt)}
-            {payPerToken ? " · pay per token, no window" : ""}
-          </p>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-            <span>5h {money(spend.fiveHourUsd)}</span>
-            <span>24h {money(spend.dayUsd)}</span>
-            <span>7d {money(spend.weekUsd)}</span>
-            <span>
-              30d {money(spend.monthUsd)} · {spend.monthRequests} reqs
-            </span>
+      {quota && spend ? (
+        <details className="border-t pt-2">
+          <summary className="cursor-pointer text-[11px] text-muted-foreground">
+            Periods &amp; source
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            <p className="text-[11px] text-muted-foreground">
+              Read {SOURCE_LABEL[quota.source]} · fetched {formatTime(quota.fetchedAt)}
+              {payPerToken ? " · pay per token, no window" : ""}
+            </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+              <span>5h {money(spend.fiveHourUsd)}</span>
+              <span>24h {money(spend.dayUsd)}</span>
+              <span>7d {money(spend.weekUsd)}</span>
+              <span>
+                30d {money(spend.monthUsd)} · {spend.monthRequests} reqs
+              </span>
+            </div>
           </div>
+        </details>
+      ) : null}
+
+      {provider ? (
+        <div className="flex items-center justify-between gap-2 border-t pt-3">
+          <span className="truncate font-mono text-[11px] text-muted-foreground">
+            {provider.name}
+            {" · "}
+            {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
+            {provider.keySource === "none" ? " · no key" : ""}
+          </span>
+          <span className="flex shrink-0 items-center gap-0.5">
+            {onEdit ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onEdit(provider)}
+                disabled={resetDisabled}
+              >
+                Edit
+              </Button>
+            ) : null}
+            {onRemove ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                onClick={() => onRemove(provider.name)}
+                disabled={resetDisabled}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </span>
         </div>
-      </details>
+      ) : null}
     </div>
   );
 }

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KeysHelp } from "@/components/keys-help";
 import { ProvidersSkeleton } from "@/components/page-skeletons";
-import { AccountChip, ProviderIdentity } from "@/components/provider-identity";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { ProviderLogo } from "@/components/provider-logo";
-import { QuotaGrid } from "@/components/quota-card";
+import { ProviderQuotaCard } from "@/components/quota-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -285,32 +285,31 @@ export function ProvidersPage({
   );
 
   /**
-   * Providers grouped by brand, so several accounts of one agent sit together and read as one
-   * product. Groups keep first-seen order; within a group the agent's own sign-in comes first,
-   * then second accounts by label, so the primary row is always on top.
+   * One card per connected source. Quota rows come first (they already carry usage), then any
+   * saved provider that has no quota yet — so a plain API key still shows with Edit / Remove.
    */
-  const providerGroups = useMemo(() => {
-    const groups = new Map<string, { brand: string; name: string; providers: ProviderView[] }>();
-    for (const provider of state?.config.providers ?? []) {
-      const identity = resolveProviderIdentity(provider);
-      const group = groups.get(identity.brand) ?? {
-        brand: identity.brand,
-        name: identity.name,
-        providers: [],
-      };
-      group.providers.push(provider);
-      groups.set(identity.brand, group);
+  const usageEntries = useMemo(() => {
+    const providers = state?.config.providers ?? [];
+    const providerByName = new Map(providers.map((provider) => [provider.name, provider]));
+    const quotaByName = new Map(quotas.map((quota) => [quota.provider, quota]));
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const quota of quotas) {
+      if (seen.has(quota.provider)) continue;
+      seen.add(quota.provider);
+      names.push(quota.provider);
     }
-    for (const group of groups.values()) {
-      group.providers.sort((a, b) => {
-        const aAccount = resolveProviderIdentity(a).account;
-        const bAccount = resolveProviderIdentity(b).account;
-        if (!aAccount !== !bAccount) return aAccount ? 1 : -1;
-        return (aAccount ?? "").localeCompare(bAccount ?? "") || a.name.localeCompare(b.name);
-      });
+    for (const provider of providers) {
+      if (seen.has(provider.name)) continue;
+      seen.add(provider.name);
+      names.push(provider.name);
     }
-    return [...groups.values()];
-  }, [state]);
+    return names.map((name) => ({
+      name,
+      quota: quotaByName.get(name),
+      provider: providerByName.get(name),
+    }));
+  }, [quotas, state]);
 
   function resetForm(id = "deepseek") {
     applyPreset(allPresets.find((item) => item.id === id) ?? allPresets[0]);
@@ -902,122 +901,16 @@ export function ProvidersPage({
         <Card>
           <CardHeader className="flex-row items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <CardTitle>Connected sources</CardTitle>
-              <CardDescription>{state?.config.providers.length ?? 0} providers</CardDescription>
+              <CardTitle>Usage &amp; limits</CardTitle>
+              <CardDescription>
+                {state.config.providers.length} sources · windows, reset times, and local spend.
+                Estimates use models.dev rates.
+              </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
-              Add provider
-            </Button>
-          </CardHeader>
-          <CardContent className="px-0">
-            {providerGroups.length === 0 ? (
-              <p className="px-6 text-sm text-muted-foreground">
-                No providers yet — choose Add provider to connect one.
-              </p>
-            ) : (
-              <div className="divide-y">
-                {providerGroups.map((group) => (
-                  <section key={group.brand}>
-                    <div className="flex items-center gap-2 px-6 pb-1 pt-4">
-                      <ProviderLogo id={group.brand} className="size-4" />
-                      <h3 className="text-[13px] font-medium">{group.name}</h3>
-                      {group.providers.length > 1 ? (
-                        <span className="text-[11px] text-muted-foreground">
-                          {group.providers.length} accounts
-                        </span>
-                      ) : null}
-                    </div>
-                    {group.providers.map((provider) => {
-                      const identity = resolveProviderIdentity(provider);
-                      const meta = [
-                        provider.type,
-                        provider.billing ?? "api",
-                        provider.keySource === "none" ? null : provider.keySource,
-                        `${provider.models.length} model${provider.models.length === 1 ? "" : "s"}`,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ");
-                      return (
-                        <div
-                          key={provider.name}
-                          className="flex items-center justify-between gap-4 px-6 py-2.5"
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            {identity.account ? (
-                              <AccountChip
-                                label={identity.account}
-                                detail={identity.accountDetail}
-                              />
-                            ) : null}
-                            <div className="min-w-0">
-                              <p className="truncate font-mono text-[13px] font-medium">
-                                {provider.name}
-                              </p>
-                              <p className="truncate text-[11px] text-muted-foreground">
-                                {provider.baseUrl}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-4">
-                            <span className="hidden text-[11px] text-muted-foreground sm:inline">
-                              {meta}
-                            </span>
-                            {provider.keySource === "none" ? (
-                              <Badge variant="destructive">no key</Badge>
-                            ) : null}
-                            <span className="flex items-center gap-0.5">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                onClick={() => edit(provider)}
-                                disabled={busy}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                                onClick={() => void remove(provider.name)}
-                                disabled={busy}
-                              >
-                                Remove
-                              </Button>
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </section>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {!settingsOnly ? (
-        <details className="order-3 rounded-md border" open>
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            Usage and quota details
-          </summary>
-          <section className="flex flex-col gap-3 p-4">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-sm font-semibold">Usage &amp; limits</h2>
-              <p className="text-sm text-muted-foreground">
-                Subscription windows, reset times, and local spend per provider. Estimates use
-                models.dev rates.
-              </p>
-            </div>
-            <QuotaGrid
-              quotas={quotas}
-              health={health}
-              bare
-              onReset={(provider) => void resetLocalQuota(provider)}
-              resetDisabled={busy}
-            />
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
+                Add provider
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -1027,8 +920,30 @@ export function ProvidersPage({
                 Refresh quota
               </Button>
             </div>
-          </section>
-        </details>
+          </CardHeader>
+          <CardContent>
+            {usageEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No providers yet — choose Add provider to connect one.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {usageEntries.map(({ name, quota, provider }) => (
+                  <ProviderQuotaCard
+                    key={name}
+                    quota={quota}
+                    provider={provider}
+                    health={health.find((item) => item.provider === name)}
+                    onReset={(target) => void resetLocalQuota(target)}
+                    resetDisabled={busy}
+                    onEdit={edit}
+                    onRemove={(target) => void remove(target)}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Sheet
