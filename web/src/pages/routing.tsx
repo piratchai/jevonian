@@ -51,6 +51,7 @@ import { providerDisplayName, resolveProviderIdentity } from "@/lib/provider-nam
 import {
   allowedProviders,
   BUILTIN_ROUTING_IDS,
+  collectProvidersByModel,
   mergeRoutingDrafts,
   routeSavePayload,
   validRoutingId,
@@ -266,18 +267,10 @@ export function RoutingPage({
     [onEditingChange],
   );
 
-  const providersByModel = useMemo(() => {
-    const map = new Map<string, string[]>();
-    const add = (id: string, provider: string) => {
-      const list = map.get(id) ?? [];
-      if (!list.includes(provider)) list.push(provider);
-      map.set(id, list);
-    };
-    for (const model of models) add(model.id, model.provider);
-    for (const model of canonicals)
-      for (const variant of model.variants) add(model.id, variant.provider);
-    return map;
-  }, [models, canonicals]);
+  const providersByModel = useMemo(
+    () => collectProvidersByModel(models, canonicals),
+    [models, canonicals],
+  );
   const names = useMemo(
     () => new Map(canonicals.map((entry) => [entry.id, entry.name])),
     [canonicals],

@@ -1,6 +1,36 @@
-import type { RoutingEntryView } from "../lib/api.ts";
+import type { CanonicalModelView, ModelView, RoutingEntryView } from "../lib/api.ts";
 
 export const BUILTIN_ROUTING_IDS = new Set(["plan", "execute", "utility", "chat"]);
+
+/**
+ * Collect all providers that serve a model, indexed by both canonical and raw variant spellings.
+ * This ensures that a model like `deepseek-v4.1-flash` also sees providers configured with
+ * `deepseek/deepseek-v4.1-flash`.
+ */
+export function collectProvidersByModel(
+  models: ModelView[],
+  canonicals: CanonicalModelView[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  const add = (id: string, provider: string) => {
+    const list = map.get(id) ?? [];
+    if (!list.includes(provider)) list.push(provider);
+    map.set(id, list);
+  };
+  for (const model of models) add(model.id, model.provider);
+  for (const canonical of canonicals) {
+    const providers = canonical.variants.map((v) => v.provider);
+    // Associate all providers serving this canonical model with the canonical ID
+    // as well as every variant spelling.
+    for (const p of providers) {
+      add(canonical.id, p);
+      for (const variant of canonical.variants) {
+        add(variant.model, p);
+      }
+    }
+  }
+  return map;
+}
 
 /** Undefined allows discovery. An explicit empty list withholds the model. */
 export function allowedProviders(discovered: string[], preferred: string[] | undefined): string[] {
