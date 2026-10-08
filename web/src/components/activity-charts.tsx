@@ -452,9 +452,7 @@ export function RequestsChart({
                 title="Share of input tokens served from the prompt cache in this window"
               >
                 <span className="font-sans">Cache</span>
-                <span className="font-medium text-foreground">
-                  {Math.round(coverage * 100)}%
-                </span>
+                <span className="font-medium text-foreground">{Math.round(coverage * 100)}%</span>
               </span>
             ) : null}
           </div>

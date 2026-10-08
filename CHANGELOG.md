@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.4] - 2026-10-08
+
+### Added
+
+- **Prompt cache coverage in the Logs view.** Each row shows the share of input tokens served from the prompt cache, and the activity chart reports the same ratio for the window.
+
+### Changed
+
+- **Logs filters moved into a dropdown.** The filter panel opens from a funnel button next to the search box, so the log table gets the full page width. The button shows a count when filters are active.
+
+### Fixed
+
+- **Logs table columns no longer overlap.** Columns clip to the available width instead of colliding on narrow screens.
+
 ## [0.6.3] - 2026-10-06
 
 ### Added

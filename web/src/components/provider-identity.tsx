@@ -1,11 +1,6 @@
 import { ProviderLogo } from "@/components/provider-logo";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveProviderIdentity, type ProviderIdentityInput } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
@@ -70,7 +65,10 @@ export function AccountChip({
   const chip = (
     <Badge
       variant="outline"
-      className={cn("shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground", className)}
+      className={cn(
+        "shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground",
+        className,
+      )}
     >
       {text}
     </Badge>

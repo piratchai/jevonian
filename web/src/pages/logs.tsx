@@ -346,10 +346,7 @@ export function LogsPage() {
             <div className="truncate">Phase</div>
             <div className="truncate">Effort</div>
             <div className="truncate">Status</div>
-            <div
-              className="truncate"
-              title="Share of input tokens served from the prompt cache"
-            >
+            <div className="truncate" title="Share of input tokens served from the prompt cache">
               Cache
             </div>
             <div className="truncate">Cost</div>
@@ -508,10 +505,7 @@ export function LogsPage() {
                               />
                             </span>
                             <span
-                              className={cn(
-                                "font-mono tabular-nums",
-                                cacheCoverageTone(coverage),
-                              )}
+                              className={cn("font-mono tabular-nums", cacheCoverageTone(coverage))}
                               title={cacheCoverageTitle(log)}
                             >
                               {formatCacheCoverage(coverage)}
