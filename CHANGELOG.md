@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.5] - 2026-10-08
+
+### Added
+
+- **Overview dashboard rebuild.** The home view shows usage, models, and cost cards in a clearer grid.
+- **Provider logos in routing.** Task route chains and provider lists show brand marks inline.
+
+### Changed
+
+- **Provider usage cards show connected sources.** Quota is the primary view, with account details and Edit/Remove on each card.
+- **Provider list rows are more compact.** Source rows are flatter, and badges are quieter.
+- **Logs request detail opens in a Sheet.** Detail no longer uses a fixed side panel.
+
+### Fixed
+
+- **Responses sampling params no longer leak upstream.** Codex-style Responses passthrough strips `temperature` / `top_p`, and an exhausted provider no longer rewrites those client 400s as quota failovers.
+
 ## [0.6.4] - 2026-10-08
 
 ### Added

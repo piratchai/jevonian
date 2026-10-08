@@ -570,7 +570,11 @@ export function LogsPage() {
           if (!open) setSelectedId(null);
         }}
       >
-        <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-[30rem]">
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="w-full gap-0 p-0 sm:max-w-[30rem]"
+        >
           {selectedId ? (
             <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
           ) : null}

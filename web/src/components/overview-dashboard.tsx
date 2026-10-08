@@ -5,11 +5,7 @@ import { Link } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type {
-  ActivityModelStatView,
-  ActivityReportView,
-  ActivitySeriesPointView,
-} from "@/lib/api";
+import type { ActivityModelStatView, ActivityReportView, ActivitySeriesPointView } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export function formatCompact(n: number): string {
@@ -129,7 +125,13 @@ function MiniBars({
             idx === series.length - 1;
           return (
             <g key={pt.timestamp} onMouseEnter={() => setHoverIndex(idx)}>
-              <rect x={x} y={padTop} width={barWidth + gap} height={chartHeight} fill="transparent" />
+              <rect
+                x={x}
+                y={padTop}
+                width={barWidth + gap}
+                height={chartHeight}
+                fill="transparent"
+              />
               {value > 0 ? (
                 <rect
                   x={x}
@@ -258,7 +260,9 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-0.5 px-3 pb-4">
         {top.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-muted-foreground">No model traffic yet.</p>
+          <p className="px-2 py-8 text-center text-xs text-muted-foreground">
+            No model traffic yet.
+          </p>
         ) : (
           top.map((m) => {
             const ratio = m.totalTokens / maxTokens;
@@ -269,7 +273,10 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
                 className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted/50"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium" title={m.variants?.join(", ") ?? m.model}>
+                  <p
+                    className="truncate text-sm font-medium"
+                    title={m.variants?.join(", ") ?? m.model}
+                  >
                     {m.label ?? m.model}
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
@@ -529,8 +536,8 @@ export function TokensCard({
         </CardTitle>
         <p className="text-[11px] text-muted-foreground">
           prompt {formatCompact(summary.promptTokens)} · out{" "}
-          {formatCompact(summary.completionTokens)} · cache{" "}
-          {formatCompact(summary.cacheReadTokens)} · hit {(cacheHitRate * 100).toFixed(0)}%
+          {formatCompact(summary.completionTokens)} · cache {formatCompact(summary.cacheReadTokens)}{" "}
+          · hit {(cacheHitRate * 100).toFixed(0)}%
         </p>
       </CardHeader>
       <CardContent className="px-5 pb-5">

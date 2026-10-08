@@ -2,10 +2,7 @@ import { Gauge, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 
-import {
-  OverviewDashboardGrid,
-  OverviewStatusStrip,
-} from "@/components/overview-dashboard";
+import { OverviewDashboardGrid, OverviewStatusStrip } from "@/components/overview-dashboard";
 import { OverviewSkeleton } from "@/components/page-skeletons";
 import { QuotaGrid } from "@/components/quota-card";
 import { Badge } from "@/components/ui/badge";
@@ -87,14 +84,9 @@ export function OverviewPage() {
 
   const loadCore = useCallback(async () => {
     try {
-      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate, nextLan] = await Promise.all([
-        api.state(),
-        api.stats(),
-        api.quota(),
-        api.tunnel(),
-        api.update(),
-        api.lan(),
-      ]);
+      const [nextState, nextStats, nextQuotas, nextTunnel, nextUpdate, nextLan] = await Promise.all(
+        [api.state(), api.stats(), api.quota(), api.tunnel(), api.update(), api.lan()],
+      );
       setState(nextState);
       setStats(nextStats);
       setQuotas(nextQuotas.quotas);
@@ -296,10 +288,7 @@ export function OverviewPage() {
         Endpoints, provider limits, tunnel, LAN, and updates. Open a section when you need it.
       </p>
 
-      <Panel
-        title="Agent endpoints"
-        summary={publicUrl ? "local + public" : "local only"}
-      >
+      <Panel title="Agent endpoints" summary={publicUrl ? "local + public" : "local only"}>
         <p className="text-xs text-muted-foreground">
           {authed
             ? "Both endpoints speak OpenAI and Anthropic protocols; every request needs a Jevonian key."
@@ -315,7 +304,9 @@ export function OverviewPage() {
           </div>
           <details>
             <summary className="cursor-pointer text-xs text-muted-foreground">curl example</summary>
-            <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">{curl(localUrl)}</pre>
+            <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">
+              {curl(localUrl)}
+            </pre>
           </details>
         </div>
         <div className="flex flex-col gap-2 border-t pt-3">
@@ -326,11 +317,7 @@ export function OverviewPage() {
             {publicUrl ? (
               <>
                 <code className="rounded-md bg-muted px-3 py-2 text-sm">{publicUrl}</code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void copy(publicUrl, "public")}
-                >
+                <Button variant="outline" size="sm" onClick={() => void copy(publicUrl, "public")}>
                   {copied === "public" ? "Copied" : "Copy"}
                 </Button>
               </>
@@ -399,7 +386,7 @@ export function OverviewPage() {
             const status = update?.update;
             const restartOnly = Boolean(
               status?.restartRequired &&
-                (!status.updateAvailable || status.installed === status.latest),
+              (!status.updateAvailable || status.installed === status.latest),
             );
             const needsAction = Boolean(status?.updateAvailable || status?.restartRequired);
             return (
