@@ -929,70 +929,63 @@ export function ProvidersPage({
                     </div>
                     {group.providers.map((provider) => {
                       const identity = resolveProviderIdentity(provider);
+                      const meta = [
+                        provider.type,
+                        provider.billing ?? "api",
+                        provider.keySource === "none" ? null : provider.keySource,
+                        `${provider.models.length} model${provider.models.length === 1 ? "" : "s"}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       return (
                         <div
                           key={provider.name}
-                          className="group flex items-center gap-4 px-6 py-2"
+                          className="flex items-center justify-between gap-4 px-6 py-2.5"
                         >
-                          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                          <div className="flex min-w-0 items-center gap-3">
                             {identity.account ? (
                               <AccountChip
                                 label={identity.account}
                                 detail={identity.accountDetail}
-                                className="relative top-px"
                               />
                             ) : null}
-                            <span className="truncate font-mono text-[13px] font-medium">
-                              {provider.name}
+                            <div className="min-w-0">
+                              <p className="truncate font-mono text-[13px] font-medium">
+                                {provider.name}
+                              </p>
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {provider.baseUrl}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-4">
+                            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                              {meta}
                             </span>
-                            <span className="hidden truncate text-xs text-muted-foreground sm:inline">
-                              {provider.baseUrl}
+                            {provider.keySource === "none" ? (
+                              <Badge variant="destructive">no key</Badge>
+                            ) : null}
+                            <span className="flex items-center gap-0.5">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => edit(provider)}
+                                disabled={busy}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                                onClick={() => void remove(provider.name)}
+                                disabled={busy}
+                              >
+                                Remove
+                              </Button>
                             </span>
                           </div>
-                          <span className="hidden w-16 truncate text-xs text-muted-foreground md:inline">
-                            {provider.type}
-                          </span>
-                          <span
-                            className={cn(
-                              "hidden w-20 text-xs sm:inline",
-                              provider.billing !== "subscription" && "text-muted-foreground",
-                            )}
-                          >
-                            {provider.billing ?? "api"}
-                          </span>
-                          <span
-                            className={cn(
-                              "hidden w-24 truncate text-xs lg:inline",
-                              provider.keySource === "none"
-                                ? "font-medium text-destructive"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {provider.keySource === "none" ? "no key" : provider.keySource}
-                          </span>
-                          <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">
-                            {provider.models.length}
-                          </span>
-                          <span className="flex w-20 justify-end gap-0.5">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => edit(provider)}
-                              disabled={busy}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-                              onClick={() => void remove(provider.name)}
-                              disabled={busy}
-                            >
-                              Remove
-                            </Button>
-                          </span>
                         </div>
                       );
                     })}
