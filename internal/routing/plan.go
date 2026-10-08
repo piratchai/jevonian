@@ -303,6 +303,174 @@ func CanServeClient(p config.Provider, client RequestKind) bool {
 	return false
 }
 
+// ProviderServesTools reports whether a provider can accept a turn that
+// carries native tool definitions or tool results.
+//
+// The chatgpt-web provider drives a logged-in browser session. It has no
+// native tool-calling channel, so a body with `tools` (or a tool-result turn)
+// is rejected with HTTP 400. Withhold it as a candidate for such a turn rather
+// than failover onto it and return the 400 to the client.
+func ProviderServesTools(p config.Provider) bool {
+	return p.Type != config.ProviderTypeChatGPTWeb
+}
+
+// TurnCarriesTools reports whether a request body carries native tool
+// definitions or hands tool results back for the current turn.
+// src/routing.ts hasTools/hasToolResults.
+//
+// This is a shape check, not the full phase classifier: it never stringifies
+// message content, so it stays cheap on the pinned path. It reads the same
+// signals ClassifyPhase does — the top-level `tools` array, plus tool results
+// after the latest user message — so the pinned and virtual paths agree.
+func TurnCarriesTools(body map[string]any, kind RequestKind) bool {
+	if body == nil {
+		return false
+	}
+	if len(asArray(body["tools"])) > 0 {
+		return true
+	}
+	if kind == KindResponses {
+		input := asArray(body["input"])
+		latestUser := -1
+		for i, raw := range input {
+			item := asRecord(raw)
+			if item["type"] == "message" && item["role"] == "user" {
+				latestUser = i
+			}
+		}
+		for i, raw := range input {
+			if i <= latestUser {
+				continue
+			}
+			if asRecord(raw)["type"] == "function_call_output" {
+				return true
+			}
+		}
+		return false
+	}
+	messages := asArray(body["messages"])
+	// The latest user *text* message: for Anthropic a user turn that only
+	// carries tool_result blocks is not a new user intent. Matches ClassifyPhase.
+	latestUser := -1
+	for i, raw := range messages {
+		message := asRecord(raw)
+		if message["role"] != "user" {
+			continue
+		}
+		if kind == KindAnthropic {
+			for _, rawBlock := range asArray(message["content"]) {
+				block := asRecord(rawBlock)
+				if block["type"] == "text" && strings.TrimSpace(stringField(block, "text")) != "" {
+					latestUser = i
+					break
+				}
+			}
+			continue
+		}
+		latestUser = i
+	}
+	for i, raw := range messages {
+		if i <= latestUser {
+			continue
+		}
+		message := asRecord(raw)
+		if kind == KindAnthropic {
+			for _, block := range asArray(message["content"]) {
+				if asRecord(block)["type"] == "tool_result" {
+					return true
+				}
+			}
+			continue
+		}
+		if message["role"] == "tool" {
+			return true
+		}
+	}
+	return false
+}
+
+// toolCapableProviders drops providers with no native tool channel. When every
+// provider would be dropped, the original list is returned so a pinned model
+// stays routable.
+func toolCapableProviders(providers []config.Provider) []config.Provider {
+	kept := make([]config.Provider, 0, len(providers))
+	for _, p := range providers {
+		if ProviderServesTools(p) {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
+		return providers
+	}
+	return kept
+}
+
+// toolCapablePicks is the TierPick form of toolCapableProviders: it drops picks
+// whose provider has no native tool channel, keeping the original list when
+// every pick would be dropped.
+func toolCapablePicks(cfg *config.Config, picks []TierPick) []TierPick {
+	kept := make([]TierPick, 0, len(picks))
+	for _, c := range picks {
+		if p := providerByName(cfg, c.Provider); p == nil || ProviderServesTools(*p) {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return picks
+	}
+	return kept
+}
+
+// toolSkipNotes lists the picks in `all` that `kept` dropped because their
+// provider has no native tool channel. Rank order is preserved.
+func toolSkipNotes(all, kept []TierPick) []RouteSkip {
+	keptKeys := make(map[string]bool, len(kept))
+	for _, c := range kept {
+		keptKeys[PlanKey(c.Provider, c.Model)] = true
+	}
+	notes := []RouteSkip{}
+	for _, c := range all {
+		if keptKeys[PlanKey(c.Provider, c.Model)] {
+			continue
+		}
+		notes = append(notes, RouteSkip{
+			Model:    c.Model,
+			Provider: c.Provider,
+			Reason:   "tools",
+			Detail:   "provider has no native tool-calling channel",
+		})
+	}
+	return notes
+}
+
+// providerPicks projects providers to TierPicks for one model.
+func providerPicks(providers []config.Provider, model string) []TierPick {
+	out := make([]TierPick, 0, len(providers))
+	for _, p := range providers {
+		out = append(out, TierPick{Provider: p.Name, Model: model})
+	}
+	return out
+}
+
+// dedupeToolSkips removes duplicate tool-skip notes and returns nil when empty,
+// so a Decision without withheld candidates stays clean.
+func dedupeToolSkips(notes []RouteSkip) []RouteSkip {
+	if len(notes) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]RouteSkip, 0, len(notes))
+	for _, n := range notes {
+		key := PlanKey(n.Provider, n.Model)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, n)
+	}
+	return out
+}
+
 // ---- model id helpers (src/model-id.ts, src/models.ts) ----
 
 // BareModelID is the model segment after the last `/`.

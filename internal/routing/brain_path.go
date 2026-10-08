@@ -516,7 +516,7 @@ func (t *turnCtx) decideBrain(ctx context.Context, requestedRaw, requestID, sess
 
 	declaredCandidates := map[string]bool{}
 	for _, e := range t.routings {
-		for _, c := range RoutingCandidates(cfg, deps, e, t.input.Kind) {
+		for _, c := range t.dropToolIncapable(RoutingCandidates(cfg, deps, e, t.input.Kind)) {
 			declaredCandidates[PlanKey(c.Provider, c.Model)] = true
 		}
 	}
@@ -627,6 +627,7 @@ func (t *turnCtx) decideBrain(ctx context.Context, requestedRaw, requestID, sess
 	if len(skipped) > 0 {
 		d.Skipped = skipped
 	}
+	t.mergeToolSkips(d)
 	if chosenCandidate != nil {
 		c := chosenCandidate.Cache
 		d.Cache = &c

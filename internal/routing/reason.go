@@ -69,6 +69,7 @@ const (
 	SuffixQuotaSkip          = "quota-skip"           // some declared candidates were withheld
 	SuffixContextSkip        = "context-skip"         // a candidate's window could not hold the turn
 	SuffixEffortSkip         = "effort-skip"          // a candidate could not meet the effort floor
+	SuffixToolSkip           = "tool-skip"            // a candidate has no native tool-calling channel
 	SuffixBrainLowConfidence = "brain-low-confidence" // verdict below the channel's minConfidence
 	SuffixEffortClamped      = "effort-clamped"       // effortNote set
 	SuffixCacheHot           = "cache-hot"
@@ -187,7 +188,7 @@ func (p ReasonParts) Has(suffix string) bool {
 func knownSuffix(s string) bool {
 	switch s {
 	case SuffixQuotaFallback, SuffixNoCandidate, SuffixQuotaSkip, SuffixContextSkip,
-		SuffixEffortSkip, SuffixBrainLowConfidence, SuffixEffortClamped, SuffixCacheHot,
+		SuffixEffortSkip, SuffixToolSkip, SuffixBrainLowConfidence, SuffixEffortClamped, SuffixCacheHot,
 		SuffixCacheStale, SuffixQuotaFailover, SuffixContextRetry, "canonical":
 		return true
 	}

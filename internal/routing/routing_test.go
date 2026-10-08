@@ -2029,3 +2029,161 @@ func TestReasonChain(t *testing.T) {
 		t.Fatalf("explicit = %+v", p)
 	}
 }
+
+// ---- tool-capability routing (chatgpt-web has no native tool channel) -----
+
+// toolCfg is one config with a tool-incapable provider (chatgpt-web) and a
+// tool-capable one (openai), both serving the same model.
+func toolCfg() *config.Config {
+	cfg := defaultCfg()
+	cfg.DefaultProvider = "chatgpt-web"
+	cfg.Providers = []config.Provider{
+		{
+			Name: "chatgpt-web", Type: config.ProviderTypeChatGPTWeb,
+			BaseURL: "http://127.0.0.1:9222", Auth: config.AuthAPIKey,
+			Billing: config.BillingSubscription, NoKey: true,
+			Models: []config.ModelEntry{{ID: "gpt-6-pro"}},
+		},
+		{
+			Name: "openai", Type: config.ProviderTypeOpenAI,
+			BaseURL: "http://127.0.0.1:1/v1", APIKey: "test",
+			Models: []config.ModelEntry{{ID: "gpt-6-pro"}},
+		},
+	}
+	cfg.Routing.Brains = []config.BrainConfig{
+		{Channel: "typesafe", APIKeyEnv: "TYPESAFE_API_KEY"},
+	}
+	cfg.Routing.QuotaGuard.Enabled = false
+	return cfg
+}
+
+func toolBody(withTools bool) map[string]any {
+	body := map[string]any{
+		"model":    "auto",
+		"messages": []any{map[string]any{"role": "user", "content": "fix it"}},
+	}
+	if withTools {
+		body["tools"] = []any{map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": "Shell", "parameters": map[string]any{"type": "object"},
+			},
+		}}
+	}
+	return body
+}
+
+func TestProviderServesTools(t *testing.T) {
+	if ProviderServesTools(config.Provider{Type: config.ProviderTypeChatGPTWeb}) {
+		t.Fatal("chatgpt-web must not serve tools")
+	}
+	for _, typ := range []config.ProviderType{
+		config.ProviderTypeOpenAI, config.ProviderTypeAnthropic,
+		config.ProviderTypeResponses, config.ProviderTypeBoth,
+		config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor,
+	} {
+		if !ProviderServesTools(config.Provider{Type: typ}) {
+			t.Fatalf("%s should serve tools", typ)
+		}
+	}
+}
+
+func TestTurnCarriesTools(t *testing.T) {
+	if TurnCarriesTools(toolBody(false), KindOpenAI) {
+		t.Fatal("plain turn should not carry tools")
+	}
+	if !TurnCarriesTools(toolBody(true), KindOpenAI) {
+		t.Fatal("tool turn should carry tools")
+	}
+	// A tool-result turn carries tools even without a definitions array.
+	body := map[string]any{
+		"model": "auto",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "fix it"},
+			map[string]any{"role": "assistant", "content": "", "tool_calls": []any{
+				map[string]any{"id": "1", "type": "function", "function": map[string]any{"name": "Shell", "arguments": "{}"}},
+			}},
+			map[string]any{"role": "tool", "tool_call_id": "1", "content": "ok"},
+		},
+	}
+	if !TurnCarriesTools(body, KindOpenAI) {
+		t.Fatal("tool-result turn should carry tools")
+	}
+}
+
+// A pinned model must not land on chatgpt-web when the turn carries tools and a
+// capable provider serves the same model.
+func TestDecidePinnedToolTurnWithholdsChatGPTWeb(t *testing.T) {
+	input := baseInput(toolBody(true), nil, nil)
+	input.Config = toolCfg()
+	input.Body["model"] = "gpt-6-pro"
+	d := route(t, priceDeps(), input)
+	if d.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", d.Provider)
+	}
+	for _, c := range d.Order {
+		if c.Provider == "chatgpt-web" {
+			t.Fatalf("chatgpt-web must not be in the failover plan: %+v", d.Order)
+		}
+	}
+	found := false
+	for _, s := range d.Skipped {
+		if s.Provider == "chatgpt-web" && s.Reason == "tools" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pinned path must report the tool skip: %+v", d.Skipped)
+	}
+}
+
+// A plain turn with no tools keeps the original provider preference.
+func TestDecidePinnedPlainTurnKeepsChatGPTWeb(t *testing.T) {
+	input := baseInput(toolBody(false), nil, nil)
+	input.Config = toolCfg()
+	input.Body["model"] = "gpt-6-pro"
+	d := route(t, priceDeps(), input)
+	if d.Provider != "chatgpt-web" {
+		t.Fatalf("provider = %q, want chatgpt-web", d.Provider)
+	}
+}
+
+// The brain/explicit path reports the withheld candidate and stamps the reason.
+func TestDecideToolTurnReportsToolSkip(t *testing.T) {
+	input := baseInput(toolBody(true), nil, nil)
+	input.Config = toolCfg()
+	input.Now = 1_000
+	d := route(t, priceDeps(), input)
+	if d.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", d.Provider)
+	}
+	if !strings.Contains(d.Reason, SuffixToolSkip) {
+		t.Fatalf("reason = %q", d.Reason)
+	}
+	found := false
+	for _, s := range d.Skipped {
+		if s.Provider == "chatgpt-web" && s.Reason == "tools" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("skipped = %+v", d.Skipped)
+	}
+	if !ParseReason(d.Reason).Has(SuffixToolSkip) {
+		t.Fatalf("parse reason = %+v", ParseReason(d.Reason))
+	}
+}
+
+// When chatgpt-web is the only provider for the model, the turn still reaches
+// it: a clear provider refusal beats a misleading "no models" error.
+func TestDecideToolTurnKeepsOnlyProvider(t *testing.T) {
+	cfg := toolCfg()
+	cfg.Providers = cfg.Providers[:1]
+	input := baseInput(toolBody(true), nil, nil)
+	input.Config = cfg
+	input.Body["model"] = "gpt-6-pro"
+	d := route(t, priceDeps(), input)
+	if d.Provider != "chatgpt-web" {
+		t.Fatalf("provider = %q, want chatgpt-web", d.Provider)
+	}
+}

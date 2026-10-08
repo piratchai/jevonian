@@ -93,6 +93,18 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 	if guard.Enabled && guard.ResetAware {
 		ordered = orderProvidersByReset(matches, requestedModel, cfg, deps, orderOptions{now: now, cache: standCache})
 	}
+	carriesTools := TurnCarriesTools(input.Body, input.Kind)
+	toolSkips := []RouteSkip{}
+	// A pinned model still must land on a provider that can carry the turn:
+	// when tools are present, a provider with no native tool channel is not a
+	// viable target while a capable one exists.
+	if carriesTools {
+		filtered := toolCapableProviders(ordered)
+		if len(filtered) != len(ordered) {
+			toolSkips = append(toolSkips, toolSkipNotes(providerPicks(ordered, requestedModel), providerPicks(filtered, requestedModel))...)
+		}
+		ordered = filtered
+	}
 	if input.Store != nil && firstHeader(input.Headers, RequestHeaderAffinity) != string(AffinityOff) {
 		if previous, ok := input.Store.Get(session, now); ok {
 			picks := make([]TierPick, len(ordered))
@@ -136,6 +148,8 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 		}
 	}
 	if exact != nil {
+		// `ordered` already dropped tool-incapable providers for a tool turn,
+		// so the wire list derived from it is tool-capable too.
 		wire := []TierPick{}
 		for _, c := range ordered {
 			if CanServeClient(c, input.Kind) {
@@ -148,13 +162,19 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 			Phase:          PhaseOfModel(cfg, deps, requestedModel),
 			RequestedModel: requestedRaw, Reason: ReasonPinnedModel,
 			Session: session, RequestID: requestID,
-			Order: weighedOrder(plan, cfg, deps, now, nil, nil),
+			Skipped: dedupeToolSkips(toolSkips),
+			Order:   weighedOrder(plan, cfg, deps, now, nil, nil),
 		}, nil
 	}
 
 	variants := []TierPick{}
 	for _, v := range CanonicalVariants(cfg, requestedModel, input.Kind, deps.Identity) {
 		variants = append(variants, TierPick{Provider: v.Provider, Model: v.Model})
+	}
+	if carriesTools {
+		kept := toolCapablePicks(cfg, variants)
+		toolSkips = append(toolSkips, toolSkipNotes(variants, kept)...)
+		variants = kept
 	}
 	variants = resetOrder(variants)
 	if input.Store != nil && firstHeader(input.Headers, RequestHeaderAffinity) != string(AffinityOff) {
@@ -190,7 +210,8 @@ func decidePinned(deps Deps, input Input, cfg *config.Config, requestedRaw, requ
 			Phase:          PhaseOfModel(cfg, deps, chosen.Model),
 			RequestedModel: requestedRaw, Canonical: requestedModel,
 			Reason: ReasonCanonicalModel, Session: session, RequestID: requestID,
-			Order: weighedOrder(plan, cfg, deps, now, nil, nil),
+			Skipped: dedupeToolSkips(toolSkips),
+			Order:   weighedOrder(plan, cfg, deps, now, nil, nil),
 		}, nil
 	}
 
@@ -258,6 +279,103 @@ type turnCtx struct {
 	keepApplied bool
 	keepReason  CacheKeepReason
 	resetOrder  func([]TierPick) []TierPick
+	// toolSkipped and toolSkippedSeen collect the candidates withheld because
+	// the turn carries tools and the provider has no native tool channel.
+	toolSkipped     []RouteSkip
+	toolSkippedSeen map[string]bool
+	// toolFilter / toolFilterReady cache whether any configured candidate has
+	// a native tool channel, so the check runs at most once per turn.
+	toolFilter      bool
+	toolFilterReady bool
+}
+
+// turnCarriesTools reports whether this turn sends native tool definitions or
+// hands back tool results. src/routing.ts hasTools / hasToolResults.
+func (t *turnCtx) turnCarriesTools() bool {
+	return t.signals.HasTools || t.signals.HasToolResults
+}
+
+// toolFilteringActive reports whether tool-incapable candidates must be
+// withheld for this turn.
+//
+// Filtering is global, not per pool: when the turn carries tools and at least
+// one configured candidate has a native tool channel, the incapable ones (the
+// chatgpt-web provider) are withheld everywhere. When nothing can serve tools,
+// filtering is skipped so the turn still reaches the only candidate and its
+// clear provider refusal, instead of a misleading "no models" error.
+func (t *turnCtx) toolFilteringActive() bool {
+	if !t.turnCarriesTools() {
+		return false
+	}
+	if t.toolFilterReady {
+		return t.toolFilter
+	}
+	t.toolFilterReady = true
+	for _, e := range t.routings {
+		for _, c := range RoutingCandidates(t.cfg, t.deps, e, t.input.Kind) {
+			if p := providerByName(t.cfg, c.Provider); p != nil && ProviderServesTools(*p) {
+				t.toolFilter = true
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// dropToolIncapable removes candidates that cannot accept a tool-carrying turn,
+// recording each withheld pick once. Without this, routing can failover onto the
+// chatgpt-web provider, which rejects a body with `tools` and returns the 400 to
+// the client. When a pool would be emptied entirely, it is returned unchanged so
+// the pool still exists and the turn reaches its only candidate.
+func (t *turnCtx) dropToolIncapable(picks []TierPick) []TierPick {
+	if !t.toolFilteringActive() {
+		return picks
+	}
+	kept := make([]TierPick, 0, len(picks))
+	withheld := make([]TierPick, 0, len(picks))
+	for _, c := range picks {
+		p := providerByName(t.cfg, c.Provider)
+		if p != nil && !ProviderServesTools(*p) {
+			withheld = append(withheld, c)
+			continue
+		}
+		kept = append(kept, c)
+	}
+	if len(kept) == 0 {
+		return picks
+	}
+	for _, c := range withheld {
+		t.noteToolSkip(c)
+	}
+	return kept
+}
+
+// noteToolSkip records one candidate withheld for lacking a tool channel.
+func (t *turnCtx) noteToolSkip(c TierPick) {
+	if t.toolSkippedSeen == nil {
+		t.toolSkippedSeen = map[string]bool{}
+	}
+	key := PlanKey(c.Provider, c.Model)
+	if t.toolSkippedSeen[key] {
+		return
+	}
+	t.toolSkippedSeen[key] = true
+	t.toolSkipped = append(t.toolSkipped, RouteSkip{
+		Model:    c.Model,
+		Provider: c.Provider,
+		Reason:   "tools",
+		Detail:   "provider has no native tool-calling channel",
+	})
+}
+
+// mergeToolSkips attaches the tool-filter notes to a decision, appending the
+// tool-skip suffix when the turn had a candidate withheld.
+func (t *turnCtx) mergeToolSkips(d *Decision) {
+	if len(t.toolSkipped) == 0 {
+		return
+	}
+	d.Reason = AppendReason(d.Reason, SuffixToolSkip)
+	d.Skipped = append(d.Skipped, t.toolSkipped...)
 }
 
 func (t *turnCtx) keepOrder(picks []TierPick) []TierPick {
@@ -293,7 +411,9 @@ func (t *turnCtx) keepOrder(picks []TierPick) []TierPick {
 func (t *turnCtx) candidatesFor(id string) []TierPick {
 	for _, e := range t.routings {
 		if e.ID == id {
-			return t.keepOrder(t.resetOrder(RoutingCandidates(t.cfg, t.deps, e, t.input.Kind)))
+			picks := RoutingCandidates(t.cfg, t.deps, e, t.input.Kind)
+			picks = t.dropToolIncapable(picks)
+			return t.keepOrder(t.resetOrder(picks))
 		}
 	}
 	return nil
@@ -455,14 +575,16 @@ func (t *turnCtx) decideExplicit(phase, requestedRaw, requestID, session string,
 	for _, e := range lightFirst(t.routings) {
 		others = append(others, t.candidatesFor(e.ID))
 	}
-	return &Decision{
+	d := &Decision{
 		Model: picked.Model, Provider: picked.Provider, Phase: phase,
 		RequestedModel: requestedRaw, Canonical: picked.Canonical,
 		Virtual: true, Routed: true, Reason: reason,
 		Effort: effort, EffortNote: note, CacheKeep: t.keepReason,
 		Session: session, RequestID: requestID,
 		Order: weighedOrder(failoverPlan(picked, pool, others), cfg, deps, t.now, nil, nil),
-	}, nil
+	}
+	t.mergeToolSkips(d)
+	return d, nil
 }
 
 func brainEffort(v string) string {
