@@ -1,11 +1,10 @@
-import { ListFilterIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { RequestsChart } from "@/components/activity-charts";
 import { LogDetailView } from "@/components/log-detail/log-detail-view";
 import { LOG_COLUMNS } from "@/components/logs/columns";
-import { CollapsedRail, FilterRail } from "@/components/logs/filter-rail";
+import { FilterRail, FilterTriggerFace } from "@/components/logs/filter-rail";
 import {
   EMPTY_FILTERS,
   filtersActive,
@@ -24,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLogStream } from "@/hooks/use-log-stream";
@@ -74,11 +74,9 @@ export function LogsPage() {
   const [filters, setFilters] = useState<LogFilters>(EMPTY_FILTERS);
   const [searchDraft, setSearchDraft] = useState("");
   const [live, setLive] = useState(true);
-  // The log table is the point of this page, so the filter rail starts
-  // collapsed as a thin strip. Expanding it is one click.
-  const [railOpen, setRailOpen] = useState(false);
-  /** Mobile-only rail drawer; the md+ rail is controlled by `railOpen`. */
-  const [railDrawerOpen, setRailDrawerOpen] = useState(false);
+  // The log table is the point of this page, so filters live in a dropdown
+  // beside the search input instead of a rail that costs layout width.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Tailwind's xl breakpoint; the drawer only opens below it. */
@@ -248,54 +246,37 @@ export function LogsPage() {
 
   return (
     <div className="flex h-[calc(100svh-6rem)] gap-3 md:h-[calc(100svh-3rem)]">
-      {railOpen ? (
-        <FilterRail
-          filters={filters}
-          facets={facets}
-          facetsStale={facetsStale}
-          onToggle={toggleFilter}
-          onClear={clearFilters}
-          onCollapse={() => setRailOpen(false)}
-          className="hidden w-60 shrink-0 rounded-xl border bg-card md:flex"
-        />
-      ) : (
-        <CollapsedRail
-          filters={filters}
-          onExpand={() => setRailOpen(true)}
-          className="hidden w-10 rounded-xl border bg-card md:flex"
-        />
-      )}
-
-      {/* Below md the rail is a left drawer; from md up it is the strip above. */}
-      <Sheet open={railDrawerOpen} onOpenChange={setRailDrawerOpen}>
-        <SheetContent side="left" className="w-72 gap-0 p-0 md:hidden">
-          <FilterRail
-            filters={filters}
-            facets={facets}
-            facetsStale={facetsStale}
-            onToggle={toggleFilter}
-            onClear={clearFilters}
-            className="h-full"
-          />
-        </SheetContent>
-      </Sheet>
-
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex shrink-0 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              className="md:hidden"
-              aria-label="Toggle filters"
-              title="Toggle filters"
-              onClick={() => setRailDrawerOpen(true)}
-            >
-              <ListFilterIcon />
-            </Button>
             <h1 className="shrink-0 text-lg font-semibold tracking-tight">Logs</h1>
           </div>
           <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
+            <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className="h-9 w-9 shrink-0"
+                    aria-label="Toggle filters"
+                    title="Filters"
+                  />
+                }
+              >
+                <FilterTriggerFace filters={filters} />
+              </PopoverTrigger>
+              <PopoverContent align="end" sideOffset={6} className="w-72 gap-0 p-0">
+                <FilterRail
+                  filters={filters}
+                  facets={facets}
+                  facetsStale={facetsStale}
+                  onToggle={toggleFilter}
+                  onClear={clearFilters}
+                  className="max-h-[70vh]"
+                />
+              </PopoverContent>
+            </Popover>
             <Input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}

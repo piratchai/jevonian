@@ -1,4 +1,4 @@
-import { ListFilterIcon, PanelLeftCloseIcon } from "lucide-react";
+import { ListFilterIcon } from "lucide-react";
 import { useState } from "react";
 
 import { FacetGroup, type FacetRow } from "@/components/logs/facet-group";
@@ -47,9 +47,10 @@ function ModelAddInput({ onAdd }: { onAdd: (value: string) => void }) {
 }
 
 /**
- * The left rail: one collapsible facet group per filter kind, fed by
+ * The filter panel: one collapsible facet group per filter kind, fed by
  * /api/logs/facets. Checking a row toggles that value in the filter set; the
- * server applies every other group's filter to each group's counts.
+ * server applies every other group's filter to each group's counts. Rendered
+ * inside a dropdown so it never takes layout space away from the log table.
  */
 export function FilterRail({
   filters,
@@ -57,7 +58,6 @@ export function FilterRail({
   facetsStale,
   onToggle,
   onClear,
-  onCollapse,
   className,
 }: {
   filters: LogFilters;
@@ -67,7 +67,6 @@ export function FilterRail({
   facetsStale?: boolean;
   onToggle: (group: FilterGroupKey, value: string) => void;
   onClear: () => void;
-  onCollapse?: () => void;
   className?: string;
 }) {
   const rowsByGroup = (group: FilterGroupKey): FacetRow[] =>
@@ -82,17 +81,6 @@ export function FilterRail({
         {filtersActive(filters) ? (
           <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onClear}>
             Clear all
-          </Button>
-        ) : null}
-        {onCollapse ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="Collapse filters"
-            title="Collapse filters"
-            onClick={onCollapse}
-          >
-            <PanelLeftCloseIcon />
           </Button>
         ) : null}
       </div>
@@ -119,36 +107,20 @@ export function FilterRail({
 }
 
 /**
- * The collapsed rail strip: a single button with the active-filter count.
- * Clicking it reopens the rail.
+ * The filter trigger: a funnel button that carries the active-filter count as a
+ * badge, so the operator sees that filters are on even while the panel is shut.
+ * Used as the popover trigger next to the search input.
  */
-export function CollapsedRail({
-  filters,
-  onExpand,
-  className,
-}: {
-  filters: LogFilters;
-  onExpand: () => void;
-  className?: string;
-}) {
+export function FilterTriggerFace({ filters }: { filters: LogFilters }) {
   const count = activeFilterCount(filters);
   return (
-    <div className={cn("flex shrink-0 flex-col items-center py-2", className)}>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Open filters${count > 0 ? `, ${count} active` : ""}`}
-        title={count > 0 ? `Filters (${count} active)` : "Filters"}
-        onClick={onExpand}
-        className="relative"
-      >
-        <ListFilterIcon />
-        {count > 0 ? (
-          <span className="absolute -top-0.5 -right-0.5 flex min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-primary-foreground">
-            {count}
-          </span>
-        ) : null}
-      </Button>
-    </div>
+    <span className="relative inline-flex">
+      <ListFilterIcon className="size-4" />
+      {count > 0 ? (
+        <span className="absolute -top-1.5 -right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-primary-foreground">
+          {count}
+        </span>
+      ) : null}
+    </span>
   );
 }
