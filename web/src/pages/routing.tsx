@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { RoutingSkeleton } from "@/components/page-skeletons";
 import { ProviderIdentity } from "@/components/provider-identity";
+import { ProviderLogo } from "@/components/provider-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
@@ -33,8 +34,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   api,
+  type ProviderView,
   type QuotaGuardView,
   type RoutingEntryView,
   type StateResponse,
@@ -43,7 +46,7 @@ import {
   type QuotaHealthView,
   type TokenSaverConfigView,
 } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
+import { providerDisplayName, resolveProviderIdentity } from "@/lib/provider-name";
 
 import {
   allowedProviders,
@@ -157,6 +160,38 @@ function OrderedList({
   );
 }
 
+/**
+ * One provider a routing's model may use: the brand logo, and a tooltip with the product name and
+ * quota standing. Logos stay readable at a glance where a name would crowd the row.
+ */
+function ProviderMark({
+  provider,
+  status,
+  record,
+}: {
+  provider: string;
+  status?: string;
+  record?: ProviderView;
+}) {
+  const input = record ?? provider;
+  const identity = resolveProviderIdentity(input);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex size-4 shrink-0 items-center justify-center">
+            <ProviderLogo id={identity.brand} className="size-4" />
+          </span>
+        }
+      />
+      <TooltipContent>
+        {identity.name}
+        {identity.account ? ` · ${identity.account}` : ""} · {status ?? "quota unknown"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function RoutingPage({
   embedded = false,
   refreshKey = 0,
@@ -250,6 +285,10 @@ export function RoutingPage({
   const statuses = useMemo(
     () => new Map(health.map((entry) => [entry.provider, entry.status])),
     [health],
+  );
+  const providerRecords = useMemo(
+    () => new Map((state?.config.providers ?? []).map((entry) => [entry.name, entry])),
+    [state],
   );
   const derived = useMemo(
     () => new Map((state?.routings ?? []).map((entry) => [entry.id, entry.models])),
@@ -608,49 +647,76 @@ export function RoutingPage({
             </Button>
           </div>
           <div className="divide-y rounded-lg border">
-            {drafts.map((entry) => {
-              const automatic = entry.models.length === 0;
-              const chain = automatic ? (derived.get(entry.id) ?? []) : entry.models;
-              return (
-                <div
-                  key={entry.id}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <h3 className="text-sm font-medium">
-                      {entry.label}{" "}
-                      <span className="font-normal text-muted-foreground">· {entry.id}</span>
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {entry.description || "No task description"}
-                    </p>
-                    <p className="break-words text-xs">
-                      <span className="text-muted-foreground">
-                        {automatic ? "Automatic" : "Fixed"} ·{" "}
-                      </span>
-                      {chain
-                        .slice(0, 3)
-                        .map((id) => names.get(id) || id)
-                        .join(" → ") || "No models available"}
-                      {chain.length > 3 ? ` → +${chain.length - 3} more` : ""}
-                    </p>
-                  </div>
-                  <Button
-                    className="self-start shrink-0"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || editingId !== null}
-                    onClick={() => {
-                      setEditingId(entry.id);
-                      setConfirmClose(false);
-                      setConfirmDelete(false);
-                    }}
+            <TooltipProvider>
+              {drafts.map((entry) => {
+                const automatic = entry.models.length === 0;
+                const chain = automatic ? (derived.get(entry.id) ?? []) : entry.models;
+                const shown = chain.slice(0, 3);
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    Customize
-                  </Button>
-                </div>
-              );
-            })}
+                    <div className="min-w-0 space-y-1">
+                      <h3 className="text-sm font-medium">
+                        {entry.label}{" "}
+                        <span className="font-normal text-muted-foreground">· {entry.id}</span>
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {entry.description || "No task description"}
+                      </p>
+                      <div className="space-y-0.5 text-xs">
+                        <p className="text-muted-foreground">
+                          {automatic ? "Automatic" : "Fixed"}
+                          {chain.length > 3 ? ` · +${chain.length - 3} more` : ""}
+                        </p>
+                        {shown.length ? (
+                          shown.map((id, index) => {
+                            const discovered = providersByModel.get(id) ?? [];
+                            const allowed = allowedProviders(discovered, entry.providers?.[id]);
+                            return (
+                              <div key={id} className="flex items-center gap-2">
+                                <span className="shrink-0 text-muted-foreground">{index + 1}.</span>
+                                <span className="min-w-0 truncate">{names.get(id) || id}</span>
+                                <span className="flex shrink-0 items-center gap-1.5">
+                                  {allowed.length ? (
+                                    allowed.map((provider) => (
+                                      <ProviderMark
+                                        key={provider}
+                                        provider={provider}
+                                        status={statuses.get(provider)}
+                                        record={providerRecords.get(provider)}
+                                      />
+                                    ))
+                                  ) : (
+                                    <span className="text-muted-foreground">no provider</span>
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-muted-foreground">No models available</p>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      className="self-start shrink-0"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || editingId !== null}
+                      onClick={() => {
+                        setEditingId(entry.id);
+                        setConfirmClose(false);
+                        setConfirmDelete(false);
+                      }}
+                    >
+                      Customize
+                    </Button>
+                  </div>
+                );
+              })}
+            </TooltipProvider>
           </div>
           <details className="rounded-lg border">
             <summary className="cursor-pointer p-3 text-sm text-muted-foreground">

@@ -25,14 +25,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   api,
   type ModelSyncResponse,
   type OAuthSourceView,
@@ -917,110 +909,94 @@ export function ProvidersPage({
               Add provider
             </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0">
             {providerGroups.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="px-6 text-sm text-muted-foreground">
                 No providers yet — choose Add provider to connect one.
               </p>
             ) : (
-              <div className="flex flex-col gap-5">
+              <div className="divide-y">
                 {providerGroups.map((group) => (
-                  <div key={group.brand} className="flex flex-col">
-                    <div className="mb-1.5 flex items-center gap-2">
+                  <section key={group.brand}>
+                    <div className="flex items-center gap-2 px-6 pb-1 pt-4">
                       <ProviderLogo id={group.brand} className="size-4" />
-                      <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                        {group.name}
-                      </span>
+                      <h3 className="text-[13px] font-medium">{group.name}</h3>
                       {group.providers.length > 1 ? (
-                        <Badge variant="outline" className="text-[10px] font-normal">
+                        <span className="text-[11px] text-muted-foreground">
                           {group.providers.length} accounts
-                        </Badge>
+                        </span>
                       ) : null}
                     </div>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>account</TableHead>
-                          <TableHead>protocol</TableHead>
-                          <TableHead>billing</TableHead>
-                          <TableHead>credential</TableHead>
-                          <TableHead>models</TableHead>
-                          <TableHead />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {group.providers.map((provider) => {
-                          const identity = resolveProviderIdentity(provider);
-                          return (
-                            <TableRow key={provider.name}>
-                              <TableCell>
-                                <span className="flex flex-col">
-                                  <span className="flex items-center gap-1.5 font-medium">
-                                    {identity.account ? (
-                                      <AccountChip
-                                        label={identity.account}
-                                        detail={identity.accountDetail}
-                                      />
-                                    ) : (
-                                      <Badge
-                                        variant="secondary"
-                                        className="px-1.5 py-0 text-[10px] font-normal"
-                                      >
-                                        default
-                                      </Badge>
-                                    )}
-                                    <span className="font-mono text-xs">{provider.name}</span>
-                                  </span>
-                                  <span className="max-w-[280px] truncate text-[11px] font-normal text-muted-foreground">
-                                    {provider.baseUrl}
-                                  </span>
-                                </span>
-                              </TableCell>
-                              <TableCell>{provider.type}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    provider.billing === "subscription" ? "default" : "secondary"
-                                  }
-                                >
-                                  {provider.billing ?? "api"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    provider.keySource === "none" ? "destructive" : "secondary"
-                                  }
-                                >
-                                  {provider.keySource}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>{provider.models.length}</TableCell>
-                              <TableCell className="whitespace-nowrap text-right">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => edit(provider)}
-                                  disabled={busy}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-destructive hover:text-destructive"
-                                  onClick={() => void remove(provider.name)}
-                                  disabled={busy}
-                                >
-                                  Remove
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
+                    {group.providers.map((provider) => {
+                      const identity = resolveProviderIdentity(provider);
+                      return (
+                        <div
+                          key={provider.name}
+                          className="group flex items-center gap-4 px-6 py-2"
+                        >
+                          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                            {identity.account ? (
+                              <AccountChip
+                                label={identity.account}
+                                detail={identity.accountDetail}
+                                className="relative top-px"
+                              />
+                            ) : null}
+                            <span className="truncate font-mono text-[13px] font-medium">
+                              {provider.name}
+                            </span>
+                            <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+                              {provider.baseUrl}
+                            </span>
+                          </div>
+                          <span className="hidden w-16 truncate text-xs text-muted-foreground md:inline">
+                            {provider.type}
+                          </span>
+                          <span
+                            className={cn(
+                              "hidden w-20 text-xs sm:inline",
+                              provider.billing !== "subscription" && "text-muted-foreground",
+                            )}
+                          >
+                            {provider.billing ?? "api"}
+                          </span>
+                          <span
+                            className={cn(
+                              "hidden w-24 truncate text-xs lg:inline",
+                              provider.keySource === "none"
+                                ? "font-medium text-destructive"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {provider.keySource === "none" ? "no key" : provider.keySource}
+                          </span>
+                          <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">
+                            {provider.models.length}
+                          </span>
+                          <span className="flex w-20 justify-end gap-0.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => edit(provider)}
+                              disabled={busy}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                              onClick={() => void remove(provider.name)}
+                              disabled={busy}
+                            >
+                              Remove
+                            </Button>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </section>
                 ))}
               </div>
             )}
