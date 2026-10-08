@@ -665,40 +665,40 @@ export function RoutingPage({
                       <p className="text-sm text-muted-foreground">
                         {entry.description || "No task description"}
                       </p>
-                      <div className="space-y-0.5 text-xs">
-                        <p className="text-muted-foreground">
-                          {automatic ? "Automatic" : "Fixed"}
-                          {chain.length > 3 ? ` · +${chain.length - 3} more` : ""}
-                        </p>
+                      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">
+                          {automatic ? "Automatic" : "Fixed"} ·
+                        </span>
                         {shown.length ? (
                           shown.map((id, index) => {
                             const discovered = providersByModel.get(id) ?? [];
                             const allowed = allowedProviders(discovered, entry.providers?.[id]);
                             return (
-                              <div key={id} className="flex items-center gap-2">
-                                <span className="shrink-0 text-muted-foreground">{index + 1}.</span>
-                                <span className="min-w-0 truncate">{names.get(id) || id}</span>
-                                <span className="flex shrink-0 items-center gap-1.5">
-                                  {allowed.length ? (
-                                    allowed.map((provider) => (
-                                      <ProviderMark
-                                        key={provider}
-                                        provider={provider}
-                                        status={statuses.get(provider)}
-                                        record={providerRecords.get(provider)}
-                                      />
-                                    ))
-                                  ) : (
-                                    <span className="text-muted-foreground">no provider</span>
-                                  )}
+                              <span key={id} className="flex items-center gap-1.5">
+                                {index > 0 ? (
+                                  <span className="text-muted-foreground">→</span>
+                                ) : null}
+                                <span className="truncate">{names.get(id) || id}</span>
+                                <span className="flex shrink-0 items-center gap-1">
+                                  {allowed.map((provider) => (
+                                    <ProviderMark
+                                      key={provider}
+                                      provider={provider}
+                                      status={statuses.get(provider)}
+                                      record={providerRecords.get(provider)}
+                                    />
+                                  ))}
                                 </span>
-                              </div>
+                              </span>
                             );
                           })
                         ) : (
-                          <p className="text-muted-foreground">No models available</p>
+                          <span className="text-muted-foreground">No models available</span>
                         )}
-                      </div>
+                        {chain.length > 3 ? (
+                          <span className="text-muted-foreground">→ +{chain.length - 3} more</span>
+                        ) : null}
+                      </p>
                     </div>
                     <Button
                       className="self-start shrink-0"
