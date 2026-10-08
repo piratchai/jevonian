@@ -194,6 +194,17 @@
     "billing": "subscription"
   },
   {
+    "id": "chatgpt-web",
+    "name": "ChatGPT Web",
+    "type": "chatgpt-web",
+    "baseUrl": "http://127.0.0.1:9222",
+    "hint": "Connects directly via Chrome DevTools Protocol (CDP) to your logged-in Chrome browser. Launch Chrome with --remote-debugging-port=9222.",
+    "keysUrl": "https://chatgpt.com",
+    "billing": "subscription",
+    "noKey": true,
+    "syncModels": true
+  },
+  {
     "id": "antigravity",
     "name": "Antigravity (Google)",
     "type": "gemini",

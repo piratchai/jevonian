@@ -1049,6 +1049,12 @@ func (t *turn) record(status int, usage wire.Usage, costUSD *float64, pricingKno
 		PricingKnown:     pricingKnown,
 		Error:            wire.TruncateRunes(errText, 300),
 	}
+	// Persist the usage convention so readers divide by the right denominator.
+	// Only meaningful when the turn actually reported usage.
+	if t.hasUsage {
+		exclusive := t.exclusiveInput
+		rec.ExclusiveInput = &exclusive
+	}
 	if d != nil {
 		rec.Session = d.Session
 		rec.Provider = d.Provider

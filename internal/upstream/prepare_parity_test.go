@@ -14,6 +14,7 @@ import (
 
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/oauth"
+	"github.com/xinyao27/jevonian/internal/provider/chatgptweb"
 	"github.com/xinyao27/jevonian/internal/wire"
 )
 
@@ -256,4 +257,137 @@ func TestResponsesOAuthSetsStoreFalse(t *testing.T) {
 		hdr.Get("Originator") != "codex_cli_rs" || hdr.Get("Openai-Beta") != "responses=experimental" {
 		t.Fatalf("hdr %v", hdr)
 	}
+}
+
+func TestResponsesPassthroughOmitsSamplingControls(t *testing.T) {
+	p := config.Provider{Name: "chatgpt", Type: "responses", BaseURL: "/v1", Auth: "api-key", APIKey: "k"}
+	sse := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n"
+	client := wire.Body{
+		"input":       "hi",
+		"temperature": 0.7,
+		"top_p":       0.9,
+	}
+	body, _, _, at := capture(t, p, AttemptRequest{ClientKind: KindResponses, ClientBody: client}, "gpt-5", sse, "text/event-stream")
+	if at.Outcome.Kind != OutcomeSuccess {
+		t.Fatalf("%+v %v", at.Outcome, at.Err)
+	}
+	if _, present := body["temperature"]; present {
+		t.Fatalf("Responses passthrough must omit temperature: %v", body)
+	}
+	if _, present := body["top_p"]; present {
+		t.Fatalf("Responses passthrough must omit top_p: %v", body)
+	}
+	if _, present := client["temperature"]; !present {
+		t.Fatal("Prepare must not mutate the client body")
+	}
+}
+
+func TestChatGPTWebStructuredErrorsPreserveFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind chatgptweb.Kind
+		want OutcomeKind
+	}{
+		{"auth", chatgptweb.KindAuth, OutcomeProviderRefusal},
+		{"model", chatgptweb.KindModel, OutcomeClientError},
+		{"rate limit", chatgptweb.KindRateLimit, OutcomeRateLimit},
+		{"browser", chatgptweb.KindBrowser, OutcomeHostFailure},
+		{"timeout", chatgptweb.KindTimeout, OutcomeHostFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := config.Provider{Name: "chatgpt-web", Type: config.ProviderTypeChatGPTWeb, BaseURL: "http://127.0.0.1:9222", Auth: config.AuthAPIKey, Billing: config.BillingSubscription, NoKey: true}
+			mock := &mockChatGPTWebDriver{result: chatgptweb.ChatResult{Status: 400, Error: &chatgptweb.Error{Status: 400, Kind: tc.kind, Message: "provider failure"}}}
+			chatgptweb.SetDefaultDriverForTest(mock)
+			t.Cleanup(func() { chatgptweb.SetDefaultDriverForTest(nil) })
+			runner := NewRunner(ForwardDeps{HTTP: http.DefaultClient, Auth: &oauth.Resolver{HTTP: http.DefaultClient}})
+			at := runner.Try(context.Background(), AttemptRequest{ClientKind: KindOpenAI, ClientBody: wire.Body{"messages": []any{map[string]any{"role": "user", "content": "hi"}}}}, PlanEntry{Provider: p, Model: "gpt-5"})
+			if at.Outcome.Kind != tc.want {
+				t.Fatalf("outcome=%v want=%v err=%v", at.Outcome.Kind, tc.want, at.Err)
+			}
+		})
+	}
+}
+
+func TestChatGPTWebTranslatesAndRoutesCorrectly(t *testing.T) {
+	p := config.Provider{Name: "chatgpt-web", Type: config.ProviderTypeChatGPTWeb, BaseURL: "http://127.0.0.1:9222", Auth: config.AuthAPIKey, Billing: config.BillingSubscription, NoKey: true}
+	req := AttemptRequest{
+		ClientKind: KindAnthropic,
+		ClientBody: wire.Body{"messages": []any{map[string]any{"role": "user", "content": "hi"}}},
+	}
+
+	plan, err := PlanUpstreamWire(p, KindAnthropic, "auto")
+	if err != nil || plan.Wire != KindOpenAI || plan.Bridge != "to-openai" {
+		t.Fatalf("plan: %+v err: %v", plan, err)
+	}
+	planResp, err := PlanUpstreamWire(p, KindResponses, "auto")
+	if err != nil || planResp.Wire != KindOpenAI || planResp.Bridge != "to-openai" {
+		t.Fatalf("planResp: %+v err: %v", planResp, err)
+	}
+
+	adapter, err := AdapterFor(p, KindAnthropic, plan)
+	if err != nil {
+		t.Fatalf("AdapterFor err: %v", err)
+	}
+	prep, err := adapter.Prepare(PrepInput{
+		PromptPolicy: config.PromptPolicyConfig{},
+		Provider:     p,
+		Model:        "auto",
+		ClientKind:   KindAnthropic,
+		ClientBody:   req.ClientBody,
+		UpstreamWire: plan.Wire,
+		Bridge:       plan.Bridge,
+		Stream:       false,
+	})
+	if err != nil {
+		t.Fatalf("Prepare err: %v", err)
+	}
+	if prep["model"] != "auto" {
+		t.Fatalf("expected model=auto, got %v", prep["model"])
+	}
+
+	// Test chatgptWebChat with mock driver
+	mockDriver := &mockChatGPTWebDriver{
+		models: []chatgptweb.Model{{ID: "auto", Title: "ChatGPT Auto"}},
+		result: chatgptweb.ChatResult{
+			Status: http.StatusOK,
+			Completion: wire.Body{
+				"choices": []any{
+					map[string]any{
+						"message": map[string]any{"role": "assistant", "content": "mocked response"},
+					},
+				},
+			},
+		},
+	}
+	chatgptweb.SetDefaultDriverForTest(mockDriver)
+	defer chatgptweb.SetDefaultDriverForTest(nil)
+
+	runner := NewRunner(ForwardDeps{HTTP: http.DefaultClient, Auth: &oauth.Resolver{HTTP: http.DefaultClient}})
+	at := runner.Try(context.Background(), req, PlanEntry{Provider: p, Model: "auto"})
+	if at.Outcome.Kind != OutcomeSuccess {
+		t.Fatalf("Try outcome: %+v err: %v text: %s", at.Outcome, at.Err, at.Text)
+	}
+	if at.Status != 200 {
+		t.Fatalf("expected status 200, got %d", at.Status)
+	}
+	if !mockDriver.called || mockDriver.request.Model != "auto" || mockDriver.prompt == "" {
+		t.Fatalf("browser driver not called with model and prompt: called=%v req=%+v prompt=%q", mockDriver.called, mockDriver.request, mockDriver.prompt)
+	}
+}
+
+type mockChatGPTWebDriver struct {
+	models  []chatgptweb.Model
+	result  chatgptweb.ChatResult
+	called  bool
+	request chatgptweb.ChatRequest
+	prompt  string
+}
+
+func (m *mockChatGPTWebDriver) Models(ctx context.Context, cdpEndpoint string) ([]chatgptweb.Model, error) {
+	return m.models, nil
+}
+
+func (m *mockChatGPTWebDriver) Chat(ctx context.Context, cdpEndpoint string, req chatgptweb.ChatRequest, prompt string) (chatgptweb.ChatResult, error) {
+	m.called, m.request, m.prompt = true, req, prompt
+	return m.result, nil
 }

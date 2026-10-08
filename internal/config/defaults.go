@@ -12,7 +12,7 @@ var defaultRoutingCopy = map[string]struct{ Label, Description string }{
 
 var providerTypes = map[string]bool{
 	"openai": true, "anthropic": true, "responses": true, "both": true,
-	"gemini": true, "devin": true, "cursor": true,
+	"gemini": true, "devin": true, "cursor": true, "chatgpt-web": true,
 }
 
 var oauthSources = map[string]bool{

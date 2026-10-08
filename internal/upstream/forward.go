@@ -274,12 +274,15 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 	if at.CacheEvidenceKnown && at.SentEffort != sentEffort(at.CacheBody, at.Plan.Wire) {
 		at.CacheBody, at.CacheEvidenceKnown = nil, false
 	}
-	auth, err := r.deps.Auth.ResolveProviderAuth(ctx, provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session"))
-	if err != nil {
-		at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
-		at.Status = 401
-		at.Err = err
-		return
+	auth := oauth.AuthResolution{}
+	if provider.Type != config.ProviderTypeChatGPTWeb {
+		auth, err = r.deps.Auth.ResolveProviderAuth(ctx, provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session"))
+		if err != nil {
+			at.Outcome = Outcome{Kind: OutcomeProviderRefusal}
+			at.Status = 401
+			at.Err = err
+			return
+		}
 	}
 	// Adapters that own the whole exchange (Connect-RPC, session-bound hosts).
 	if own, ok := at.Adapter.(attemptRunner); ok {
@@ -361,9 +364,14 @@ func (r *Runner) attempt(ctx context.Context, req AttemptRequest, at *Attempt) {
 	}
 	at.Response = resp
 	at.Outcome = Classify(at.Status, at.Text, nil)
-	// Header exhaustion is a same-request quota failover, even with an
-	// otherwise unclassified refusal. Do not replace the measured window.
-	if at.Status >= 300 && at.Outcome.Kind != OutcomeContextOverflow && at.Outcome.Signal == quota.SignalNone && r.deps.Quota != nil &&
+	// Header exhaustion is a same-request quota failover for provider-side
+	// refusals (401/403/429/5xx), even when the body carried no spend token.
+	// Do not rewrite a client error (400 Unsupported parameter, …) — that
+	// would hide the real failure behind a fake "quota" label and keep
+	// failover walking. Do not replace the measured window.
+	if at.Status >= 300 && at.Outcome.Signal == quota.SignalNone &&
+		(at.Outcome.Kind == OutcomeHostFailure || at.Outcome.Kind == OutcomeRateLimit || at.Outcome.Kind == OutcomeProviderRefusal) &&
+		r.deps.Quota != nil &&
 		r.deps.Quota.ProviderHealth(provider, quota.HealthOptions{}).Status == quota.StatusExhausted {
 		at.Outcome.Kind = OutcomeQuotaRefusal
 		return

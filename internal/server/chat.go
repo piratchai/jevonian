@@ -54,6 +54,9 @@ func creditLimitBody(limitUSD float64, keyName string) map[string]any {
 }
 
 func writeJSONError(w http.ResponseWriter, status int, typ, message string) {
+	if status <= 0 {
+		status = http.StatusBadRequest
+	}
 	w.Header().Set("content-type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorBody(typ, message))

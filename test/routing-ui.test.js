@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   allowedProviders,
+  collectProvidersByModel,
   mergeRoutingDrafts,
   routeSavePayload,
   validRoutingId,
@@ -47,4 +48,27 @@ test("routing ids reject reserved and invalid aliases and identify protected tas
     assert.equal(validRoutingId(id), false);
   for (const id of ["plan", "execute", "utility", "chat"])
     assert.equal(BUILTIN_ROUTING_IDS.has(id), true);
+});
+
+test("collectProvidersByModel indexes canonical variants across different model spellings", () => {
+  const models = [
+    { id: "deepseek-v4.1-flash", provider: "deepseek", configured: true },
+    { id: "deepseek/deepseek-v4.1-flash", provider: "commandcode2", configured: true },
+  ];
+  const canonicals = [
+    {
+      id: "deepseek-v4-1-flash",
+      variants: [
+        { provider: "deepseek", model: "deepseek-v4.1-flash" },
+        { provider: "commandcode2", model: "deepseek/deepseek-v4.1-flash" },
+      ],
+    },
+  ];
+  const map = collectProvidersByModel(models, canonicals);
+  // Bare model spelling sees both providers
+  assert.deepEqual(map.get("deepseek-v4.1-flash"), ["deepseek", "commandcode2"]);
+  // Namespaced spelling sees both providers
+  assert.deepEqual(map.get("deepseek/deepseek-v4.1-flash"), ["commandcode2", "deepseek"]);
+  // Canonical ID sees both providers
+  assert.deepEqual(map.get("deepseek-v4-1-flash"), ["deepseek", "commandcode2"]);
 });

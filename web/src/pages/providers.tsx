@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KeysHelp } from "@/components/keys-help";
 import { ProvidersSkeleton } from "@/components/page-skeletons";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { ProviderLogo } from "@/components/provider-logo";
-import { QuotaGrid } from "@/components/quota-card";
+import { ProviderQuotaCard } from "@/components/quota-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,14 +25,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   api,
   type ModelSyncResponse,
   type OAuthSourceView,
@@ -47,6 +40,7 @@ import {
   type StateResponse,
 } from "@/lib/api";
 import { assignProviderModels } from "@/lib/provider-assignment";
+import { resolveProviderIdentity } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
 const CUSTOM_PRESET: PresetView = {
@@ -89,8 +83,11 @@ export interface ProvidersPageProps {
   settingsOnly?: boolean;
 }
 
-export function ProviderSettings({ onChanged }: Pick<ProvidersPageProps, "onChanged">) {
-  return <ProvidersPage settingsOnly onChanged={onChanged} />;
+export function ProviderSettings({
+  embedded = false,
+  onChanged,
+}: Pick<ProvidersPageProps, "embedded" | "onChanged">) {
+  return <ProvidersPage settingsOnly embedded={embedded} onChanged={onChanged} />;
 }
 
 export function ProvidersPage({
@@ -287,6 +284,44 @@ export function ProvidersPage({
     [selected, discovered],
   );
 
+  /**
+   * One card per connected source: quota rows plus saved providers that have no quota yet —
+   * so a plain API key still shows with Edit / Remove. Cards sort alphabetically by the brand
+   * label the card header renders, so order does not depend on fetch order.
+   */
+  const usageEntries = useMemo(() => {
+    const providers = state?.config.providers ?? [];
+    const providerByName = new Map(providers.map((provider) => [provider.name, provider]));
+    const quotaByName = new Map(quotas.map((quota) => [quota.provider, quota]));
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const quota of quotas) {
+      if (seen.has(quota.provider)) continue;
+      seen.add(quota.provider);
+      names.push(quota.provider);
+    }
+    for (const provider of providers) {
+      if (seen.has(provider.name)) continue;
+      seen.add(provider.name);
+      names.push(provider.name);
+    }
+    // Deterministic order: sort by the same brand label the card header renders
+    // (`ProviderIdentity`), then by provider name so two accounts of one brand stay stable.
+    const label = (entry: { provider?: ProviderView; name: string }) =>
+      resolveProviderIdentity(entry.provider ?? entry.name).name;
+    names.sort((a, b) => {
+      const byLabel = label({ name: a, provider: providerByName.get(a) }).localeCompare(
+        label({ name: b, provider: providerByName.get(b) }),
+      );
+      return byLabel !== 0 ? byLabel : a.localeCompare(b);
+    });
+    return names.map((name) => ({
+      name,
+      quota: quotaByName.get(name),
+      provider: providerByName.get(name),
+    }));
+  }, [quotas, state]);
+
   function resetForm(id = "deepseek") {
     applyPreset(allPresets.find((item) => item.id === id) ?? allPresets[0]);
   }
@@ -332,6 +367,7 @@ export function ProvidersPage({
                 : "Claude Code";
   const effectiveType = lockedType ?? type;
   const syncDefault =
+    effectiveType === "chatgpt-web" ||
     (auth === "oauth" && (state?.modelSyncDefaultSources ?? []).includes(oauthSource)) ||
     helpPreset?.syncModels === true;
   const syncModels = syncOverride ?? syncDefault;
@@ -433,7 +469,7 @@ export function ProvidersPage({
             billing,
             quota: Object.keys(quota).length > 0 ? quota : undefined,
             models: selected,
-            syncModels: syncOverride,
+            syncModels: syncOverride ?? syncDefault,
             ...(noKey ? { noKey: true } : {}),
           });
       const providerName = savedProvider ?? name;
@@ -610,7 +646,9 @@ export function ProvidersPage({
     setSelected(provider.models);
     setSyncOverride(typeof provider.syncModels === "boolean" ? provider.syncModels : null);
     setEditing(provider.name);
-    setStep(1);
+    // Open on the models step: the models section is the only editable list an existing
+    // source has, and step 1 settings stay reachable via Back.
+    setStep(2);
     setTasks([]);
     setConvertAuto(false);
     setSavedProvider(null);
@@ -667,6 +705,7 @@ export function ProvidersPage({
   };
 
   const noKey =
+    effectiveType === "chatgpt-web" ||
     helpPreset?.noKey === true ||
     Boolean(
       editing && state?.config.providers.find((provider) => provider.name === editing)?.noKey,
@@ -685,6 +724,63 @@ export function ProvidersPage({
   const loginHint =
     LOGIN_SOURCE_HINTS[oauthSource] ?? ({ name: "Claude Code", home: "~/.claude-work" } as const);
   const loginSourceName = loginHint.name;
+
+  /**
+   * The identity the second-account fields currently describe, for the live preview. Only built
+   * when a sign-in is actually named, so a blank fieldset stays quiet.
+   */
+  const loginIdentityPreview = useMemo(() => {
+    if (!loginSource) return null;
+    const hasAny = Boolean(
+      loginLabel.trim() || loginHome.trim() || loginFile.trim() || loginKeychain.trim(),
+    );
+    if (!hasAny) return null;
+    return {
+      name: name || loginHint.home || "account",
+      oauthSource,
+      type: effectiveType,
+      login: {
+        label: loginLabel.trim() || undefined,
+        home: loginHome.trim() || undefined,
+        credentialsPath: loginFile.trim() || undefined,
+        keychainService: loginKeychain.trim().split(":")[0]?.trim() || undefined,
+      },
+    };
+  }, [
+    loginSource,
+    loginLabel,
+    loginHome,
+    loginFile,
+    loginKeychain,
+    name,
+    oauthSource,
+    effectiveType,
+    loginHint.home,
+  ]);
+
+  /**
+   * A provider name that will not collide, derived from the account label: `claude-work` when
+   * the brand is Claude and the label is `work`. Falls back to appending a counter.
+   */
+  const suggestedSecondAccountName = useMemo(() => {
+    const brand =
+      resolveProviderIdentity({ name, oauthSource, type: effectiveType }).brand ||
+      name ||
+      "account";
+    // `claude-subscription` reads better as `claude` in a provider name.
+    const base = brand.replace(/-subscription$/, "");
+    const slug = loginLabel
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const candidate = slug ? `${base}-${slug}` : `${base}-account`;
+    const taken = new Set((state?.config.providers ?? []).map((provider) => provider.name));
+    if (!taken.has(candidate)) return candidate;
+    let index = 2;
+    while (taken.has(`${candidate}-${index}`)) index += 1;
+    return `${candidate}-${index}`;
+  }, [name, oauthSource, effectiveType, loginLabel, state]);
 
   /** Assemble the `login` payload; `null` clears an existing one, `undefined` sends nothing. */
   function loginPayload(): ProviderLoginView | null | undefined {
@@ -731,50 +827,84 @@ export function ProvidersPage({
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
             Model auto-sync
           </summary>
-          <Card>
-            <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
-              <div className="flex flex-col gap-1">
-                <CardTitle>Model auto-sync</CardTitle>
-                <CardDescription>
-                  While <code>serve</code> is running, Jevonian periodically discovers each
-                  provider&apos;s model list and appends new ids. Removals stick; fixed routings are
-                  never rewritten.
-                </CardDescription>
-              </div>
+          <div className="flex flex-col gap-3 border-t px-4 py-3">
+            <div className="flex items-start justify-between gap-4">
+              <p className="text-xs text-muted-foreground">
+                While <code>serve</code> is running, Jevonian periodically discovers each
+                provider&apos;s model list and appends new ids. Removals stick; fixed routings are
+                never rewritten.
+              </p>
               <Badge variant={modelSync?.config.enabled === false ? "outline" : "secondary"}>
                 {modelSync?.config.enabled === false ? "off" : "on"}
               </Badge>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">
-                {modelSync?.lastCheckedAt
-                  ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
-                  : "No sync has run yet — start serve or Sync now."}
-                {modelSync && modelSync.providersSkipped.length > 0
-                  ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
-                  : ""}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
-                  disabled={busy}
-                >
-                  {modelSync?.config.enabled === false ? "Enable" : "Disable"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void runModelSyncNow()}
-                  disabled={busy}
-                >
-                  Sync now
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {modelSync?.lastCheckedAt
+                ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
+                : "No sync has run yet — start serve or Sync now."}
+              {modelSync && modelSync.providersSkipped.length > 0
+                ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
+                : ""}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
+                disabled={busy}
+              >
+                {modelSync?.config.enabled === false ? "Enable" : "Disable"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void runModelSyncNow()}
+                disabled={busy}
+              >
+                Sync now
+              </Button>
+            </div>
+          </div>
         </details>
+      ) : settingsOnly ? (
+        <div className="order-2 flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-xs text-muted-foreground">
+              While <code>serve</code> is running, Jevonian periodically discovers each
+              provider&apos;s model list and appends new ids. Removals stick; fixed routings are
+              never rewritten.
+            </p>
+            <Badge variant={modelSync?.config.enabled === false ? "outline" : "secondary"}>
+              {modelSync?.config.enabled === false ? "off" : "on"}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {modelSync?.lastCheckedAt
+              ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
+              : "No sync has run yet — start serve or Sync now."}
+            {modelSync && modelSync.providersSkipped.length > 0
+              ? ` · not syncing: ${modelSync.providersSkipped.join(", ")}`
+              : ""}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void toggleModelSync(!(modelSync?.config.enabled !== false))}
+              disabled={busy}
+            >
+              {modelSync?.config.enabled === false ? "Enable" : "Disable"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runModelSyncNow()}
+              disabled={busy}
+            >
+              Sync now
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {!formOpen && message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
@@ -784,117 +914,16 @@ export function ProvidersPage({
         <Card>
           <CardHeader className="flex-row items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <CardTitle>Connected sources</CardTitle>
-              <CardDescription>{state?.config.providers.length ?? 0} providers</CardDescription>
+              <CardTitle>Usage &amp; limits</CardTitle>
+              <CardDescription>
+                {state.config.providers.length} sources · windows, reset times, and local spend.
+                Estimates use models.dev rates.
+              </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
-              Add provider
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>provider</TableHead>
-                  <TableHead>protocol</TableHead>
-                  <TableHead>billing</TableHead>
-                  <TableHead>credential</TableHead>
-                  <TableHead>models</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(state?.config.providers ?? []).map((provider) => (
-                  <TableRow key={provider.name}>
-                    <TableCell>
-                      <span className="flex items-center gap-2 font-medium">
-                        <ProviderLogo id={provider.name} />
-                        <span className="flex flex-col">
-                          <span>{provider.name}</span>
-                          <span className="max-w-[280px] truncate text-[11px] font-normal text-muted-foreground">
-                            {provider.baseUrl}
-                          </span>
-                        </span>
-                      </span>
-                    </TableCell>
-                    <TableCell>{provider.type}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={provider.billing === "subscription" ? "default" : "secondary"}
-                      >
-                        {provider.billing ?? "api"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={provider.keySource === "none" ? "destructive" : "secondary"}>
-                        {provider.keySource}
-                      </Badge>
-                      {provider.login ? (
-                        <span className="ml-1.5 text-[11px] text-muted-foreground">
-                          {provider.login.label ??
-                            provider.login.home ??
-                            provider.login.credentialsPath ??
-                            provider.login.keychainService ??
-                            "account"}
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>{provider.models.length}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => edit(provider)}
-                        disabled={busy}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => void remove(provider.name)}
-                        disabled={busy}
-                      >
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(state?.config.providers.length ?? 0) === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                      No providers yet — choose Add provider to connect one.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {!settingsOnly ? (
-        <details className="order-3 rounded-md border" open>
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            Usage and quota details
-          </summary>
-          <section className="flex flex-col gap-3 p-4">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-sm font-semibold">Usage &amp; limits</h2>
-              <p className="text-sm text-muted-foreground">
-                Subscription windows, reset times, and local spend per provider. Estimates use
-                models.dev rates.
-              </p>
-            </div>
-            <QuotaGrid
-              quotas={quotas}
-              health={health}
-              bare
-              onReset={(provider) => void resetLocalQuota(provider)}
-              resetDisabled={busy}
-            />
-            <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
+                Add provider
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -904,8 +933,30 @@ export function ProvidersPage({
                 Refresh quota
               </Button>
             </div>
-          </section>
-        </details>
+          </CardHeader>
+          <CardContent>
+            {usageEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No providers yet — choose Add provider to connect one.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {usageEntries.map(({ name, quota, provider }) => (
+                  <ProviderQuotaCard
+                    key={name}
+                    quota={quota}
+                    provider={provider}
+                    health={health.find((item) => item.provider === name)}
+                    onReset={(target) => void resetLocalQuota(target)}
+                    resetDisabled={busy}
+                    onEdit={edit}
+                    onRemove={(target) => void remove(target)}
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Sheet
@@ -924,596 +975,614 @@ export function ProvidersPage({
                 : step === 2
                   ? "Check connection and choose models"
                   : "Assign tasks and save"}
+              {editing && step === 1 ? " — settings keep their values" : ""}
             </SheetDescription>
           </SheetHeader>
-          <Card id="provider-form">
-            <CardHeader className="flex-row items-start justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <CardTitle>{editing ? `Edit provider "${editing}"` : "Add provider"}</CardTitle>
-                <CardDescription>
-                  {presetId === "custom"
-                    ? "Choose the endpoint and protocol first, then authenticate and pick models."
-                    : "Pick a preset, choose how it authenticates, then select models."}
-                </CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={closeForm} disabled={busy}>
-                Close
-              </Button>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-5">
-              <fieldset
-                disabled={busy || Boolean(savedProvider)}
-                className={cn("contents", step !== 1 && "hidden")}
-              >
-                {!editing ? (
-                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
-                    {presets.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => choosePreset(preset)}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted",
-                          presetId === preset.id && "border-primary bg-muted",
-                        )}
+          <div id="provider-form" className="flex flex-col gap-5 px-4 pb-4">
+            <fieldset
+              disabled={busy || Boolean(savedProvider)}
+              className={cn("contents", step !== 1 && "hidden")}
+            >
+              {!editing ? (
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                  {presets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => choosePreset(preset)}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted",
+                        presetId === preset.id && "border-primary bg-muted",
+                      )}
+                    >
+                      <ProviderLogo id={preset.id} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="leading-tight">{preset.name}</span>
+                        {preset.billing === "subscription" ? (
+                          <span className="text-[10px] text-muted-foreground">subscription</span>
+                        ) : null}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {!editing ? (
+                <button
+                  type="button"
+                  onClick={() => choosePreset(CUSTOM_PRESET)}
+                  className="self-start text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                >
+                  Add a custom provider
+                </button>
+              ) : null}
+
+              <div className="flex flex-col gap-2 rounded-md border p-3">
+                <p className="text-sm font-medium">Credential</p>
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="auth">Auth</Label>
+                    <Select
+                      value={auth}
+                      onValueChange={(value) => setAuth(value as ProviderAuthView)}
+                    >
+                      <SelectTrigger id="auth" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="api-key">api key</SelectItem>
+                        <SelectItem value="oauth">oauth (subscription)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {auth === "oauth" ? (
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="oauthSource">Credential source</Label>
+                      <Select
+                        value={oauthSource}
+                        onValueChange={(value) => setOauthSource(String(value) as OAuthSourceView)}
                       >
-                        <ProviderLogo id={preset.id} />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="leading-tight">{preset.name}</span>
-                          {preset.billing === "subscription" ? (
-                            <span className="text-[10px] text-muted-foreground">subscription</span>
-                          ) : null}
+                        <SelectTrigger id="oauthSource" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="claude-code">Claude Code (~/.claude)</SelectItem>
+                          <SelectItem value="codex">Codex (~/.codex)</SelectItem>
+                          <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
+                          <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
+                          <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
+                          <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
+                          <SelectItem value="freebuff">Freebuff (free tier)</SelectItem>
+                          <SelectItem value="static">stored token</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+                  {needsApiKey ? (
+                    <>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="apiKey">API key</Label>
+                        <Input
+                          id="apiKey"
+                          type="password"
+                          placeholder={
+                            editing
+                              ? "leave empty to keep the stored key"
+                              : "stored in credentials.json (0600)"
+                          }
+                          value={apiKey}
+                          onChange={(event) => setApiKey(event.target.value)}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="apiKeyEnv">or env var</Label>
+                        <Input
+                          id="apiKeyEnv"
+                          placeholder="DEEPSEEK_API_KEY"
+                          value={apiKeyEnv}
+                          onChange={(event) => setApiKeyEnv(event.target.value)}
+                        />
+                      </div>
+                    </>
+                  ) : helpPreset?.noKey ? (
+                    <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
+                      Local server — no API key required. Make sure it is running at the base URL.
+                    </p>
+                  ) : (
+                    <div className="col-span-2 flex flex-col gap-2 self-end xl:col-span-1">
+                      <p className="text-xs text-muted-foreground">
+                        {oauthSource === "claude-code"
+                          ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
+                          : oauthSource === "codex"
+                            ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
+                            : oauthSource === "devin"
+                              ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
+                              : oauthSource === "cursor"
+                                ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
+                                : oauthSource === "workbuddy-ai"
+                                  ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
+                                  : oauthSource === "freebuff"
+                                    ? "Save opens Freebuff sign-in in your browser. Or set FREEBUFF_AUTH_TOKEN. Free tier only: daily quota, one session per account."
+                                    : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                      </p>
+                      {oauthSource === "workbuddy-ai" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="self-start"
+                          onClick={() => void signInWorkbuddy()}
+                          disabled={busy || !baseUrl}
+                        >
+                          Sign in & discover
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                <KeysHelp
+                  keysUrl={helpPreset?.keysUrl}
+                  hint={helpPreset?.hint}
+                  linkLabel={
+                    helpPreset?.noKey
+                      ? "Local server docs"
+                      : auth === "oauth"
+                        ? "How to sign in"
+                        : "Get an API key"
+                  }
+                />
+                {loginSource ? (
+                  <details
+                    className="rounded-md border border-dashed p-3"
+                    open={Boolean(loginLabel || loginHome || loginFile || loginKeychain)}
+                  >
+                    <summary className="cursor-pointer text-xs font-medium">
+                      Second account (optional)
+                    </summary>
+                    <div className="flex flex-col gap-1 pt-2">
+                      <p className="text-xs font-medium">
+                        Point this provider at another {loginSourceName} sign-in
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        A work and a home account can each have their own quota, fallback place, and
+                        ledger. Blank reads the agent&apos;s own sign-in. Sign in to that account
+                        once with the {loginSourceName} CLI first, then point Jevonian at where it
+                        stored the sign-in.
+                      </p>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-4">
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="loginLabel">Label</Label>
+                        <Input
+                          id="loginLabel"
+                          placeholder="work"
+                          value={loginLabel}
+                          onChange={(event) => setLoginLabel(event.target.value)}
+                        />
+                        <span className="text-[11px] text-muted-foreground">
+                          Shown beside the provider name.
                         </span>
-                      </button>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="loginHome">Config dir</Label>
+                        <Input
+                          id="loginHome"
+                          placeholder={loginHint.home}
+                          value={loginHome}
+                          onChange={(event) => setLoginHome(event.target.value)}
+                        />
+                        <span className="text-[11px] text-muted-foreground">
+                          Directory the agent keeps this sign-in in.
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="loginFile">Credential file</Label>
+                        <Input
+                          id="loginFile"
+                          placeholder={loginHint.file ?? "/path/to/credentials.json"}
+                          value={loginFile}
+                          onChange={(event) => setLoginFile(event.target.value)}
+                        />
+                        <span className="text-[11px] text-muted-foreground">
+                          Wins over the config dir when both are set.
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="loginKeychain">Keychain</Label>
+                        <Input
+                          id="loginKeychain"
+                          placeholder="service[:account]"
+                          value={loginKeychain}
+                          onChange={(event) => setLoginKeychain(event.target.value)}
+                        />
+                        <span className="text-[11px] text-muted-foreground">
+                          macOS keychain item, as service[:account].
+                        </span>
+                      </div>
+                    </div>
+                    {loginIdentityPreview ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
+                        <span className="text-[11px] text-muted-foreground">Reads as</span>
+                        <ProviderIdentity provider={loginIdentityPreview} showAccount />
+                        <span className="font-mono text-[11px] text-muted-foreground">
+                          {suggestedSecondAccountName}
+                        </span>
+                        {name !== suggestedSecondAccountName ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto h-6 px-2 text-[11px]"
+                            onClick={() => setName(suggestedSecondAccountName)}
+                          >
+                            Use this name
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </details>
+                ) : null}
+                <span className="text-[11px] text-muted-foreground">
+                  Secrets stay on this machine; a blank API key keeps the stored value when editing.
+                </span>
+              </div>
+            </fieldset>
+            <fieldset
+              disabled={busy || Boolean(savedProvider)}
+              className={cn("contents", step !== 2 && "hidden")}
+            >
+              <div className="flex flex-col gap-3 rounded-md border p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Models</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selected.length} selected
+                      {discovered.length > 0 ? ` · ${discovered.length} discovered` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {discovered.length > 0 ? (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => setSelected(discovered)}>
+                          Select all
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+                          Clear
+                        </Button>
+                      </>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void discover()}
+                      disabled={busy || !baseUrl}
+                    >
+                      Discover models
+                    </Button>
+                  </div>
+                </div>
+
+                {extraSelected.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {extraSelected.map((model) => (
+                      <Badge key={model} variant="outline" className="gap-1">
+                        {model}
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => toggleModel(model)}
+                        >
+                          ×
+                        </button>
+                      </Badge>
                     ))}
                   </div>
                 ) : null}
 
-                {!editing ? (
-                  <button
-                    type="button"
-                    onClick={() => choosePreset(CUSTOM_PRESET)}
-                    className="self-start text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                  >
-                    Add a custom provider
-                  </button>
+                {discovered.length > 12 ? (
+                  <Input
+                    placeholder="Filter models…"
+                    value={filter}
+                    onChange={(event) => setFilter(event.target.value)}
+                  />
                 ) : null}
 
-                <div className="flex flex-col gap-2 rounded-md border p-3">
-                  <p className="text-sm font-medium">Credential</p>
-                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="auth">Auth</Label>
-                      <Select
-                        value={auth}
-                        onValueChange={(value) => setAuth(value as ProviderAuthView)}
+                {visibleModels.length > 0 ? (
+                  <div className="max-h-64 overflow-auto rounded-md border">
+                    {visibleModels.map((model) => (
+                      <label
+                        key={model}
+                        className="flex cursor-pointer items-center gap-3 border-b px-3 py-1.5 text-sm last:border-b-0 hover:bg-muted"
                       >
-                        <SelectTrigger id="auth" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="api-key">api key</SelectItem>
-                          <SelectItem value="oauth">oauth (subscription)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {auth === "oauth" ? (
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="oauthSource">Credential source</Label>
-                        <Select
-                          value={oauthSource}
-                          onValueChange={(value) =>
-                            setOauthSource(String(value) as OAuthSourceView)
-                          }
-                        >
-                          <SelectTrigger id="oauthSource" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="claude-code">Claude Code (~/.claude)</SelectItem>
-                            <SelectItem value="codex">Codex (~/.codex)</SelectItem>
-                            <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
-                            <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
-                            <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
-                            <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
-                            <SelectItem value="freebuff">Freebuff (free tier)</SelectItem>
-                            <SelectItem value="static">stored token</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : null}
-                    {needsApiKey ? (
-                      <>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="apiKey">API key</Label>
-                          <Input
-                            id="apiKey"
-                            type="password"
-                            placeholder={
-                              editing
-                                ? "leave empty to keep the stored key"
-                                : "stored in credentials.json (0600)"
-                            }
-                            value={apiKey}
-                            onChange={(event) => setApiKey(event.target.value)}
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="apiKeyEnv">or env var</Label>
-                          <Input
-                            id="apiKeyEnv"
-                            placeholder="DEEPSEEK_API_KEY"
-                            value={apiKeyEnv}
-                            onChange={(event) => setApiKeyEnv(event.target.value)}
-                          />
-                        </div>
-                      </>
-                    ) : helpPreset?.noKey ? (
-                      <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
-                        Local server — no API key required. Make sure it is running at the base URL.
-                      </p>
-                    ) : (
-                      <div className="col-span-2 flex flex-col gap-2 self-end xl:col-span-1">
-                        <p className="text-xs text-muted-foreground">
-                          {oauthSource === "claude-code"
-                            ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
-                            : oauthSource === "codex"
-                              ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
-                              : oauthSource === "devin"
-                                ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
-                                : oauthSource === "cursor"
-                                  ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
-                                  : oauthSource === "workbuddy-ai"
-                                    ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
-                                    : oauthSource === "freebuff"
-                                      ? "Save opens Freebuff sign-in in your browser. Or set FREEBUFF_AUTH_TOKEN. Free tier only: daily quota, one session per account."
-                                      : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
-                        </p>
-                        {oauthSource === "workbuddy-ai" ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="self-start"
-                            onClick={() => void signInWorkbuddy()}
-                            disabled={busy || !baseUrl}
-                          >
-                            Sign in & discover
-                          </Button>
-                        ) : null}
-                      </div>
-                    )}
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(model)}
+                          onChange={() => toggleModel(model)}
+                        />
+                        <span className="flex-1 truncate">{model}</span>
+                        <span className="text-xs text-muted-foreground">{priceLabel(model)}</span>
+                      </label>
+                    ))}
                   </div>
-                  <KeysHelp
-                    keysUrl={helpPreset?.keysUrl}
-                    hint={helpPreset?.hint}
-                    linkLabel={
-                      helpPreset?.noKey
-                        ? "Local server docs"
-                        : auth === "oauth"
-                          ? "How to sign in"
-                          : "Get an API key"
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {discovered.length > 0
+                      ? "No models match the filter."
+                      : "No models yet — run Discover, or add a model id below."}
+                  </p>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="add model id manually"
+                    value={customModel}
+                    onChange={(event) => setCustomModel(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") addCustomModel();
+                    }}
+                  />
+                  <Button variant="outline" onClick={addCustomModel} disabled={!customModel.trim()}>
+                    Add
+                  </Button>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={syncModels}
+                    onChange={(event) =>
+                      setSyncOverride(
+                        event.target.checked === syncDefault ? null : event.target.checked,
+                      )
                     }
                   />
-                  {loginSource ? (
-                    <details className="rounded-md border border-dashed p-3">
-                      <summary className="cursor-pointer text-xs font-medium">
-                        Second account (optional)
-                      </summary>
-                      <div>
-                        <p className="text-xs font-medium">Second account (optional)</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Point this provider at another local {loginSourceName} sign-in — a work
-                          and a home account can each have their own quota, fallback place, and
-                          ledger. Blank reads the agent&apos;s own sign-in.
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="loginLabel">Label</Label>
-                          <Input
-                            id="loginLabel"
-                            placeholder="work"
-                            value={loginLabel}
-                            onChange={(event) => setLoginLabel(event.target.value)}
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="loginHome">Config dir</Label>
-                          <Input
-                            id="loginHome"
-                            placeholder={loginHint.home}
-                            value={loginHome}
-                            onChange={(event) => setLoginHome(event.target.value)}
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="loginFile">Credential file</Label>
-                          <Input
-                            id="loginFile"
-                            placeholder={loginHint.file ?? "/path/to/credentials.json"}
-                            value={loginFile}
-                            onChange={(event) => setLoginFile(event.target.value)}
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="loginKeychain">Keychain</Label>
-                          <Input
-                            id="loginKeychain"
-                            placeholder="service[:account]"
-                            value={loginKeychain}
-                            onChange={(event) => setLoginKeychain(event.target.value)}
-                          />
-                        </div>
-                      </div>
-                    </details>
-                  ) : null}
-                  <span className="text-[11px] text-muted-foreground">
-                    Secrets stay on this machine; a blank API key keeps the stored value when
-                    editing.
-                  </span>
-                </div>
-              </fieldset>
-              <fieldset
-                disabled={busy || Boolean(savedProvider)}
-                className={cn("contents", step !== 2 && "hidden")}
-              >
-                <div className="flex flex-col gap-3 rounded-md border p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Models</p>
-                      <p className="text-xs text-muted-foreground">
-                        {selected.length} selected
-                        {discovered.length > 0 ? ` · ${discovered.length} discovered` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {discovered.length > 0 ? (
-                        <>
-                          <Button size="sm" variant="ghost" onClick={() => setSelected(discovered)}>
-                            Select all
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
-                            Clear
-                          </Button>
-                        </>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void discover()}
-                        disabled={busy || !baseUrl}
-                      >
-                        Discover models
-                      </Button>
-                    </div>
-                  </div>
-
-                  {extraSelected.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {extraSelected.map((model) => (
-                        <Badge key={model} variant="outline" className="gap-1">
-                          {model}
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={() => toggleModel(model)}
-                          >
-                            ×
-                          </button>
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {discovered.length > 12 ? (
-                    <Input
-                      placeholder="Filter models…"
-                      value={filter}
-                      onChange={(event) => setFilter(event.target.value)}
-                    />
-                  ) : null}
-
-                  {visibleModels.length > 0 ? (
-                    <div className="max-h-64 overflow-auto rounded-md border">
-                      {visibleModels.map((model) => (
-                        <label
-                          key={model}
-                          className="flex cursor-pointer items-center gap-3 border-b px-3 py-1.5 text-sm last:border-b-0 hover:bg-muted"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(model)}
-                            onChange={() => toggleModel(model)}
-                          />
-                          <span className="flex-1 truncate">{model}</span>
-                          <span className="text-xs text-muted-foreground">{priceLabel(model)}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {discovered.length > 0
-                        ? "No models match the filter."
-                        : "No models yet — run Discover, or add a model id below."}
-                    </p>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="add model id manually"
-                      value={customModel}
-                      onChange={(event) => setCustomModel(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") addCustomModel();
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={addCustomModel}
-                      disabled={!customModel.trim()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-
-                  <label className="flex cursor-pointer items-start gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={syncModels}
-                      onChange={(event) =>
-                        setSyncOverride(
-                          event.target.checked === syncDefault ? null : event.target.checked,
-                        )
-                      }
-                    />
-                    <span>
-                      <span className="font-medium">Auto-sync new models</span>
-                      <span className="block text-xs text-muted-foreground">
-                        Append ids this provider newly lists. On by default for Codex, Claude Code,
-                        Antigravity, Devin, Cursor, WorkBuddy AI, and presets that discover live
-                        (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code); off for other
-                        API/reseller catalogs until you enable it. Unchecking a model remembers the
-                        removal so sync does not bring it back.
-                      </span>
+                  <span>
+                    <span className="font-medium">Auto-sync new models</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Append ids this provider newly lists. On by default for ChatGPT Web, Codex,
+                      Claude Code, Antigravity, Devin, Cursor, WorkBuddy AI, and presets that
+                      discover live (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code); off
+                      for other API/reseller catalogs until you enable it. Unchecking a model
+                      remembers the removal so sync does not bring it back.
                     </span>
-                  </label>
-                </div>
-              </fieldset>
-              <fieldset
-                disabled={busy || Boolean(savedProvider)}
-                className={cn("contents", step !== 1 && "hidden")}
-              >
-                {billing === "subscription" ? (
-                  <details className="rounded-md border p-4">
-                    <summary className="cursor-pointer text-sm font-medium">
-                      Quota caps (optional)
-                    </summary>
-                    <div>
-                      <p className="text-sm font-medium">Quota caps</p>
-                      <p className="text-xs text-muted-foreground">
-                        Optional local spend caps for this provider; refresh usage from the quota
-                        section above.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="quotaFiveHour">5h cap (USD, optional)</Label>
-                        <Input
-                          id="quotaFiveHour"
-                          value={quotaFiveHour}
-                          onChange={(event) => setQuotaFiveHour(event.target.value)}
-                          placeholder="12"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="quotaWeekly">weekly cap (USD, optional)</Label>
-                        <Input
-                          id="quotaWeekly"
-                          value={quotaWeekly}
-                          onChange={(event) => setQuotaWeekly(event.target.value)}
-                          placeholder="30"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="quotaMonthly">monthly cap (USD, optional)</Label>
-                        <Input
-                          id="quotaMonthly"
-                          value={quotaMonthly}
-                          onChange={(event) => setQuotaMonthly(event.target.value)}
-                          placeholder="60"
-                        />
-                      </div>
-                    </div>
-                  </details>
-                ) : null}
-
-                <details className="rounded-md border" open={presetId === "custom"}>
-                  <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium">
-                    Advanced settings
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset
+              disabled={busy || Boolean(savedProvider)}
+              className={cn("contents", step !== 1 && "hidden")}
+            >
+              {billing === "subscription" ? (
+                <details className="rounded-md border p-4">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Quota caps (optional)
                   </summary>
-                  <div className="flex flex-col gap-4 border-t p-4">
+                  <div>
+                    <p className="text-sm font-medium">Quota caps</p>
                     <p className="text-xs text-muted-foreground">
-                      {presetId === "custom"
-                        ? "Provider name, endpoint protocol, billing mode, and extra capability flags."
-                        : "Fine-tune how this provider is addressed; the preset already fills sensible defaults."}
+                      Optional local spend caps for this provider; refresh usage from the quota
+                      section above.
                     </p>
-                    <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="name">Provider name</Label>
-                        <Input
-                          id="name"
-                          disabled={Boolean(editing)}
-                          value={name}
-                          onChange={(event) => setName(event.target.value)}
-                        />
-                        <span className="text-[11px] text-muted-foreground">
-                          Key used in routing rules and the provider list.
-                        </span>
-                      </div>
-                      <div className="col-span-2 flex flex-col gap-1.5 xl:col-span-1">
-                        <Label htmlFor="baseUrl">Base URL</Label>
-                        <Input
-                          id="baseUrl"
-                          value={baseUrl}
-                          onChange={(event) => setBaseUrl(event.target.value)}
-                        />
-                        <span className="text-[11px] text-muted-foreground">
-                          Preset default — change only for proxies or self-hosted endpoints.
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="type">Protocol</Label>
-                        <Select
-                          value={effectiveType}
-                          onValueChange={(value) => setType(String(value))}
-                          disabled={lockedType !== undefined}
-                        >
-                          <SelectTrigger id="type" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="openai">openai (chat/completions)</SelectItem>
-                            <SelectItem value="anthropic">anthropic (messages)</SelectItem>
-                            <SelectItem value="both">both — openai + anthropic</SelectItem>
-                            <SelectItem value="responses">responses</SelectItem>
-                            <SelectItem value="gemini">
-                              gemini — cloud code (Antigravity)
-                            </SelectItem>
-                            <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
-                            <SelectItem value="cursor">
-                              cursor — Connect-RPC (Cursor agent)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {lockedType ? (
-                          <span className="text-[11px] text-muted-foreground">
-                            Set by the {lockedBy} credential source.
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="billing">Billing</Label>
-                        <Select
-                          value={billing}
-                          onValueChange={(value) => setBilling(value as ProviderBillingView)}
-                        >
-                          <SelectTrigger id="billing" className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="api">api (pay per token)</SelectItem>
-                            <SelectItem value="subscription">subscription</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <span className="text-[11px] text-muted-foreground">
-                          Subscription unlocks optional quota caps below.
-                        </span>
-                      </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="quotaFiveHour">5h cap (USD, optional)</Label>
+                      <Input
+                        id="quotaFiveHour"
+                        value={quotaFiveHour}
+                        onChange={(event) => setQuotaFiveHour(event.target.value)}
+                        placeholder="12"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="quotaWeekly">weekly cap (USD, optional)</Label>
+                      <Input
+                        id="quotaWeekly"
+                        value={quotaWeekly}
+                        onChange={(event) => setQuotaWeekly(event.target.value)}
+                        placeholder="30"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="quotaMonthly">monthly cap (USD, optional)</Label>
+                      <Input
+                        id="quotaMonthly"
+                        value={quotaMonthly}
+                        onChange={(event) => setQuotaMonthly(event.target.value)}
+                        placeholder="60"
+                      />
                     </div>
                   </div>
                 </details>
-              </fieldset>
-              {step === 3 ? (
-                <div className="flex flex-col gap-3">
-                  <p className="text-sm">
-                    Assign selected models to tasks (optional). New models go last as backups.
-                    Existing priorities and source allow-lists stay unchanged.
-                  </p>
-                  {(state.config.routing.routings.length > 0
-                    ? state.config.routing.routings
-                    : state.routings
-                  ).map((task) => (
-                    <label key={task.id} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        disabled={busy}
-                        checked={tasks.includes(task.id)}
-                        onChange={(event) => {
-                          setDirty(true);
-                          setTasks((current) =>
-                            event.target.checked
-                              ? [...current, task.id]
-                              : current.filter((id) => id !== task.id),
-                          );
-                        }}
-                      />
-                      {task.label}
-                      {task.models.length === 0 ? " (auto-derived)" : ""}
-                    </label>
-                  ))}
-                  {tasks.length > 0 ? (
-                    <label className="flex items-start gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        disabled={busy}
-                        checked={convertAuto}
-                        onChange={(event) => {
-                          setDirty(true);
-                          setConvertAuto(event.target.checked);
-                        }}
-                      />
-                      Convert selected auto-derived tasks to fixed lists. Keep their current models
-                      first, then append these models. Models excluded by a source allow-list are
-                      not added.
-                    </label>
-                  ) : null}
-                  <p className="text-xs text-muted-foreground">
-                    {selected.length} models selected.{" "}
-                    {canSaveWithoutModels && selected.length === 0
-                      ? "Save will sign in and discover models."
-                      : ""}
-                  </p>
-                  {savedProvider ? (
-                    <p role="status" className="text-sm font-medium">
-                      Source saved. Task assignment failed. Retry saves task assignment only.
-                    </p>
-                  ) : null}
-                </div>
               ) : null}
-              <div className="flex flex-wrap items-center gap-3">
-                {step > 1 && !savedProvider ? (
-                  <Button variant="outline" disabled={busy} onClick={() => setStep(step - 1)}>
-                    Back
-                  </Button>
+
+              <details className="rounded-md border" open={presetId === "custom"}>
+                <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium">
+                  Advanced settings
+                </summary>
+                <div className="flex flex-col gap-4 border-t p-4">
+                  <p className="text-xs text-muted-foreground">
+                    {presetId === "custom"
+                      ? "Provider name, endpoint protocol, billing mode, and extra capability flags."
+                      : "Fine-tune how this provider is addressed; the preset already fills sensible defaults."}
+                  </p>
+                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="name">Provider name</Label>
+                      <Input
+                        id="name"
+                        disabled={Boolean(editing)}
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        Key used in routing rules and the provider list.
+                      </span>
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-1.5 xl:col-span-1">
+                      <Label htmlFor="baseUrl">Base URL</Label>
+                      <Input
+                        id="baseUrl"
+                        value={baseUrl}
+                        onChange={(event) => setBaseUrl(event.target.value)}
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        Preset default — change only for proxies or self-hosted endpoints.
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="type">Protocol</Label>
+                      <Select
+                        value={effectiveType}
+                        onValueChange={(value) => setType(String(value))}
+                        disabled={lockedType !== undefined}
+                      >
+                        <SelectTrigger id="type" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="openai">openai (chat/completions)</SelectItem>
+                          <SelectItem value="anthropic">anthropic (messages)</SelectItem>
+                          <SelectItem value="both">both — openai + anthropic</SelectItem>
+                          <SelectItem value="responses">responses</SelectItem>
+                          <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
+                          <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
+                          <SelectItem value="cursor">
+                            cursor — Connect-RPC (Cursor agent)
+                          </SelectItem>
+                          <SelectItem value="chatgpt-web">
+                            chatgpt-web — ChatGPT Web browser bridge
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {lockedType ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          Set by the {lockedBy} credential source.
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="billing">Billing</Label>
+                      <Select
+                        value={billing}
+                        onValueChange={(value) => setBilling(value as ProviderBillingView)}
+                      >
+                        <SelectTrigger id="billing" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="api">api (pay per token)</SelectItem>
+                          <SelectItem value="subscription">subscription</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-[11px] text-muted-foreground">
+                        Subscription unlocks optional quota caps below.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </fieldset>
+            {step === 3 ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm">
+                  Assign selected models to tasks (optional). New models go last as backups.
+                  Existing priorities and source allow-lists stay unchanged.
+                </p>
+                {(state.config.routing.routings.length > 0
+                  ? state.config.routing.routings
+                  : state.routings
+                ).map((task) => (
+                  <label key={task.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      disabled={busy}
+                      checked={tasks.includes(task.id)}
+                      onChange={(event) => {
+                        setDirty(true);
+                        setTasks((current) =>
+                          event.target.checked
+                            ? [...current, task.id]
+                            : current.filter((id) => id !== task.id),
+                        );
+                      }}
+                    />
+                    {task.label}
+                    {task.models.length === 0 ? " (auto-derived)" : ""}
+                  </label>
+                ))}
+                {tasks.length > 0 ? (
+                  <label className="flex items-start gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      disabled={busy}
+                      checked={convertAuto}
+                      onChange={(event) => {
+                        setDirty(true);
+                        setConvertAuto(event.target.checked);
+                      }}
+                    />
+                    Convert selected auto-derived tasks to fixed lists. Keep their current models
+                    first, then append these models. Models excluded by a source allow-list are not
+                    added.
+                  </label>
                 ) : null}
-                {step < 3 ? (
-                  <Button
-                    disabled={
-                      busy ||
-                      !name ||
-                      !baseUrl ||
-                      (step === 2 && selected.length === 0 && !canSaveWithoutModels)
-                    }
-                    onClick={() => void nextStep()}
-                  >
-                    Continue
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={() => void save()}
-                    disabled={
-                      busy || !name || !baseUrl || (selected.length === 0 && !canSaveWithoutModels)
-                    }
-                  >
-                    {savedProvider
-                      ? "Retry task assignment"
-                      : editing
-                        ? "Update source"
-                        : "Save source"}
-                  </Button>
-                )}
-                {editing ? (
-                  <Button variant="ghost" onClick={closeForm} disabled={busy}>
-                    Cancel
-                  </Button>
+                <p className="text-xs text-muted-foreground">
+                  {selected.length} models selected.{" "}
+                  {canSaveWithoutModels && selected.length === 0
+                    ? "Save will sign in and discover models."
+                    : ""}
+                </p>
+                {savedProvider ? (
+                  <p role="status" className="text-sm font-medium">
+                    Source saved. Task assignment failed. Retry saves task assignment only.
+                  </p>
                 ) : null}
-                {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
-                {error ? <span className="text-xs text-destructive">{error}</span> : null}
               </div>
-            </CardContent>
-          </Card>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              {step > 1 && !savedProvider ? (
+                <Button variant="outline" disabled={busy} onClick={() => setStep(step - 1)}>
+                  Back
+                </Button>
+              ) : null}
+              {step < 3 ? (
+                <Button
+                  disabled={
+                    busy ||
+                    !name ||
+                    !baseUrl ||
+                    (step === 2 && selected.length === 0 && !canSaveWithoutModels)
+                  }
+                  onClick={() => void nextStep()}
+                >
+                  Continue
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => void save()}
+                  disabled={
+                    busy || !name || !baseUrl || (selected.length === 0 && !canSaveWithoutModels)
+                  }
+                >
+                  {savedProvider
+                    ? "Retry task assignment"
+                    : editing
+                      ? "Update source"
+                      : "Save source"}
+                </Button>
+              )}
+              {editing ? (
+                <Button variant="ghost" onClick={closeForm} disabled={busy}>
+                  Cancel
+                </Button>
+              ) : null}
+              {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
+              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </div>

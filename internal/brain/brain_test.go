@@ -240,6 +240,34 @@ func TestAskPostsStateAndQuestions(t *testing.T) {
 	}
 }
 
+func TestAskOpenAIDecisions(t *testing.T) {
+	tr := &fakeTransport{responses: []*http.Response{
+		jsonResponse(200, map[string]any{"answers": []any{
+			map[string]any{"type": "choice", "name": "model", "choice": "plan", "confidence": 0.91,
+				"probabilities": []any{map[string]any{"value": "plan", "probability": 0.91}, map[string]any{"value": "execute", "probability": 0.09}}},
+			map[string]any{"type": "choice", "name": "effort", "choice": "medium", "confidence": 0.8},
+		}}),
+	}}
+	verdict := clientWith(tr).AskVerdict(context.Background(), Input{
+		Brain:  config.BrainConfig{Channel: "openai-decisions", TimeoutMs: 1000},
+		APIKey: "openai-key",
+		State:  map[string]any{"last_user_message": "implement routing", "routings": []any{map[string]any{"id": "plan", "label": "Plan"}, map[string]any{"id": "execute", "label": "Execute"}}},
+	})
+	if verdict == nil || verdict.Model != "plan" || verdict.Confidence != 0.91 || verdict.Effort != "medium" {
+		t.Fatalf("verdict = %+v", verdict)
+	}
+	if tr.requests[0].URL.String() != "https://api.openai.com/v1/decisions" || tr.requests[0].Header.Get("authorization") != "Bearer openai-key" {
+		t.Fatalf("request = %s auth=%q", tr.requests[0].URL, tr.requests[0].Header.Get("authorization"))
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(tr.bodies[0]), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["model"] != "gpt-6-luna" || body["input"] == nil || len(body["questions"].([]any)) != 2 {
+		t.Fatalf("body = %v", body)
+	}
+}
+
 func TestAskNoAPIKey(t *testing.T) {
 	tr := &fakeTransport{responses: []*http.Response{jsonResponse(200, map[string]any{})}}
 	// No env, no credential reader, no explicit key.

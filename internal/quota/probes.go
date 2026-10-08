@@ -18,6 +18,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/oauth"
 	"github.com/xinyao27/jevonian/internal/provider/devin"
+	"github.com/xinyao27/jevonian/internal/provider/freebuff"
 	"github.com/xinyao27/jevonian/internal/provider/workbuddy"
 )
 
@@ -48,6 +49,8 @@ func probeKind(p config.Provider) string {
 		return "cursor"
 	case p.Type == config.ProviderTypeDevin || (p.Auth == config.AuthOAuth && p.OAuthSource == config.OAuthDevin):
 		return "devin"
+	case matches("codebuff.com") || p.OAuthSource == config.OAuthFreebuff:
+		return "freebuff"
 	case matches("deepseek.com"):
 		return "deepseek"
 	case matches("openrouter.ai"):
@@ -122,6 +125,9 @@ func (s *Service) fetchLive(ctx context.Context, p config.Provider) (liveQuota, 
 			}
 		}
 		return out, nil
+	}
+	if kind == "freebuff" {
+		return s.freebuffUsage(ctx, auth, base)
 	}
 	origin, err := originOf(base)
 	if err != nil {
@@ -338,6 +344,110 @@ func (s *Service) cursorUsage(ctx context.Context, token string) (liveQuota, err
 		}
 	}
 	return out, nil
+}
+
+// freebuffUsage reads the Freebuff quota off the current session's status.
+// GET /api/v1/freebuff/session with no instance id is free — it returns the
+// account's active session record without minting or extending one, so it is
+// safe to poll. A POST would consume one of the day's few sessions.
+//
+// The catch: the quota (freebucks balance + per-model daily session counts)
+// only rides along while a session is active. When none is live the endpoint
+// answers 200 {"status":"none"} or {"status":"superseded"} with no quota, so
+// the probe returns an empty liveQuota and the card falls back to the ledger.
+func (s *Service) freebuffUsage(ctx context.Context, auth oauth.AuthResolution, base string) (liveQuota, error) {
+	token := auth.Token
+	if token == "" {
+		token = strings.TrimPrefix(auth.Headers["authorization"], "Bearer ")
+	}
+	if token == "" {
+		return liveQuota{}, fmt.Errorf("Missing Freebuff token for provider")
+	}
+	target := freebuff.EndpointFromBaseURL(base) + "/api/v1/freebuff/session"
+	headers := map[string]string{
+		"authorization": "Bearer " + token,
+		"user-agent":    freebuff.UserAgent,
+	}
+	j, status, err := s.requestJSON(ctx, http.MethodGet, target, headers, nil)
+	if err != nil {
+		return liveQuota{}, err
+	}
+	if status == http.StatusUnauthorized {
+		return liveQuota{}, fmt.Errorf("Freebuff rejected the token; sign in again")
+	}
+	if status < 200 || status >= 300 {
+		return liveQuota{}, fmt.Errorf("Freebuff usage request failed (%d)", status)
+	}
+	return freebuffLive(j), nil
+}
+
+// freebuffLive maps the session-status payload to a liveQuota. Empty when the
+// payload carries no quota block (no live session, or a superseded one).
+func freebuffLive(j map[string]any) liveQuota {
+	out := liveQuota{}
+
+	// Access tier is the closest thing to a plan name Freebuff reports.
+	if tier := text(j["accessTier"]); tier != "" {
+		out.Plan = tier
+	}
+
+	fb := record(j["freebucks"])
+	daily := record(fb["daily"])
+	if limit, ok := finiteNumber(daily["limit"]); ok && limit > 0 {
+		// The Freebucks daily wallet is the account-wide budget. Report it as a
+		// used-vs-limit USD-free window: "spent" is the unit the meter tracks.
+		if spent, ok2 := finiteNumber(daily["spent"]); ok2 {
+			used := round6(spent)
+			cap := round6(limit)
+			out.Windows = append(out.Windows, Window{
+				ID:          "freebuff-daily",
+				Label:       "daily freebucks",
+				UsedUSD:     &used,
+				LimitUSD:    &cap,
+				UsedPercent: clampPercent(100 * spent / limit),
+				ResetsAt:    toISO(daily["resetAt"]),
+			})
+		}
+	}
+
+	// Per-model daily session allowances. Only limited accounts carry the map;
+	// each entry meters one model's "sessions today" against its own cap.
+	byModel, _ := j["rateLimitsByModel"].(map[string]any)
+	keys := make([]string, 0, len(byModel))
+	for key := range byModel {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		rl := record(byModel[key])
+		limit, ok := finiteNumber(rl["limit"])
+		if !ok || limit <= 0 {
+			continue
+		}
+		used, _ := finiteNumber(rl["recentCount"])
+		label := freebuff.Bare(key)
+		out.Windows = append(out.Windows, Window{
+			ID:          "freebuff-model-" + label,
+			Label:       label,
+			Model:       label,
+			UsedPercent: clampPercent(100 * used / limit),
+			ResetsAt:    toISO(rl["resetAt"]),
+			Status:      text(rl["status"]),
+		})
+	}
+
+	// Freebucks are a daily-resetting credit, not pay-as-you-go USD, so they do
+	// not go into Balance (a 0 there would mark the account Exhausted and pull
+	// it out of routing until the next day). Surface the wallet in the note.
+	var notes []string
+	if bal, ok := finiteNumber(fb["balance"]); ok {
+		notes = append(notes, fmt.Sprintf("%.0f freebucks left", bal))
+	}
+	if n := len(out.Windows); n > 1 {
+		notes = append(notes, fmt.Sprintf("%d model allowances", n-1))
+	}
+	out.Note = strings.Join(notes, " · ")
+	return out
 }
 
 func (s *Service) requestJSON(ctx context.Context, method, target string, headers map[string]string, body any) (map[string]any, int, error) {

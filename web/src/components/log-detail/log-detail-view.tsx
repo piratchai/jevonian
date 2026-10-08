@@ -164,11 +164,11 @@ function PanelSkeleton() {
 }
 
 /**
- * The log detail content, shared by the full `/logs/:id` route and the inline list panel.
+ * The log detail content, shared by the full `/logs/:id` route and the logs list Sheet.
  *
  * `variant="page"` keeps the two-column page layout. `variant="panel"` is a single narrow
- * column with a sticky header and its own scroll area, so the parent can give it a fixed
- * height. It owns fetching, loading, error, and the copy-context state in both variants.
+ * column with a sticky header and its own scroll area, so the parent Sheet can give it a
+ * fixed height. It owns fetching, loading, error, and the copy-context state in both variants.
  */
 export function LogDetailView({
   id,
@@ -176,9 +176,9 @@ export function LogDetailView({
   onClose,
 }: {
   id: string;
-  /** "page" = full route layout (header + two columns). "panel" = narrow side panel. */
+  /** "page" = full route layout (header + two columns). "panel" = narrow Sheet body. */
   variant?: "page" | "panel";
-  /** Panel only: called by the panel's close button. */
+  /** Panel only: called by the Sheet close button. */
   onClose?: () => void;
 }): JSX.Element {
   const { detail, error } = useLogDetail(id);

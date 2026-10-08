@@ -375,6 +375,12 @@ export interface LogRecord {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costUsd: number | null;
+  /**
+   * Usage convention of the serving wire: true when `promptTokens` already
+   * excludes `cacheReadTokens` (Anthropic, Connect-RPC), false when it includes
+   * them (OpenAI, Responses). Absent on rows written before the field existed.
+   */
+  exclusiveInput?: boolean;
   kind?: "request" | "brain";
   billing?: string;
   requestedModel?: string;
@@ -528,11 +534,21 @@ export interface LogSeriesBucket {
   errors: number;
   costUsd: number;
   avgLatencyMs: number;
+  /**
+   * Share of this bucket's input tokens served from the prompt cache, or `null`
+   * when the bucket has no token accounting. Same definition as `cacheHitRate`.
+   */
+  cacheCoverage: number | null;
 }
 
 export interface LogSeries {
   minutes: number;
   buckets: LogSeriesBucket[];
+  /** Whole-window cache coverage, or `null` when the window has no accounting. */
+  cacheCoverage?: number | null;
+  /** Window totals behind `cacheCoverage`. */
+  cacheReadTokens?: number;
+  promptTokens?: number;
 }
 
 /** A stable identity for a ledger row, falling back to its shape when no id exists. */

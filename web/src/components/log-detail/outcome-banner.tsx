@@ -1,7 +1,6 @@
-import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { Badge } from "@/components/ui/badge";
 import type { LogRecord } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
 import { cn, money } from "@/lib/utils";
 
 function Fact({ label, value }: { label: string; value: string }) {
@@ -53,10 +52,7 @@ export function OutcomeBanner({
           {record.status}
         </Badge>
         <span className="flex min-w-0 items-center gap-1.5">
-          <ProviderLogo id={record.provider} />
-          <span className="truncate text-sm font-medium">
-            {providerDisplayName(record.provider)}
-          </span>
+          <ProviderIdentity provider={record.provider} size="size-4" />
         </span>
         <span className="min-w-0 text-sm break-all text-muted-foreground">· {record.model}</span>
         {record.requestedModel && record.requestedModel !== record.model ? (

@@ -49,6 +49,15 @@ var Channels = []Channel{
 		Hint:      "Create an API key at console.typesafe.ai.",
 	},
 	{
+		ID:        "openai-decisions",
+		Label:     "OpenAI Decisions",
+		BaseURL:   "https://api.openai.com/v1/decisions",
+		Model:     "gpt-6-luna",
+		APIKeyEnv: "OPENAI_API_KEY",
+		KeysURL:   "https://platform.openai.com/api-keys",
+		Hint:      "Uses OpenAI's Decisions API with gpt-6-luna.",
+	},
+	{
 		ID:        "openrouter",
 		Label:     "OpenRouter",
 		BaseURL:   "https://openrouter.ai/api/alpha/decisions",

@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/oauth"
+	"github.com/xinyao27/jevonian/internal/provider/chatgptweb"
 	cursorprovider "github.com/xinyao27/jevonian/internal/provider/cursor"
 	"github.com/xinyao27/jevonian/internal/provider/devin"
 	"github.com/xinyao27/jevonian/internal/provider/workbuddy"
@@ -138,6 +140,44 @@ func cursorChat(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt,
 	return out, err
 }
 
+// chatgptWebChat runs one ChatGPT Web browser turn and maps its errors.
+func chatgptWebChat(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, body wire.Body, token string) (rpcTurn, error) {
+	var out rpcTurn
+	p := chatgptweb.NewProvider(at.Entry.Provider, r.deps.HTTP)
+	result, err := p.Chat(ctx, chatgptweb.ChatRequest{
+		Body:                body,
+		Model:               at.Entry.Model,
+		Stream:              req.Stream,
+		KeepWindowOnFailure: os.Getenv("JEVONIAN_CHATGPTWEB_KEEP_FAILED_WINDOW") == "1",
+	})
+	out.status, out.completion, out.stream = result.Status, result.Completion, result.Stream
+	failure := result.Error
+	if failure == nil {
+		return out, err
+	}
+	out.status = failure.Status
+	out.message = failure.Message
+	out.outcome = Classify(out.status, out.message, nil)
+	switch failure.Kind {
+	case chatgptweb.KindAuth:
+		out.outcome.Kind = OutcomeProviderRefusal
+	case chatgptweb.KindModel:
+		out.outcome.Kind = OutcomeClientError
+	case chatgptweb.KindRateLimit:
+		out.outcome.Kind = OutcomeRateLimit
+		r.bench(at.Entry.Provider, &Attempt{Outcome: out.outcome, Text: out.message})
+	case chatgptweb.KindInvalid:
+		out.outcome.Kind = OutcomeClientError
+	case chatgptweb.KindTimeout:
+		out.outcome.Kind = OutcomeHostFailure
+	case chatgptweb.KindBrowser:
+		out.outcome.Kind = OutcomeHostFailure
+	}
+	// The structured refusal is carried in rpcTurn so rpcAttempt can preserve its
+	// classification instead of reclassifying a provider error as a client error.
+	return out, nil
+}
+
 type workbuddyAdapter struct{ openaiAdapter }
 
 func (*workbuddyAdapter) AlwaysStreams() bool { return true }
@@ -176,6 +216,13 @@ func (r *Runner) rpcAttempt(parent context.Context, req AttemptRequest, at *Atte
 	turn, err := chat(r, ctx, req, at, body, token)
 	stream := turn.stream
 	at.Retries = turn.retries
+	if err == nil && turn.outcome.Kind != 0 && turn.message != "" {
+		cleanup()
+		at.Status = turn.status
+		at.Outcome = turn.outcome
+		at.Text = wire.MarshalJSON(map[string]any{"error": map[string]string{"message": turn.message, "type": "api_error"}})
+		return
+	}
 	if err != nil || ctx.Err() != nil {
 		if stream != nil {
 			stream.Close()
@@ -198,6 +245,9 @@ func (r *Runner) rpcAttempt(parent context.Context, req AttemptRequest, at *Atte
 		cleanup()
 		at.Status = turn.status
 		at.Outcome = turn.outcome
+		if at.Outcome.Kind == OutcomeSuccess {
+			at.Outcome = Classify(turn.status, turn.message, nil)
+		}
 		at.Text = wire.MarshalJSON(map[string]any{"error": map[string]string{"message": turn.message, "type": "api_error"}})
 		return
 	}

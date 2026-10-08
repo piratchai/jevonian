@@ -305,9 +305,18 @@ func (s *SQLiteLogs) QueryLogSeries(ctx context.Context, filter LogFilter, start
 	}
 	where, args := s.filterSQL(filter)
 	width := float64(end.Sub(start).Milliseconds()) / float64(count)
+	// UncachedInputTokens folds each row's usage convention into SQL. An
+	// exclusive-input row (exclusive_input = 1) counts prompt_tokens as already
+	// uncached; an inclusive row (0) subtracts its cache reads. Rows written
+	// before the convention column keep the historical prompt_tokens reading —
+	// the recorded cache observation is a prediction, not this row's usage.
+	uncached := `SUM(CASE
+		WHEN exclusive_input = 0 AND prompt_tokens > cache_read_tokens THEN prompt_tokens - cache_read_tokens
+		ELSE prompt_tokens END)`
 	query := `SELECT MIN(?, CAST((ts_ms - ?) / ? AS INTEGER)) AS slot,
 		COUNT(*), SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END),
-		COALESCE(SUM(cost_usd), 0), COALESCE(SUM(latency_ms), 0)
+		COALESCE(SUM(cost_usd), 0), COALESCE(SUM(latency_ms), 0),
+		COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(` + uncached + `, 0)
 		FROM records INDEXED BY idx_admin_records_ts WHERE ` + where + ` AND ts_ms >= ? AND ts_ms <= ? GROUP BY slot`
 	params := []any{count - 1, start.UnixMilli(), width}
 	params = append(params, args...)
@@ -321,7 +330,7 @@ func (s *SQLiteLogs) QueryLogSeries(ctx context.Context, filter LogFilter, start
 	for rows.Next() {
 		var slot int
 		var b LogBucket
-		if err := rows.Scan(&slot, &b.Requests, &b.Errors, &b.CostUSD, &b.LatencyMS); err != nil {
+		if err := rows.Scan(&slot, &b.Requests, &b.Errors, &b.CostUSD, &b.LatencyMS, &b.CacheReadTokens, &b.PromptTokens, &b.UncachedInputTokens); err != nil {
 			return nil, err
 		}
 		if slot >= 0 && slot < count {

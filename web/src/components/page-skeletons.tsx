@@ -1,4 +1,4 @@
-import { LOGS_ROW_GRID } from "@/components/logs/table-layout";
+import { LOG_COLUMNS } from "@/components/logs/columns";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -83,10 +83,22 @@ export function CardBlockSkeleton({
 export function OverviewSkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading overview">
-      <PageHeaderSkeleton descriptionWidth="w-[28rem]" />
-      <CardBlockSkeleton lines={5} />
-      <StatCardsSkeleton count={4} />
-      <CardBlockSkeleton lines={3} />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-4 w-64" />
+        <Skeleton className="h-11 w-full rounded-xl" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <div className="flex flex-col gap-4 xl:col-span-7">
+          <Skeleton className="h-72 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+        <div className="flex flex-col gap-4 xl:col-span-5">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-36 w-full rounded-xl" />
+          <Skeleton className="h-36 w-full rounded-xl" />
+        </div>
+      </div>
       <CardBlockSkeleton lines={2} />
     </div>
   );
@@ -255,12 +267,14 @@ export function LogsTableSkeleton({ rows = 10 }: { rows?: number }) {
       {Array.from({ length: rows }, (_, index) => (
         <div
           key={index}
-          className={cn(LOGS_ROW_GRID, "items-center border-b border-border/40 py-2.5")}
+          className="grid items-center gap-3 border-b border-border/40 px-4 py-2.5"
+          style={{ gridTemplateColumns: LOG_COLUMNS }}
         >
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-3 w-full max-w-[90%]" />
           <Skeleton className="h-3 w-20" />
           <Skeleton className="h-3 w-12" />
+          <Skeleton className="h-3 w-10" />
           <Skeleton className="h-3 w-10" />
           <Skeleton className="h-3 w-10" />
           <Skeleton className="h-3 w-12" />

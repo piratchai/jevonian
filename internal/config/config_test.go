@@ -229,6 +229,22 @@ func TestNormalizeDualWireHost(t *testing.T) {
 	}
 }
 
+func TestChatGPTWebDefaultsToNoKey(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{
+		"providers": []any{
+			map[string]any{
+				"name": "chatgpt-local", "type": "chatgpt-web", "baseUrl": "http://127.0.0.1:8080/v1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Providers[0].NoKey {
+		t.Fatalf("expected NoKey=true for chatgpt-web")
+	}
+}
+
 func TestLoadMissingFileReturnsDefault(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "missing.json")

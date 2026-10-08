@@ -1,10 +1,9 @@
-import { ListFilterIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 
 import { RequestsChart } from "@/components/activity-charts";
 import { LogDetailView } from "@/components/log-detail/log-detail-view";
-import { CollapsedRail, FilterRail } from "@/components/logs/filter-rail";
+import { LOG_COLUMNS } from "@/components/logs/columns";
+import { FilterRail, FilterTriggerFace } from "@/components/logs/filter-rail";
 import {
   EMPTY_FILTERS,
   filtersActive,
@@ -15,19 +14,14 @@ import {
   type LogFilters,
 } from "@/components/logs/filter-types";
 import { StatusPills } from "@/components/logs/status-pills";
-import {
-  INLINE_INSPECTOR_QUERY,
-  LOGS_ROW_GRID,
-  LOGS_TABLE_MIN_WIDTH,
-} from "@/components/logs/table-layout";
 import { useLogFacets } from "@/components/logs/use-log-facets";
-import { useMediaQuery } from "@/components/logs/use-media-query";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
-import { ProviderLogo } from "@/components/provider-logo";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLogStream } from "@/hooks/use-log-stream";
@@ -39,7 +33,12 @@ import {
   type LogRecord,
   type LogSeries,
 } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
+import {
+  cacheCoverage,
+  cacheCoverageTitle,
+  cacheCoverageTone,
+  formatCacheCoverage,
+} from "@/lib/cache";
 import { cn, formatTime, money } from "@/lib/utils";
 
 const ROW_ESTIMATE_HEIGHT = 44;
@@ -73,13 +72,11 @@ export function LogsPage() {
   const [filters, setFilters] = useState<LogFilters>(EMPTY_FILTERS);
   const [searchDraft, setSearchDraft] = useState("");
   const [live, setLive] = useState(true);
-  const [railOpen, setRailOpen] = useState(true);
-  /** Mobile-only rail drawer; the md+ rail is controlled by `railOpen`. */
-  const [railDrawerOpen, setRailDrawerOpen] = useState(false);
-  /** Selected record id; the inline panel (xl) or drawer (below xl) reads it. */
+  // The log table is the point of this page, so filters live in a dropdown
+  // beside the search input instead of a rail that costs layout width.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  /** Selected record id; opens the detail Sheet. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Tailwind's xl breakpoint; the drawer only opens below it. */
-  const inlineInspector = useMediaQuery(INLINE_INSPECTOR_QUERY);
 
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [total, setTotal] = useState<number | null>(null);
@@ -232,8 +229,12 @@ export function LogsPage() {
     const window = series?.minutes ?? 60;
     const count = total !== null ? total : logs.length;
     const scope = filtered ? "matching the current filters" : "across the ledger";
-    return `Last ${window} minutes ${scope}. Primary bars are request volume; red marks intervals that include errors. ${count} ${count === 1 ? "record" : "records"} loaded.`;
-  }, [series?.minutes, total, logs.length, filtered]);
+    const coverage =
+      series?.cacheCoverage !== null && series?.cacheCoverage !== undefined
+        ? ` Cache covers ${Math.round(series.cacheCoverage * 100)}% of input tokens in this window.`
+        : "";
+    return `Last ${window} minutes ${scope}. Primary bars are request volume; red marks intervals that include errors.${coverage} ${count} ${count === 1 ? "record" : "records"} loaded.`;
+  }, [series?.minutes, series?.cacheCoverage, total, logs.length, filtered]);
 
   const selectRecord = useCallback((log: LogRecord) => {
     if (log.id) setSelectedId(log.id);
@@ -241,54 +242,37 @@ export function LogsPage() {
 
   return (
     <div className="flex h-[calc(100svh-6rem)] gap-3 md:h-[calc(100svh-3rem)]">
-      {railOpen ? (
-        <FilterRail
-          filters={filters}
-          facets={facets}
-          facetsStale={facetsStale}
-          onToggle={toggleFilter}
-          onClear={clearFilters}
-          onCollapse={() => setRailOpen(false)}
-          className="hidden w-60 shrink-0 rounded-xl border bg-card md:flex"
-        />
-      ) : (
-        <CollapsedRail
-          filters={filters}
-          onExpand={() => setRailOpen(true)}
-          className="hidden w-10 rounded-xl border bg-card md:flex"
-        />
-      )}
-
-      {/* Below md the rail is a left drawer; from md up it is the strip above. */}
-      <Sheet open={railDrawerOpen} onOpenChange={setRailDrawerOpen}>
-        <SheetContent side="left" className="w-72 gap-0 p-0 md:hidden">
-          <FilterRail
-            filters={filters}
-            facets={facets}
-            facetsStale={facetsStale}
-            onToggle={toggleFilter}
-            onClear={clearFilters}
-            className="h-full"
-          />
-        </SheetContent>
-      </Sheet>
-
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex shrink-0 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              className="md:hidden"
-              aria-label="Toggle filters"
-              title="Toggle filters"
-              onClick={() => setRailDrawerOpen(true)}
-            >
-              <ListFilterIcon />
-            </Button>
             <h1 className="shrink-0 text-lg font-semibold tracking-tight">Logs</h1>
           </div>
           <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
+            <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className="h-9 w-9 shrink-0"
+                    aria-label="Toggle filters"
+                    title="Filters"
+                  />
+                }
+              >
+                <FilterTriggerFace filters={filters} />
+              </PopoverTrigger>
+              <PopoverContent align="end" sideOffset={6} className="w-72 gap-0 p-0">
+                <FilterRail
+                  filters={filters}
+                  facets={facets}
+                  facetsStale={facetsStale}
+                  onToggle={toggleFilter}
+                  onClear={clearFilters}
+                  className="max-h-[70vh]"
+                />
+              </PopoverContent>
+            </Popover>
             <Input
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
@@ -337,6 +321,7 @@ export function LogsPage() {
             series={requestSeries}
             title="Requests over time"
             description={chartDescription}
+            coverage={series?.cacheCoverage}
             compact
           />
         </div>
@@ -346,32 +331,28 @@ export function LogsPage() {
           onChange={(next) => setFilters((c) => ({ ...c, status: next }))}
         />
 
-        {/* The header and the rows both keep LOGS_TABLE_MIN_WIDTH, so a narrow window scrolls the card sideways. */}
-        <Card className="flex min-h-0 flex-1 flex-col overflow-x-auto overflow-y-hidden border">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
           <div
-            className={cn(
-              LOGS_ROW_GRID,
-              LOGS_TABLE_MIN_WIDTH,
-              "shrink-0 overflow-hidden border-b bg-muted/40 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase [scrollbar-gutter:stable]",
-            )}
+            className="grid shrink-0 items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+            style={{ gridTemplateColumns: LOG_COLUMNS }}
           >
-            <div>Time</div>
-            <div>Model</div>
-            <div>Provider</div>
-            <div>Phase</div>
-            <div>Effort</div>
-            <div>Status</div>
-            <div>Cost</div>
-            <div>Latency</div>
-            <div className="text-right">Details</div>
+            <div className="truncate">Time</div>
+            <div className="truncate">Model</div>
+            <div className="truncate">Provider</div>
+            <div className="truncate">Phase</div>
+            <div className="truncate">Effort</div>
+            <div className="truncate">Status</div>
+            <div className="truncate" title="Share of input tokens served from the prompt cache">
+              Cache
+            </div>
+            <div className="truncate">Cost</div>
+            <div className="truncate">Latency</div>
+            <div className="truncate text-right">Details</div>
           </div>
 
           <div
             ref={scrollContainerRef}
-            className={cn(
-              "relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]",
-              LOGS_TABLE_MIN_WIDTH,
-            )}
+            className="relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto"
           >
             {loadingInitial ? (
               <LogsTableSkeleton rows={12} />
@@ -390,6 +371,7 @@ export function LogsPage() {
                   const isNew = newLogIds.has(key);
                   const isSelected = Boolean(log.id) && log.id === selectedId;
                   const failed = log.status >= 400;
+                  const coverage = cacheCoverage(log);
 
                   return (
                     <div
@@ -405,6 +387,7 @@ export function LogsPage() {
                         left: 0,
                         width: "100%",
                         transform: `translateY(${virtualRow.start}px)`,
+                        gridTemplateColumns: LOG_COLUMNS,
                       }}
                       onClick={() => selectRecord(log)}
                       onKeyDown={(event) => {
@@ -414,15 +397,14 @@ export function LogsPage() {
                         }
                       }}
                       className={cn(
-                        LOGS_ROW_GRID,
-                        "items-center py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
+                        "grid items-center gap-3 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
                         log.id ? "cursor-pointer" : "",
                         isNew ? "animate-flash-new" : "",
                         isSelected ? "bg-muted hover:bg-muted" : failed ? "bg-destructive/5" : "",
                       )}
                       title={log.id ? "Inspect this request" : "No record ID captured"}
                     >
-                      <div className="flex items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
+                      <div className="flex min-w-0 items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
                         <span
                           aria-hidden
                           className={cn(
@@ -441,12 +423,13 @@ export function LogsPage() {
                         ) : null}
                       </div>
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <ProviderLogo id={log.provider} />
-                        <span className="truncate text-muted-foreground">
-                          {providerDisplayName(log.provider)}
-                        </span>
+                        <ProviderIdentity
+                          provider={log.provider}
+                          size="size-4"
+                          nameClassName="text-muted-foreground"
+                        />
                       </div>
-                      <div>
+                      <div className="min-w-0 truncate">
                         <Badge
                           variant={
                             log.phase === "plan"
@@ -460,7 +443,7 @@ export function LogsPage() {
                           {log.phase ?? "-"}
                         </Badge>
                       </div>
-                      <div>
+                      <div className="min-w-0 truncate">
                         {log.effort ? (
                           <Badge
                             variant="outline"
@@ -497,23 +480,56 @@ export function LogsPage() {
                           </span>
                         ) : null}
                       </div>
-                      <div className="font-mono text-muted-foreground">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {coverage === null ? (
+                          <span className="text-muted-foreground" title={cacheCoverageTitle(log)}>
+                            —
+                          </span>
+                        ) : (
+                          <>
+                            <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-muted">
+                              <span
+                                className={cn(
+                                  "block h-full rounded-full",
+                                  coverage >= 0.5
+                                    ? "bg-emerald-500"
+                                    : coverage >= 0.1
+                                      ? "bg-amber-500"
+                                      : "bg-muted-foreground/40",
+                                )}
+                                style={{ width: `${Math.min(100, coverage * 100)}%` }}
+                              />
+                            </span>
+                            <span
+                              className={cn("font-mono tabular-nums", cacheCoverageTone(coverage))}
+                              title={cacheCoverageTitle(log)}
+                            >
+                              {formatCacheCoverage(coverage)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <div className="truncate font-mono text-muted-foreground">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
-                      <div className="font-mono text-muted-foreground">{log.latencyMs}ms</div>
-                      <div className="text-right text-muted-foreground">
+                      <div className="truncate font-mono text-muted-foreground">
+                        {log.latencyMs}ms
+                      </div>
+                      <div className="truncate text-right text-muted-foreground">
                         {log.id ? (
-                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                            <span>open →</span>
-                            <Link
-                              to={`/logs/${log.id}`}
-                              className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                              title="Open the full detail page"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              page
-                            </Link>
-                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="text-xs"
+                            title="Inspect this request"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectRecord(log);
+                            }}
+                          >
+                            Details
+                          </Button>
                         ) : (
                           "no id"
                         )}
@@ -527,11 +543,15 @@ export function LogsPage() {
             {loadingMore ? (
               <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
                 {Array.from({ length: 3 }, (_, index) => (
-                  <div key={index} className={cn(LOGS_ROW_GRID, "items-center px-0 py-1.5")}>
+                  <div
+                    key={index}
+                    className="grid items-center gap-3 py-1.5"
+                    style={{ gridTemplateColumns: LOG_COLUMNS }}
+                  >
                     <Skeleton className="h-3 w-10" />
                     <Skeleton className="h-3 w-[80%]" />
                     <Skeleton className="h-3 w-16" />
-                    <Skeleton className="col-span-6 h-3 w-full" />
+                    <Skeleton className="h-3 w-full" style={{ gridColumn: "4 / -1" }} />
                   </div>
                 ))}
               </div>
@@ -544,24 +564,17 @@ export function LogsPage() {
         </Card>
       </div>
 
-      {/* Inline panel on very wide windows (see INLINE_INSPECTOR_QUERY); below that the same view lives in the Sheet. */}
-      <aside className="hidden min-h-0 w-[30rem] shrink-0 overflow-hidden rounded-xl border bg-card min-[118rem]:block">
-        {selectedId ? (
-          <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
-        ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            Select a request to inspect it here.
-          </div>
-        )}
-      </aside>
-
       <Sheet
-        open={Boolean(selectedId) && !inlineInspector}
+        open={Boolean(selectedId)}
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}
       >
-        <SheetContent side="right" showCloseButton={false} className="w-full gap-0 p-0 sm:max-w-lg">
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="w-full gap-0 p-0 sm:max-w-[30rem]"
+        >
           {selectedId ? (
             <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
           ) : null}

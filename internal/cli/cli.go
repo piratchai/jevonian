@@ -21,7 +21,7 @@ import (
 )
 
 // Version is overridden by release builds using -ldflags -X.
-var Version = "0.6.3"
+var Version = "0.6.6"
 
 const helpText = `Jevonian — local AI router
 

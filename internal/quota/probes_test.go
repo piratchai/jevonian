@@ -64,6 +64,7 @@ func TestRealLiveProviderEndpoints(t *testing.T) {
 		{name: "deepseek", p: config.Provider{BaseURL: "https://api.deepseek.com/v1"}, path: "/user/balance", body: `{"balance_infos":[{"total_balance":"12.1234567","currency":"CNY"}]}`, balance: floatPtr(12.123457)},
 		{name: "openrouter", p: config.Provider{BaseURL: "https://openrouter.ai/api/v1"}, path: "/api/v1/credits", body: `{"data":{"total_credits":20,"total_usage":25}}`, balance: floatPtr(0)},
 		{name: "moonshot", p: config.Provider{BaseURL: "https://api.moonshot.ai/v1"}, path: "/v1/users/me/balance", body: `{"data":{"available_balance":7.5}}`, balance: floatPtr(7.5)},
+		{name: "freebuff", p: config.Provider{Auth: config.AuthOAuth, OAuthSource: config.OAuthFreebuff, BaseURL: "https://www.codebuff.com"}, path: "/api/v1/freebuff/session", body: `{"status":"active","accessTier":"limited","freebucks":{"balance":15,"daily":{"limit":25,"spent":10,"remaining":15,"resetAt":"2030-01-01T16:00:00.000Z"}},"rateLimitsByModel":{"deepseek/deepseek-v4-flash":{"limit":6,"recentCount":1,"resetAt":"2030-01-01T07:00:00.000Z"},"deepseek/deepseek-v4.1-flash":{"limit":6,"recentCount":5,"resetAt":"2030-01-01T07:00:00.000Z"}}}`, used: []float64{40, 100.0 / 6, 500.0 / 6}, plan: "limited", note: "15 freebucks left · 2 model allowances"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

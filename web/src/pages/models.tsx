@@ -62,8 +62,8 @@ export function ModelsPage() {
         <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
           Routing settings · auto selector, quota guard, and token saver
         </summary>
-        <div className="space-y-4 border-t p-4">
-          <p className="mb-4 text-sm text-muted-foreground">
+        <div className="flex flex-col gap-4 border-t p-4">
+          <p className="text-sm text-muted-foreground">
             The routing brain chooses a task for auto requests. Explicit tasks and models do not use
             the brain.
           </p>
@@ -72,8 +72,8 @@ export function ModelsPage() {
               {error}
             </p>
           ) : null}
-          <RoutingPage settingsOnly refreshKey={revision} onChanged={onChanged} />
-          <ProviderSettings onChanged={onChanged} />
+          <RoutingPage settingsOnly embedded refreshKey={revision} onChanged={onChanged} />
+          <ProviderSettings embedded onChanged={onChanged} />
           {state ? (
             <BrainSection
               state={state}

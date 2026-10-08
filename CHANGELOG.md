@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.6] - 2026-10-08
+
+### Fixed
+
+- **Provider discovery across canonical model variants in routing UI.** Providers configured with namespaced model spellings (such as `deepseek/deepseek-v4.1-flash`) now appear in source options when routing the bare canonical model ID (`deepseek-v4.1-flash`), and vice versa.
+- **Provider source sheet model editing and card ordering.** Restored model editing within provider sheets and stabilized provider card ordering.
+
+## [0.6.5] - 2026-10-08
+
+### Added
+
+- **Overview dashboard rebuild.** The home view shows usage, models, and cost cards in a clearer grid.
+- **Provider logos in routing.** Task route chains and provider lists show brand marks inline.
+
+### Changed
+
+- **Provider usage cards show connected sources.** Quota is the primary view, with account details and Edit/Remove on each card.
+- **Provider list rows are more compact.** Source rows are flatter, and badges are quieter.
+- **Logs request detail opens in a Sheet.** Detail no longer uses a fixed side panel.
+
+### Fixed
+
+- **Responses sampling params no longer leak upstream.** Codex-style Responses passthrough strips `temperature` / `top_p`, and an exhausted provider no longer rewrites those client 400s as quota failovers.
+
+## [0.6.4] - 2026-10-08
+
+### Added
+
+- **Prompt cache coverage in the Logs view.** Each row shows the share of input tokens served from the prompt cache, and the activity chart reports the same ratio for the window.
+
+### Changed
+
+- **Logs filters moved into a dropdown.** The filter panel opens from a funnel button next to the search box, so the log table gets the full page width. The button shows a count when filters are active.
+
+### Fixed
+
+- **Logs table columns no longer overlap.** Columns clip to the available width instead of colliding on narrow screens.
+
 ## [0.6.3] - 2026-10-06
 
 ### Added

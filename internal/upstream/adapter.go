@@ -45,6 +45,12 @@ func PlanUpstreamWire(provider config.Provider, client ClientKind, model string)
 			bridge = "to-openai"
 		}
 		return WirePlan{Wire: KindOpenAI, Bridge: bridge}, nil
+	case config.ProviderTypeChatGPTWeb:
+		bridge := ""
+		if client != KindOpenAI {
+			bridge = "to-openai"
+		}
+		return WirePlan{Wire: KindOpenAI, Bridge: bridge}, nil
 	case config.ProviderTypeDevin, config.ProviderTypeCursor:
 		// Connect-RPC envelopes encode a Chat Completions body.
 		if client == KindOpenAI {
@@ -104,7 +110,7 @@ func providerServesClient(p config.Provider, client ClientKind) bool {
 	if ProviderSpeaks(p, client) {
 		return true
 	}
-	if p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor {
+	if p.Type == config.ProviderTypeDevin || p.Type == config.ProviderTypeCursor || p.Type == config.ProviderTypeChatGPTWeb {
 		return true
 	}
 	if client == KindAnthropic && p.Type == config.ProviderTypeOpenAI {
@@ -128,7 +134,7 @@ func ProviderSpeaks(p config.Provider, w config.UpstreamWire) bool {
 		return w == KindOpenAI || w == KindAnthropic
 	}
 	switch p.Type {
-	case config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor:
+	case config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor, config.ProviderTypeChatGPTWeb:
 		return w == KindOpenAI
 	}
 	if w == KindOpenAI {
@@ -155,7 +161,7 @@ func inferModelWires(p config.Provider, modelID string) []config.UpstreamWire {
 	case config.ProviderTypeResponses:
 		return []config.UpstreamWire{KindResponses}
 	case config.ProviderTypeGemini, config.ProviderTypeDevin, config.ProviderTypeCursor,
-		config.ProviderTypeOpenAI:
+		config.ProviderTypeChatGPTWeb, config.ProviderTypeOpenAI:
 		return []config.UpstreamWire{KindOpenAI}
 	case config.ProviderTypeBoth:
 		if anthropicwire.NeedsWire(modelID) {
@@ -393,6 +399,8 @@ type AdapterFunc func(provider config.Provider, clientKind ClientKind, plan Wire
 // that maps provider identity to behavior.
 func AdapterFor(provider config.Provider, clientKind ClientKind, plan WirePlan) (Adapter, error) {
 	switch provider.Type {
+	case config.ProviderTypeChatGPTWeb:
+		return &chatGPTWebAdapter{rpcAdapter: rpcAdapter{chat: chatgptWebChat}}, nil
 	case config.ProviderTypeDevin:
 		return &rpcAdapter{chat: devinChat}, nil
 	case config.ProviderTypeCursor:
@@ -439,7 +447,7 @@ func (a *openaiAdapter) Prepare(in PrepInput) (wire.Body, error) {
 		body = withEffort(body, in.Effort)
 	}
 	// src/prepare.ts: ask streaming Chat Completions hosts to report usage.
-	if in.ClientKind == KindOpenAI && in.Provider.Type == config.ProviderTypeOpenAI &&
+	if in.ClientKind == KindOpenAI && (in.Provider.Type == config.ProviderTypeOpenAI || in.Provider.Type == config.ProviderTypeChatGPTWeb) &&
 		in.ClientStream && in.Provider.InjectStreamUsage {
 		if _, set := body["stream_options"]; !set {
 			body["stream_options"] = map[string]any{"include_usage": true}
@@ -456,6 +464,11 @@ func (a *openaiAdapter) EndpointURL(p config.Provider) string { return "" }
 func (a *openaiAdapter) Headers(p config.Provider, base http.Header) http.Header {
 	return base
 }
+
+type chatGPTWebAdapter struct{ rpcAdapter }
+
+func (*chatGPTWebAdapter) MaxConcurrent() int    { return 1 }
+func (*chatGPTWebAdapter) SkipsTokenSaver() bool { return true }
 
 // anthropicAdapter is the Anthropic Messages egress.
 type anthropicAdapter struct{}
@@ -585,7 +598,15 @@ func (a *responsesAdapter) AlwaysStreams() bool       { return true }
 
 func (a *responsesAdapter) Prepare(in PrepInput) (wire.Body, error) {
 	if in.ClientKind == KindResponses {
-		body := in.ClientBody
+		// Clone and drop sampling controls. A Responses client (Codex) may send
+		// temperature/top_p; reasoning models reject them with HTTP 400.
+		body := make(wire.Body, len(in.ClientBody)+2)
+		for k, v := range in.ClientBody {
+			if k == "temperature" || k == "top_p" {
+				continue
+			}
+			body[k] = v
+		}
 		body["model"] = in.Model
 		body["stream"] = true
 		if in.Provider.Auth == config.AuthOAuth {

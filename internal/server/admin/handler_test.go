@@ -20,6 +20,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/config"
 	"github.com/xinyao27/jevonian/internal/keys"
 	"github.com/xinyao27/jevonian/internal/ledger"
+	"github.com/xinyao27/jevonian/internal/provider/chatgptweb"
 	"github.com/xinyao27/jevonian/internal/provider/multiacct"
 	"github.com/xinyao27/jevonian/internal/quota"
 	"github.com/xinyao27/jevonian/internal/routing"
@@ -652,4 +653,54 @@ func TestExtensionRoutesMounted(t *testing.T) {
 	if out["prices"] == nil || out["provider"] != "" {
 		t.Fatalf("expected {provider, prices}, got %#v", out)
 	}
+}
+
+func TestChatGPTWebProviderCRUDAndDiscover(t *testing.T) {
+	x := setup(t, nil)
+	mockDriver := &mockChatGPTWebDriver{
+		models: []chatgptweb.Model{
+			{ID: "gpt-4o", Title: "GPT-4o"},
+			{ID: "o1", Title: "o1"},
+		},
+	}
+	chatgptweb.SetDefaultDriverForTest(mockDriver)
+	defer chatgptweb.SetDefaultDriverForTest(nil)
+
+	// POST /providers
+	code, out := request(t, x.h, "POST", "/providers", map[string]any{
+		"name":    "chatgpt-local",
+		"type":    "chatgpt-web",
+		"baseUrl": "http://127.0.0.1:9222",
+		"billing": "subscription",
+	})
+	checkStatus(t, code, 200, out)
+	cfg := out["config"].(map[string]any)
+	provs := cfg["providers"].([]any)
+	if len(provs) == 0 || provs[0].(map[string]any)["type"] != "chatgpt-web" || provs[0].(map[string]any)["noKey"] != true {
+		t.Fatalf("expected keyless chatgpt-web provider, got %#v", provs)
+	}
+
+	// POST /providers/discover
+	code, out = request(t, x.h, "POST", "/providers/discover", map[string]any{
+		"name":    "chatgpt-local",
+		"type":    "chatgpt-web",
+		"baseUrl": "http://127.0.0.1:9222",
+	})
+	checkStatus(t, code, 200, out)
+	models := out["models"].([]any)
+	if len(models) != 2 || models[0] != "gpt-4o" || models[1] != "o1" {
+		t.Fatalf("expected models [gpt-4o, o1], got %#v", models)
+	}
+}
+
+type mockChatGPTWebDriver struct {
+	models []chatgptweb.Model
+}
+
+func (m *mockChatGPTWebDriver) Models(ctx context.Context, cdpEndpoint string) ([]chatgptweb.Model, error) {
+	return m.models, nil
+}
+
+func (m *mockChatGPTWebDriver) Chat(ctx context.Context, cdpEndpoint string, req chatgptweb.ChatRequest, prompt string) (chatgptweb.ChatResult, error) {
+	return chatgptweb.ChatResult{}, nil
 }

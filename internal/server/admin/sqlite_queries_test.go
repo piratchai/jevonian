@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -88,6 +89,48 @@ func seededSQLite(t testing.TB, count int) (*admin.SQLiteLogs, *sql.DB) {
 	}
 	t.Cleanup(func() { source.Close() })
 	return source, db
+}
+
+// The SQL series path must honor each row's recorded usage convention, not just
+// the in-memory fallback. An inclusive row (OpenAI/Responses) counts cache reads
+// inside prompt_tokens; an exclusive row (Anthropic/Connect-RPC) does not.
+func TestSQLiteSeriesHonorsUsageConvention(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.sqlite")
+	writer, err := ledger.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The admin harness pins its clock to 2026-10-05T12:00:00Z.
+	now := time.Date(2026, 10, 5, 11, 59, 0, 0, time.UTC)
+	exclusive, inclusive := true, false
+	for _, rec := range []ledger.Record{
+		{TS: now, Provider: "p", Model: "m", Status: 200, PromptTokens: 100, CacheReadTokens: 300, ExclusiveInput: &exclusive},
+		{TS: now, Provider: "p", Model: "m", Status: 200, PromptTokens: 400, CacheReadTokens: 300, ExclusiveInput: &inclusive},
+		// Legacy row: no convention recorded, keeps the historical reading.
+		{TS: now, Provider: "p", Model: "m", Status: 200, PromptTokens: 100, CacheReadTokens: 300},
+	} {
+		if err := writer.Append(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	source, err := admin.OpenSQLiteLogs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { source.Close() })
+
+	// Uncached = 100 (exclusive) + 100 (inclusive: 400-300) + 100 (legacy) = 300.
+	// Cached = 300*3 = 900. Coverage = 900/1200 = 75%.
+	x := setup(t, source)
+	code, out := request(t, x.h, "GET", "/logs/series?minutes=60&buckets=6", nil)
+	checkStatus(t, code, 200, out)
+	got, ok := out["cacheCoverage"].(float64)
+	if !ok || math.Abs(got-0.75) > 1e-6 {
+		t.Fatalf("window coverage %#v", out["cacheCoverage"])
+	}
 }
 
 func TestSQLiteQueriesMatchAppendOffsetsAndFilters(t *testing.T) {

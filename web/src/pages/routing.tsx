@@ -19,6 +19,7 @@ import { ArrowDown, ArrowUp, GripVertical, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { RoutingSkeleton } from "@/components/page-skeletons";
+import { ProviderIdentity } from "@/components/provider-identity";
 import { ProviderLogo } from "@/components/provider-logo";
 import { ScheduleSection } from "@/components/schedule-section";
 import { Button } from "@/components/ui/button";
@@ -34,8 +35,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   api,
+  type ProviderView,
   type QuotaGuardView,
   type RoutingEntryView,
   type StateResponse,
@@ -45,12 +48,13 @@ import {
   type ScheduleView,
   type TokenSaverConfigView,
 } from "@/lib/api";
-import { providerDisplayName } from "@/lib/provider-name";
+import { providerDisplayName, resolveProviderIdentity } from "@/lib/provider-name";
 import { offersTimeBasedModels, pruneWindowLists, windowRange } from "@/lib/schedule";
 
 import {
   allowedProviders,
   BUILTIN_ROUTING_IDS,
+  collectProvidersByModel,
   mergeRoutingDrafts,
   routeSavePayload,
   validRoutingId,
@@ -160,6 +164,38 @@ function OrderedList({
   );
 }
 
+/**
+ * One provider a routing's model may use: the brand logo, and a tooltip with the product name and
+ * quota standing. Logos stay readable at a glance where a name would crowd the row.
+ */
+function ProviderMark({
+  provider,
+  status,
+  record,
+}: {
+  provider: string;
+  status?: string;
+  record?: ProviderView;
+}) {
+  const input = record ?? provider;
+  const identity = resolveProviderIdentity(input);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex size-4 shrink-0 items-center justify-center">
+            <ProviderLogo id={identity.brand} className="size-4" />
+          </span>
+        }
+      />
+      <TooltipContent>
+        {identity.name}
+        {identity.account ? ` · ${identity.account}` : ""} · {status ?? "quota unknown"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function RoutingPage({
   embedded = false,
   refreshKey = 0,
@@ -234,18 +270,10 @@ export function RoutingPage({
     [onEditingChange],
   );
 
-  const providersByModel = useMemo(() => {
-    const map = new Map<string, string[]>();
-    const add = (id: string, provider: string) => {
-      const list = map.get(id) ?? [];
-      if (!list.includes(provider)) list.push(provider);
-      map.set(id, list);
-    };
-    for (const model of models) add(model.id, model.provider);
-    for (const model of canonicals)
-      for (const variant of model.variants) add(model.id, variant.provider);
-    return map;
-  }, [models, canonicals]);
+  const providersByModel = useMemo(
+    () => collectProvidersByModel(models, canonicals),
+    [models, canonicals],
+  );
   const names = useMemo(
     () => new Map(canonicals.map((entry) => [entry.id, entry.name])),
     [canonicals],
@@ -253,6 +281,10 @@ export function RoutingPage({
   const statuses = useMemo(
     () => new Map(health.map((entry) => [entry.provider, entry.status])),
     [health],
+  );
+  const providerRecords = useMemo(
+    () => new Map((state?.config.providers ?? []).map((entry) => [entry.name, entry])),
+    [state],
   );
   const derived = useMemo(
     () => new Map((state?.routings ?? []).map((entry) => [entry.id, entry.models])),
@@ -678,66 +710,93 @@ export function RoutingPage({
             />
           ) : null}
           <div className="divide-y rounded-lg border">
-            {drafts.map((entry) => {
-              const automatic = entry.models.length === 0;
-              // While a window is active and lists models for this task, those models run now.
-              const timed = scheduleStatus?.active
-                ? entry.windows?.[scheduleStatus.active]
-                : undefined;
-              const chain = timed?.length
-                ? timed
-                : automatic
-                  ? (effective?.[entry.id] ?? derived.get(entry.id) ?? [])
-                  : entry.models;
-              const changesByTime = Object.keys(entry.windows ?? {}).length > 0;
-              return (
-                <div
-                  key={entry.id}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <h3 className="text-sm font-medium">
-                      {entry.label}{" "}
-                      <span className="font-normal text-muted-foreground">· {entry.id}</span>
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {entry.description || "No task description"}
-                    </p>
-                    <p className="break-words text-xs">
-                      <span className="text-muted-foreground">
-                        {timed?.length
-                          ? `Now · ${scheduleStatus?.activeLabel ?? scheduleStatus?.active}`
-                          : automatic
-                            ? "Automatic"
-                            : "Fixed"}{" "}
-                        ·{" "}
-                      </span>
-                      {chain
-                        .slice(0, 3)
-                        .map((id) => names.get(id) || id)
-                        .join(" → ") || "No models available"}
-                      {chain.length > 3 ? ` → +${chain.length - 3} more` : ""}
-                      {changesByTime ? (
-                        <span className="text-muted-foreground"> · changes by time</span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <Button
-                    className="self-start shrink-0"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || editingId !== null}
-                    onClick={() => {
-                      setEditingId(entry.id);
-                      setConfirmClose(false);
-                      setConfirmDelete(false);
-                    }}
+            <TooltipProvider>
+              {drafts.map((entry) => {
+                const automatic = entry.models.length === 0;
+                // While a window is active and lists models for this task, those models run now.
+                const timed = scheduleStatus?.active
+                  ? entry.windows?.[scheduleStatus.active]
+                  : undefined;
+                const chain = timed?.length
+                  ? timed
+                  : automatic
+                    ? (effective?.[entry.id] ?? derived.get(entry.id) ?? [])
+                    : entry.models;
+                const shown = chain.slice(0, 3);
+                const changesByTime = Object.keys(entry.windows ?? {}).length > 0;
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    Customize
-                  </Button>
-                </div>
-              );
-            })}
+                    <div className="min-w-0 space-y-1">
+                      <h3 className="text-sm font-medium">
+                        {entry.label}{" "}
+                        <span className="font-normal text-muted-foreground">· {entry.id}</span>
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        {entry.description || "No task description"}
+                      </p>
+                      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                        <span className="text-muted-foreground">
+                          {timed?.length
+                            ? `Now · ${scheduleStatus?.activeLabel ?? scheduleStatus?.active}`
+                            : automatic
+                              ? "Automatic"
+                              : "Fixed"}{" "}
+                          ·
+                        </span>
+                        {shown.length ? (
+                          shown.map((id, index) => {
+                            const discovered = providersByModel.get(id) ?? [];
+                            const allowed = allowedProviders(discovered, entry.providers?.[id]);
+                            return (
+                              <span key={id} className="flex items-center gap-1.5">
+                                {index > 0 ? (
+                                  <span className="text-muted-foreground">→</span>
+                                ) : null}
+                                <span className="truncate">{names.get(id) || id}</span>
+                                <span className="flex shrink-0 items-center gap-1">
+                                  {allowed.map((provider) => (
+                                    <ProviderMark
+                                      key={provider}
+                                      provider={provider}
+                                      status={statuses.get(provider)}
+                                      record={providerRecords.get(provider)}
+                                    />
+                                  ))}
+                                </span>
+                              </span>
+                            );
+                          })
+                        ) : (
+                          <span className="text-muted-foreground">No models available</span>
+                        )}
+                        {chain.length > 3 ? (
+                          <span className="text-muted-foreground">→ +{chain.length - 3} more</span>
+                        ) : null}
+                        {changesByTime ? (
+                          <span className="text-muted-foreground">· changes by time</span>
+                        ) : null}
+                      </p>
+                    </div>
+                    <Button
+                      className="self-start shrink-0"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || editingId !== null}
+                      onClick={() => {
+                        setEditingId(entry.id);
+                        setConfirmClose(false);
+                        setConfirmDelete(false);
+                      }}
+                    >
+                      Customize
+                    </Button>
+                  </div>
+                );
+              })}
+            </TooltipProvider>
           </div>
           <details className="rounded-lg border">
             <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
@@ -762,7 +821,16 @@ export function RoutingPage({
         </>
       ) : null}
       {settingsOnly ? (
-        settings
+        embedded ? (
+          settings
+        ) : (
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+              Routing settings · quota guard and token saver
+            </summary>
+            <div className="border-t p-3">{settings}</div>
+          </details>
+        )
       ) : embedded ? null : (
         <details className="rounded-lg border">
           <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
@@ -944,12 +1012,14 @@ export function RoutingPage({
                                     >
                                       {(provider) => (
                                         <div className="flex items-center justify-between gap-2 text-xs">
-                                          <span className="flex items-center gap-2">
-                                            <ProviderLogo id={provider} />
-                                            {providerDisplayName(provider)} ·{" "}
-                                            {stale.includes(provider)
-                                              ? "not available"
-                                              : (statuses.get(provider) ?? "quota unknown")}
+                                          <span className="flex min-w-0 items-center gap-2">
+                                            <ProviderIdentity provider={provider} size="size-4" />
+                                            <span className="shrink-0 text-muted-foreground">
+                                              ·{" "}
+                                              {stale.includes(provider)
+                                                ? "not available"
+                                                : (statuses.get(provider) ?? "quota unknown")}
+                                            </span>
                                           </span>
                                           <button
                                             type="button"

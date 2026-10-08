@@ -223,8 +223,11 @@ func (h *Handler) logSeries(w http.ResponseWriter, r *http.Request) {
 	width := float64(minutes*60000) / float64(count)
 	buckets := make([]map[string]any, count)
 	latency := make([]float64, count)
+	cacheRead := make([]float64, count)
+	prompt := make([]float64, count)
+	uncached := make([]float64, count)
 	for i := range buckets {
-		buckets[i] = map[string]any{"start": iso(start.Add(time.Duration(float64(i)*width) * time.Millisecond)), "requests": 0, "errors": 0, "costUsd": 0.0, "avgLatencyMs": 0}
+		buckets[i] = map[string]any{"start": iso(start.Add(time.Duration(float64(i)*width) * time.Millisecond)), "requests": 0, "errors": 0, "costUsd": 0.0, "avgLatencyMs": 0, "cacheCoverage": nil}
 	}
 	if source, ok := h.deps.Ledger.(LogSeriesQuerier); ok {
 		rows, err := source.QueryLogSeries(r.Context(), logFilter(r), start, now, count)
@@ -237,6 +240,9 @@ func (h *Handler) logSeries(w http.ResponseWriter, r *http.Request) {
 			buckets[i]["errors"] = row.Errors
 			buckets[i]["costUsd"] = row.CostUSD
 			latency[i] = row.LatencyMS
+			cacheRead[i] = float64(row.CacheReadTokens)
+			prompt[i] = float64(row.PromptTokens)
+			uncached[i] = float64(row.UncachedInputTokens)
 		}
 	} else {
 		all, ok := h.records(w)
@@ -263,6 +269,11 @@ func (h *Handler) logSeries(w http.ResponseWriter, r *http.Request) {
 			}
 			b["costUsd"] = number(b["costUsd"]) + number(rec["costUsd"])
 			latency[slot] += number(rec["latencyMs"])
+			cacheRead[slot] += number(rec["cacheReadTokens"])
+			prompt[slot] += number(rec["promptTokens"])
+			if u, known := uncachedInputTokens(rec); known {
+				uncached[slot] += u
+			}
 		}
 	}
 	for i, b := range buckets {
@@ -270,8 +281,31 @@ func (h *Handler) logSeries(w http.ResponseWriter, r *http.Request) {
 		if n := number(b["requests"]); n > 0 {
 			b["avgLatencyMs"] = math.Round(latency[i] / n)
 		}
+		// Coverage = cache reads over the full input. The denominator is cache
+		// reads plus the uncached input, resolved per wire convention.
+		if total := cacheRead[i] + uncached[i]; total > 0 {
+			b["cacheCoverage"] = round6(cacheRead[i] / total)
+		}
 	}
-	send(w, 200, map[string]any{"minutes": minutes, "buckets": buckets})
+	// Window totals let the chart header state the whole-window coverage, not
+	// just the hovered bucket.
+	totalRead, totalPrompt, totalUncached := 0.0, 0.0, 0.0
+	for i := range buckets {
+		totalRead += cacheRead[i]
+		totalPrompt += prompt[i]
+		totalUncached += uncached[i]
+	}
+	var windowCoverage any
+	if total := totalRead + totalUncached; total > 0 {
+		windowCoverage = round6(totalRead / total)
+	}
+	send(w, 200, map[string]any{
+		"minutes":         minutes,
+		"buckets":         buckets,
+		"cacheCoverage":   windowCoverage,
+		"cacheReadTokens": int64(totalRead),
+		"promptTokens":    int64(totalPrompt),
+	})
 }
 
 // facetsStart parses the optional minutes window. Only a valid 1..10080 value

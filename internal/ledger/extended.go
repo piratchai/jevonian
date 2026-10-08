@@ -15,6 +15,7 @@ var extendedColumns = []struct{ name, typ string }{
 	{"cache", "TEXT"},
 	{"cache_keep", "TEXT"},
 	{"brain_channel", "TEXT"},
+	{"exclusive_input", "INTEGER"},
 }
 
 // ExtendSchema adds the extended TS-ledger columns (tries, skipped, cache,
@@ -94,14 +95,14 @@ func insertExtended(x execer, record Record, ts time.Time, ignoreDup bool) (sql.
 	cost_usd, pricing_known, kind, billing, requested_model, phase, routed, reason,
 	brain, confidence, canonical, effort, effort_note, saved_tokens, retries, failovers,
 	ttft_ms, error, key_id, key_name, switch_penalty_usd,
-	tries, skipped, cache, cache_keep, brain_channel
+	tries, skipped, cache, cache_keep, brain_channel, exclusive_input
 ) VALUES (
 	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?, ?, ?, ?,
 	?, ?, ?, ?, ?,
-	?, ?, ?, ?, ?
+	?, ?, ?, ?, ?, ?
 )`,
 		record.ID, record.RequestID, ts.UnixMilli(), ts.Format(time.RFC3339Nano), record.Session, record.Path,
 		record.Provider, record.Model, boolToInt(record.Stream), record.Status, record.LatencyMs,
@@ -112,7 +113,7 @@ func insertExtended(x execer, record Record, ts time.Time, ignoreDup bool) (sql.
 		nullInt(record.SavedTokens), nullInt(record.Retries), nullInt(record.Failovers),
 		nullInt(record.TTFTMs), record.Error, record.KeyID, record.KeyName, nullFloat(record.SwitchPenaltyUSD),
 		nullJSON(record.Tries), nullJSON(record.Skipped), nullJSON(record.Cache),
-		nullText(record.CacheKeep), nullText(record.BrainChannel),
+		nullText(record.CacheKeep), nullText(record.BrainChannel), nullBool(record.ExclusiveInput),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: append: %w", err)

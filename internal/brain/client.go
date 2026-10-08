@@ -222,10 +222,107 @@ func (c *Client) ask(ctx context.Context, input Input) Outcome {
 	if input.Brain.Channel == "cloudflare" {
 		return c.askCloudflare(ctx, input, tr)
 	}
+	if input.Brain.Channel == "openai-decisions" {
+		return c.askOpenAIDecisions(ctx, input, tr)
+	}
 	if tr.baseURL == "" {
 		return Outcome{Failure: &Failure{Error: "no endpoint"}}
 	}
 	return c.askSystemOne(ctx, input, tr)
+}
+
+// askOpenAIDecisions adapts the routing state and choices to the typed Decisions API.
+func (c *Client) askOpenAIDecisions(ctx context.Context, input Input, tr transport) Outcome {
+	ctx, cancel := context.WithTimeout(ctx, timeoutOf(input.Brain))
+	defer cancel()
+
+	name, instructions, criteria := choiceQuestions(input)
+	choices := make([]decisionChoice, 0, len(criteria))
+	for value, description := range criteria {
+		choices = append(choices, decisionChoice{Value: value, Description: description})
+	}
+	questions := []decisionQuestion{{Type: "choice", Name: name, Instructions: instructions, Choices: choices}}
+	if !input.ModelOnly {
+		effortChoices := EffortCriteria()
+		choices = make([]decisionChoice, 0, len(effortChoices))
+		for value, description := range effortChoices {
+			choices = append(choices, decisionChoice{Value: value, Description: description})
+		}
+		questions = append(questions, decisionQuestion{Type: "choice", Name: "effort", Instructions: EffortInstructions, Choices: choices})
+	}
+	state, err := json.Marshal(input.State)
+	if err != nil {
+		return Outcome{Failure: &Failure{Error: err.Error()}}
+	}
+	body, err := json.Marshal(decisionsRequest{Model: tr.model, Input: "Evaluate this routing state and select the best options:\n" + string(state), Questions: questions})
+	if err != nil {
+		return Outcome{Failure: &Failure{Error: err.Error()}}
+	}
+	resp, err := c.fetchBrain(ctx, tr.baseURL, jevHeaders(tr.baseURL, tr.apiKey), body)
+	if err != nil {
+		return Outcome{Failure: &Failure{Error: err.Error()}}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		drain(resp.Body)
+		return Outcome{Failure: &Failure{Status: resp.StatusCode, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}}
+	}
+	payload, err := decodeBody(resp.Body)
+	if err != nil {
+		return Outcome{Failure: &Failure{Error: err.Error()}}
+	}
+	parsed := parseDecisionsResponse(payload)
+	if parsed.Model == "" {
+		return Outcome{Failure: &Failure{Error: "empty verdict"}}
+	}
+	return Outcome{Verdict: verdictFromParsed(parsed)}
+}
+
+type decisionChoice struct {
+	Value       string  `json:"value"`
+	Description *string `json:"description,omitempty"`
+}
+type decisionQuestion struct {
+	Type         string           `json:"type"`
+	Name         string           `json:"name"`
+	Instructions string           `json:"instructions"`
+	Choices      []decisionChoice `json:"choices"`
+}
+type decisionsRequest struct {
+	Model     string             `json:"model"`
+	Input     string             `json:"input"`
+	Questions []decisionQuestion `json:"questions"`
+}
+
+func parseDecisionsResponse(payload any) parseOutcome {
+	body := asMap(payload)
+	answers, _ := body["answers"].([]any)
+	find := func(name string) map[string]any {
+		for _, item := range answers {
+			a := asMap(item)
+			if a["name"] == name {
+				return a
+			}
+		}
+		return nil
+	}
+	model := find("model")
+	probabilities := map[string]float64{}
+	if entries, ok := model["probabilities"].([]any); ok {
+		for _, item := range entries {
+			entry := asMap(item)
+			if value := jsonString(entry["value"]); value != "" {
+				if p, ok := jsonNumber(entry["probability"]); ok {
+					probabilities[value] = p
+				}
+			}
+		}
+	}
+	confidence, _ := jsonNumber(model["confidence"])
+	out := parseOutcome{Model: jsonString(model["choice"]), Confidence: confidence, Probabilities: probabilities, ModelName: jsonString(body["model"]), Usage: usageFrom(body["usage"])}
+	effort := find("effort")
+	out.Effort = jsonString(effort["choice"])
+	return out
 }
 
 // askSystemOne posts `{model, state, questions}` to a SystemOne endpoint.

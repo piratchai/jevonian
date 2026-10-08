@@ -102,6 +102,8 @@ func TestChatToResponsesMapsMessagesTools(t *testing.T) {
 			},
 		}},
 		"max_tokens":       float64(512),
+		"temperature":      0.2,
+		"top_p":            0.9,
 		"reasoning_effort": "low",
 	}, "gpt-5.6-codex")
 	if body["model"] != "gpt-5.6-codex" || body["instructions"] != "be brief" {
@@ -109,6 +111,12 @@ func TestChatToResponsesMapsMessagesTools(t *testing.T) {
 	}
 	if body["max_output_tokens"] != float64(512) || body["store"] != false {
 		t.Fatalf("fields = %v", body)
+	}
+	if _, present := body["temperature"]; present {
+		t.Fatalf("Responses request must omit temperature: %v", body)
+	}
+	if _, present := body["top_p"]; present {
+		t.Fatalf("Responses request must omit top_p: %v", body)
 	}
 	if body["reasoning"].(wire.Body)["effort"] != "low" {
 		t.Fatalf("reasoning = %v", body["reasoning"])

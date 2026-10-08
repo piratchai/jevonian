@@ -19,6 +19,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/modelsync"
 	"github.com/xinyao27/jevonian/internal/oauth"
 	"github.com/xinyao27/jevonian/internal/paths"
+	"github.com/xinyao27/jevonian/internal/provider/chatgptweb"
 	"github.com/xinyao27/jevonian/internal/provider/cursor"
 	"github.com/xinyao27/jevonian/internal/provider/devin"
 	"github.com/xinyao27/jevonian/internal/provider/freebuff"
@@ -179,6 +180,16 @@ func discoverProvider(p config.Provider) catalogEntry {
 	defer cancel()
 	client := cliHTTP()
 	fail := func(err error) catalogEntry { e.Error = err.Error(); return e }
+	if p.Type == config.ProviderTypeChatGPTWeb {
+		models, err := chatgptweb.NewProvider(p, client).Models(ctx)
+		if err != nil {
+			return fail(err)
+		}
+		for _, m := range models {
+			e.Models = append(e.Models, m.ID)
+		}
+		return e
+	}
 	if p.Type == config.ProviderTypeCursor || p.OAuthSource == config.OAuthCursor {
 		raw, err := cursor.FetchModels(ctx)
 		if err != nil {

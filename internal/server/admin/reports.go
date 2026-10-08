@@ -79,7 +79,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	phases := map[string]map[string]any{}
 	sessions := map[string]bool{}
 	cache := 0.0
-	prompt := 0.0
+	uncached := 0.0
 	add := func(m map[string]any, k string, n float64) { m[k] = number(m[k]) + n }
 	if !h.scanRecords(w, r, LogRange{}, func(rec LogRecord) error {
 		add(out, "requests", 1)
@@ -123,7 +123,9 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 		add(pr, "costUsd", cost)
 		sessions[text(rec["session"])] = true
 		cache += number(rec["cacheReadTokens"])
-		prompt += number(rec["promptTokens"])
+		if u, known := uncachedInputTokens(rec); known {
+			uncached += u
+		}
 		add(out, "savedTokens", number(rec["savedTokens"]))
 		if baseline != "" && rec["kind"] != "brain" && h.deps.Prices != nil {
 			at, _ := time.Parse(time.RFC3339Nano, text(rec["ts"]))
@@ -147,8 +149,8 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	if base := number(out["apiBaselineUsd"]); base > 0 {
 		out["savingsPct"] = savings / base * 100
 	}
-	if cache+prompt > 0 {
-		out["cacheHitRate"] = cache / (cache + prompt)
+	if cache+uncached > 0 {
+		out["cacheHitRate"] = cache / (cache + uncached)
 	}
 	byModel := []map[string]any{}
 	for _, m := range models {

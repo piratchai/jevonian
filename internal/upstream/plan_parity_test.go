@@ -50,9 +50,13 @@ func TestPlanUpstreamWireMatchesTS(t *testing.T) {
 			bad++
 			t.Errorf("%s %s %s %s: plan=%+v want wire=%s bridge=%s", r.Type, r.BaseURL, r.Model, r.Client, plan, r.Wire, wantBridge)
 		}
-		if u := UpstreamURLFor(p, plan.Wire); u != r.URL {
-			bad++
-			t.Errorf("%s %s %s %s: url=%s want %s", r.Type, r.BaseURL, r.Model, r.Client, u, r.URL)
+		if p.Type != config.ProviderTypeChatGPTWeb {
+			if p.Type != config.ProviderTypeChatGPTWeb {
+				if u := UpstreamURLFor(p, plan.Wire); u != r.URL {
+					bad++
+					t.Errorf("%s %s %s %s: url=%s want %s", r.Type, r.BaseURL, r.Model, r.Client, u, r.URL)
+				}
+			}
 		}
 		var got []string
 		for _, w := range WiresOf(p, r.Model) {
