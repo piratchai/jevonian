@@ -74,13 +74,9 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
                     )}
                     aria-hidden
                   />
-                  <span className="shrink-0 font-mono text-kumo-subtle">
-                    {formatTime(log.ts)}
-                  </span>
+                  <span className="shrink-0 font-mono text-kumo-subtle">{formatTime(log.ts)}</span>
                   <span className="min-w-0 flex-1 truncate">{log.model}</span>
-                  <span className="shrink-0 font-mono text-kumo-subtle">
-                    {log.latencyMs}ms
-                  </span>
+                  <span className="shrink-0 font-mono text-kumo-subtle">{log.latencyMs}ms</span>
                 </span>
               );
               return (

@@ -1,6 +1,13 @@
-import { forwardRef } from "react";
 import { LinkProvider } from "@cloudflare/kumo";
-import { BrowserRouter, Link as RouterLink, Navigate, Route, Routes, useLocation } from "react-router";
+import { forwardRef } from "react";
+import {
+  BrowserRouter,
+  Link as RouterLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router";
 
 import { Layout } from "@/components/layout";
 import { ClientsPage } from "@/pages/clients";

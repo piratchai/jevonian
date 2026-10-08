@@ -1,4 +1,12 @@
-import { Badge, Button, Input, LayerCard, LayerDialog, Popover, SkeletonLine } from "@cloudflare/kumo";
+import {
+  Badge,
+  Button,
+  Input,
+  LayerCard,
+  LayerDialog,
+  Popover,
+  SkeletonLine,
+} from "@cloudflare/kumo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestsChart } from "@/components/activity-charts";
@@ -357,7 +365,8 @@ export function LogsPage() {
               </div>
             ) : (
               <div style={{ height: `${totalHeight}px`, width: "100%", position: "relative" }}>
-                {virtualItems.map((virtualRow) => {                  const log = logs[virtualRow.index];
+                {virtualItems.map((virtualRow) => {
+                  const log = logs[virtualRow.index];
                   if (!log) return null;
                   const key = logKey(log);
                   const isNew = newLogIds.has(key);
@@ -506,9 +515,7 @@ export function LogsPage() {
                       <div className="truncate font-mono text-kumo-subtle">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
-                      <div className="truncate font-mono text-kumo-subtle">
-                        {log.latencyMs}ms
-                      </div>
+                      <div className="truncate font-mono text-kumo-subtle">{log.latencyMs}ms</div>
                       <div className="truncate text-right text-kumo-subtle">
                         {log.id ? (
                           <Button
@@ -568,11 +575,7 @@ export function LogsPage() {
           <LayerDialog.Title>Request detail</LayerDialog.Title>
           <LayerDialog.Body>
             {selectedId ? (
-              <LogDetailView
-                id={selectedId}
-                variant="panel"
-                onClose={() => setSelectedId(null)}
-              />
+              <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
             ) : null}
           </LayerDialog.Body>
         </LayerDialog.Content>

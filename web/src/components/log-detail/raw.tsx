@@ -13,12 +13,12 @@ export function RawBlock({
   return (
     <details
       className={
-        className ? `rounded-md border border-kumo-hairline ${className}` : "rounded-md border border-kumo-hairline"
+        className
+          ? `rounded-md border border-kumo-hairline ${className}`
+          : "rounded-md border border-kumo-hairline"
       }
     >
-      <summary className="cursor-pointer px-3 py-2 text-xs text-kumo-subtle">
-        {summary}
-      </summary>
+      <summary className="cursor-pointer px-3 py-2 text-xs text-kumo-subtle">{summary}</summary>
       <div className="border-t border-kumo-hairline p-3">{children}</div>
     </details>
   );

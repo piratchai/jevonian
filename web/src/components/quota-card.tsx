@@ -215,10 +215,7 @@ export function ProviderQuotaCard({
             ) : null}
           </div>
           {quota.resets.each?.map((reset, index) => (
-            <p
-              key={`${reset.expiresAt ?? "never"}-${index}`}
-              className="text-xs text-kumo-subtle"
-            >
+            <p key={`${reset.expiresAt ?? "never"}-${index}`} className="text-xs text-kumo-subtle">
               Reset {index + 1}:{" "}
               {reset.expiresAt ? resetLabel(reset.expiresAt, now) : "no expiry reported"}
             </p>

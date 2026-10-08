@@ -543,9 +543,7 @@ export function RequestsChart({
                       width={barWidth}
                       height={reqH}
                       rx="1"
-                      fill={
-                        hasErrors ? "var(--color-kumo-danger)" : "var(--color-kumo-brand)"
-                      }
+                      fill={hasErrors ? "var(--color-kumo-danger)" : "var(--color-kumo-brand)"}
                       opacity={isHovered ? "1" : "0.75"}
                     />
                   ) : (

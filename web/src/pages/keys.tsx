@@ -170,12 +170,7 @@ export function KeysPage() {
         <LayerCard.Primary className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-64">
-              <Input
-                id="keyName"
-                label="Name"
-                value={name}
-                onValueChange={setName}
-              />
+              <Input id="keyName" label="Name" value={name} onValueChange={setName} />
             </div>
             <div className="w-52 shrink-0">
               <Input
@@ -193,9 +188,7 @@ export function KeysPage() {
           </div>
           {createdKey ? (
             <div className="rounded-lg border border-kumo-warning/40 bg-kumo-warning-tint p-3 text-sm">
-              <p className="mb-2 text-xs text-kumo-subtle">
-                Copy it now — it is shown only once.
-              </p>
+              <p className="mb-2 text-xs text-kumo-subtle">Copy it now — it is shown only once.</p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 break-all rounded-md bg-kumo-base px-2 py-1 text-xs">
                   {createdKey}
@@ -334,10 +327,7 @@ export function KeysPage() {
                                 ? "unlimited"
                                 : `$${limit.toFixed(limit % 1 === 0 ? 0 : 2)}`}
                             </span>
-                            <Badge
-                              variant="outline"
-                              className="h-5 px-1.5 text-xs tracking-wider"
-                            >
+                            <Badge variant="outline" className="h-5 px-1.5 text-xs tracking-wider">
                               TOTAL
                             </Badge>
                           </span>

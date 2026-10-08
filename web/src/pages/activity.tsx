@@ -1,4 +1,13 @@
-import { Banner, Button, LayerCard, Select, SkeletonLine, Table, Tabs, Text } from "@cloudflare/kumo";
+import {
+  Banner,
+  Button,
+  LayerCard,
+  Select,
+  SkeletonLine,
+  Table,
+  Tabs,
+  Text,
+} from "@cloudflare/kumo";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 
@@ -114,7 +123,9 @@ export function ActivitySection() {
         </div>
       </div>
 
-      {error ? <Banner variant="error" title="Could not load activity" description={error} size="sm" /> : null}
+      {error ? (
+        <Banner variant="error" title="Could not load activity" description={error} size="sm" />
+      ) : null}
 
       {/* Totals for the selected time range and API key, distinct from the all-time overview. */}
       {report ? (

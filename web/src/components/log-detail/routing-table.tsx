@@ -132,10 +132,7 @@ function BrainCallDetails({ detail }: { detail: LogDetailResponse }) {
               className="flex min-w-0 flex-col gap-2 rounded-md border border-kumo-hairline p-3"
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-                <Badge
-                  variant={call.status === 200 ? "secondary" : "error"}
-                  className="text-xs"
-                >
+                <Badge variant={call.status === 200 ? "secondary" : "error"} className="text-xs">
                   {call.status}
                 </Badge>
                 <span className="font-medium">{call.provider}</span>

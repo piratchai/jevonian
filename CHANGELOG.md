@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-10-08
+
+### Added
+
+- **Rebuilt web UI on Cloudflare Kumo.** The overview, logs, providers, routing, keys, and activity views now use the Kumo component set, with a single type scale across the app.
+
+### Fixed
+
+- **Agent tool turns no longer fail over to chatgpt-web.** That provider has no tool channel and rejects any request with `tools` with HTTP 400. Routing now withholds it whenever the turn carries tools or tool results, and records a `tools` skip note.
+- **Collapsed sidebar icons are centered.** The nav icon no longer carries a leftover offset that only centered it at a 16px root font, so the hover tint shows even padding on both sides.
+- **Collapsed sidebar hover bar sits on the pane edge.** The rail hover line no longer paints a stray full-height line across the icon column.
+- **Sidebar stays in the viewport.** The app shell is pinned to `h-svh` with internal scrolling, so the sidebar footer no longer stretches below the fold.
+- **Usage heatmap fills its card.** Cells now scale across the full width, and month labels render in full instead of clipping.
+
 ## [0.6.6] - 2026-10-08
 
 ### Fixed

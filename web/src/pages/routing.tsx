@@ -1,3 +1,4 @@
+import { Button, Combobox, Input, LayerCard, LayerDialog, Text, Tooltip } from "@cloudflare/kumo";
 import {
   closestCenter,
   DndContext,
@@ -15,7 +16,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Button, Combobox, Input, LayerCard, LayerDialog, Text, Tooltip } from "@cloudflare/kumo";
 import { ArrowDown, ArrowUp, DotsSixVertical, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -855,9 +855,7 @@ export function RoutingPage({
                                     {index + 1}. {names.get(model) || model}
                                   </p>
                                   {names.get(model) ? (
-                                    <p className="break-words text-xs text-kumo-subtle">
-                                      {model}
-                                    </p>
+                                    <p className="break-words text-xs text-kumo-subtle">{model}</p>
                                   ) : null}
                                 </div>
                                 <button
@@ -1020,13 +1018,22 @@ export function RoutingPage({
                     className="space-y-3 rounded-lg border border-kumo-hairline bg-kumo-tint p-3 text-sm"
                   >
                     <p>
-                      Delete this task? Clients that use jevonian/{route.id} will need another route.
+                      Delete this task? Clients that use jevonian/{route.id} will need another
+                      route.
                     </p>
                     <div className="flex gap-2">
-                      <Button variant="destructive" disabled={busy} onClick={() => void deleteRoute()}>
+                      <Button
+                        variant="destructive"
+                        disabled={busy}
+                        onClick={() => void deleteRoute()}
+                      >
                         Confirm delete
                       </Button>
-                      <Button variant="outline" disabled={busy} onClick={() => setConfirmDelete(false)}>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => setConfirmDelete(false)}
+                      >
                         Keep task
                       </Button>
                     </div>

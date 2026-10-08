@@ -1,12 +1,5 @@
 import { Sidebar } from "@cloudflare/kumo";
-import {
-  DeviceMobile,
-  FlowArrow,
-  GithubLogo,
-  House,
-  Key,
-  Scroll,
-} from "@phosphor-icons/react";
+import { DeviceMobile, FlowArrow, GithubLogo, House, Key, Scroll } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
@@ -84,9 +77,7 @@ export function Layout() {
                 <Sidebar.Menu>
                   {group.links.map((link) => {
                     const Icon = link.icon;
-                    const isActive = link.end
-                      ? pathname === link.to
-                      : pathname.startsWith(link.to);
+                    const isActive = link.end ? pathname === link.to : pathname.startsWith(link.to);
                     return (
                       <Sidebar.MenuButton
                         key={link.to}
