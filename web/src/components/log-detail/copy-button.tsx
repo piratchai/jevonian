@@ -1,7 +1,7 @@
-import { Check, Copy } from "lucide-react";
+import { Button } from "@cloudflare/kumo";
+import { Check, Copy } from "@phosphor-icons/react";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /** A small icon button that copies `text` and briefly confirms. */
@@ -32,13 +32,19 @@ export function CopyButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon-xs"
+      shape="square"
+      size="sm"
       aria-label={label}
       title={error || label}
       onClick={() => void copy()}
-      className={cn("text-muted-foreground", className)}
-    >
-      {copied ? <Check className="text-emerald-500" /> : <Copy />}
-    </Button>
+      className={cn("text-kumo-subtle", className)}
+      icon={
+        copied ? (
+          <Check size={14} className="text-kumo-success" aria-hidden />
+        ) : (
+          <Copy size={14} aria-hidden />
+        )
+      }
+    />
   );
 }

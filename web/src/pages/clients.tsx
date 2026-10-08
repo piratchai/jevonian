@@ -1,11 +1,9 @@
-import { Laptop, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { Badge, Banner, Button, LayerCard, Loader, Text } from "@cloudflare/kumo";
+import { ArrowsClockwise, Laptop, Warning } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 
 import { ClientsSkeleton } from "@/components/page-skeletons";
 import { ProviderLogo } from "@/components/provider-logo";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   connectClient,
   disconnectClient,
@@ -28,10 +26,27 @@ const STATUS_LABEL: Record<ClientTargetView["status"], string> = {
   unavailable: "Unavailable",
 };
 
-function statusVariant(status: ClientTargetView["status"]) {
-  if (status === "connected") return "default" as const;
-  if (status === "disconnected") return "secondary" as const;
-  return "outline" as const;
+/** Status pill for a client or one of its surfaces. */
+function StatusBadge({ status }: { status: ClientTargetView["status"] }) {
+  if (status === "connected") {
+    return (
+      <Badge variant="success" appearance="dot" className="shrink-0">
+        {STATUS_LABEL.connected}
+      </Badge>
+    );
+  }
+  if (status === "disconnected") {
+    return (
+      <Badge variant="neutral" appearance="dot" className="shrink-0">
+        {STATUS_LABEL.disconnected}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="shrink-0">
+      {STATUS_LABEL.unavailable}
+    </Badge>
+  );
 }
 
 function surfaceLine(surfaces: ClientSurfaceView[] | undefined): string | null {
@@ -107,13 +122,10 @@ export function ClientsPage() {
   if (error && !data) {
     return (
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Clients</h1>
-        </div>
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <Text variant="heading" size="lg" as="h1">
+          Clients
+        </Text>
+        <Banner variant="error" size="sm" icon={<Warning size={16} />} description={error} />
       </div>
     );
   }
@@ -124,58 +136,60 @@ export function ClientsPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Clients</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-1">
+          <Text variant="heading" size="lg" as="h1">
+            Clients
+          </Text>
+          <Text variant="secondary" size="sm">
             Point coding agents on this machine at Jevonian. Claude Connect covers Desktop and the
             CLI together; ChatGPT covers the Codex desktop app. Changes can be reverted at any time.
-          </p>
+          </Text>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={busy !== null}>
-          <RefreshCw className="size-4" />
+        <Button
+          variant="outline"
+          size="sm"
+          icon={<ArrowsClockwise size={16} />}
+          onClick={() => void refresh()}
+          disabled={busy !== null}
+        >
           Refresh
         </Button>
       </div>
 
-      <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <Laptop className="size-3.5 shrink-0" />
+      <div className="flex items-center gap-2 rounded-lg border border-kumo-hairline bg-kumo-tint/40 px-3 py-2 text-xs text-kumo-subtle">
+        <Laptop size={14} className="shrink-0" />
         <span>
           Config files are written on{" "}
-          <span className="font-medium text-foreground">{data.hostname}</span> ({data.platform}).
+          <span className="font-medium text-kumo-default">{data.hostname}</span> ({data.platform}).
           Run the dashboard on the machine whose apps you want to connect.
         </span>
       </div>
 
       {error ? (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
+        <Banner variant="error" size="sm" icon={<Warning size={16} />} description={error} />
       ) : null}
 
-      {notice ? (
-        <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          {notice}
-        </div>
-      ) : null}
+      {notice ? <Banner variant="secondary" size="sm" description={notice} /> : null}
 
       {pending ? (
-        <Card className="border-primary/40">
-          <CardHeader>
-            <CardTitle className="text-base">
-              Restart {clients.find((client) => client.id === pending.id)?.label ?? "the app"}?
-            </CardTitle>
-            <CardDescription>
-              {pending.message} Restarting closes the app now — any running task will stop.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex gap-2">
+        <LayerCard className="ring-kumo-brand/40">
+          <LayerCard.Secondary className="block">
+            <span className="flex flex-col gap-1">
+              <Text variant="heading" as="h2">
+                Restart {clients.find((client) => client.id === pending.id)?.label ?? "the app"}?
+              </Text>
+              <Text variant="secondary" size="sm">
+                {pending.message} Restarting closes the app now — any running task will stop.
+              </Text>
+            </span>
+          </LayerCard.Secondary>
+          <LayerCard.Primary className="flex gap-2">
             <Button
               size="sm"
+              icon={busy ? <Loader size="sm" /> : undefined}
               disabled={busy !== null}
               onClick={() => void run(pending.id, pending.action, true)}
             >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
               Restart and apply
             </Button>
             <Button
@@ -186,54 +200,57 @@ export function ClientsPage() {
             >
               Cancel
             </Button>
-          </CardContent>
-        </Card>
+          </LayerCard.Primary>
+        </LayerCard>
       ) : null}
 
       <div className="flex flex-col gap-4">
         {clients.map((client) => {
           const surfaces = surfaceLine(client.surfaces);
           return (
-            <Card key={client.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <ProviderLogo id={client.logo} className="size-6 shrink-0" />
-                    <div className="min-w-0">
-                      <CardTitle className="text-base leading-6">{client.label}</CardTitle>
-                      {surfaces ? (
-                        <CardDescription className="text-xs">{surfaces}</CardDescription>
-                      ) : client.baseUrl ? (
-                        <CardDescription className="font-mono text-xs">
-                          {client.baseUrl}
-                        </CardDescription>
-                      ) : client.configPath ? (
-                        <CardDescription className="truncate font-mono text-xs">
-                          {client.configPath}
-                        </CardDescription>
-                      ) : null}
-                    </div>
+            <LayerCard key={client.id}>
+              <LayerCard.Secondary className="justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <ProviderLogo id={client.logo} className="size-6 shrink-0" />
+                  <div className="min-w-0">
+                    <Text variant="heading" truncate>
+                      {client.label}
+                    </Text>
+                    {surfaces ? (
+                      <Text variant="secondary" size="xs" truncate>
+                        {surfaces}
+                      </Text>
+                    ) : client.baseUrl ? (
+                      <span className="block truncate font-mono text-xs text-kumo-subtle">
+                        {client.baseUrl}
+                      </span>
+                    ) : client.configPath ? (
+                      <span className="block truncate font-mono text-xs text-kumo-subtle">
+                        {client.configPath}
+                      </span>
+                    ) : null}
                   </div>
-                  <Badge variant={statusVariant(client.status)} className="shrink-0">
-                    {STATUS_LABEL[client.status]}
-                  </Badge>
                 </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
+                <StatusBadge status={client.status} />
+              </LayerCard.Secondary>
+              <LayerCard.Primary className="flex flex-col gap-3">
                 {client.reason ? (
-                  <p className="text-sm text-muted-foreground">{client.reason}</p>
+                  <Text variant="secondary" size="sm">
+                    {client.reason}
+                  </Text>
                 ) : null}
                 {client.id === "claude" && client.status !== "unavailable" ? (
-                  <p className="text-sm text-muted-foreground">
+                  <Text variant="secondary" size="sm">
                     Connect rewrites Claude Desktop&apos;s gateway profile and Claude Code&apos;s{" "}
                     <span className="font-mono text-xs">~/.claude/settings.json</span>. You can also
                     run <span className="font-mono text-xs">jevonian launch claude</span> for a
                     one-shot CLI session.
-                  </p>
+                  </Text>
                 ) : null}
                 <div className="flex gap-2">
                   <Button
                     size="sm"
+                    icon={busy === client.id ? <Loader size="sm" /> : undefined}
                     disabled={
                       client.status === "unavailable" ||
                       client.status === "connected" ||
@@ -241,7 +258,6 @@ export function ClientsPage() {
                     }
                     onClick={() => void run(client.id, "connect", false)}
                   >
-                    {busy === client.id ? <Loader2 className="size-4 animate-spin" /> : null}
                     Connect
                   </Button>
                   <Button
@@ -259,8 +275,8 @@ export function ClientsPage() {
                     Restore
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              </LayerCard.Primary>
+            </LayerCard>
           );
         })}
       </div>

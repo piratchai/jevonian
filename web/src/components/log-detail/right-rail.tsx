@@ -1,17 +1,16 @@
+import { Button, LayerCard, LinkButton, Text } from "@cloudflare/kumo";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { CopyButton } from "@/components/log-detail/copy-button";
 import { SessionStrip } from "@/components/log-detail/session-strip";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LogDetailResponse, LogRecord } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-w-0 items-start justify-between gap-3 py-1 text-xs">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-kumo-subtle">{label}</span>
       <span className="min-w-0 flex-1 break-words text-right">{children}</span>
     </div>
   );
@@ -27,13 +26,13 @@ function RailCard({
   action?: React.ReactNode;
 }) {
   return (
-    <Card className="min-w-0 overflow-hidden">
-      <CardHeader className="flex-row items-center justify-between gap-2 p-4 pb-2">
-        <CardTitle>{title}</CardTitle>
-        {action}
-      </CardHeader>
-      <CardContent className="p-4 pt-0">{children}</CardContent>
-    </Card>
+    <LayerCard className="min-w-0">
+      <LayerCard.Secondary>
+        <Text variant="heading">{title}</Text>
+        {action ? <span className="ml-auto">{action}</span> : null}
+      </LayerCard.Secondary>
+      <LayerCard.Primary>{children}</LayerCard.Primary>
+    </LayerCard>
   );
 }
 
@@ -67,7 +66,7 @@ function Identity({ record }: { record: LogRecord }) {
         <Row label="parent">
           <Link
             to={`/logs/${record.requestId}`}
-            className="text-muted-foreground underline underline-offset-4"
+            className="text-kumo-subtle underline underline-offset-4"
           >
             open parent request
           </Link>
@@ -142,7 +141,7 @@ export function RightRail({
           <Button size="sm" className="w-full" onClick={onCopyContext}>
             {copied ? "Copied" : "Copy context"}
           </Button>
-          {copyError ? <span className="text-xs text-destructive">{copyError}</span> : null}
+          {copyError ? <span className="text-xs text-kumo-danger">{copyError}</span> : null}
           {record.id ? (
             <Button
               variant="outline"
@@ -154,12 +153,14 @@ export function RightRail({
             </Button>
           ) : null}
           {record.requestId ? (
-            <Button
+            <LinkButton
+              href={`/logs/${record.requestId}`}
               variant="outline"
               size="sm"
               className="w-full"
-              render={<Link to={`/logs/${record.requestId}`}>Open parent request</Link>}
-            />
+            >
+              Open parent request
+            </LinkButton>
           ) : null}
         </div>
       </RailCard>

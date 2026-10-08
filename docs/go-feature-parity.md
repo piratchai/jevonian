@@ -416,7 +416,7 @@ These are present in docs or code with tension; decide explicitly while porting 
 
 1. **Brain total failure: 502 vs heuristic** — `docs/routing.md` still says unreachable brains → 502; README + CHANGELOG 0.1.7 + code soft-fall back to `classifyPhase`. **Parity target: heuristic fallback (code/README).**
 2. **Vercel brain in UI** — Keep rejecting/hiding `vercel` channel vs silently ignoring stored configs. **Recommend: accept config but no-op with clear error, or migrate channel away on load.**
-3. **Dashboard tech stack** — Parity is **capability** (pages/APIs), not React/Vite/Base UI pixel clone. Go may serve the existing `web/` build or a reimplemented UI against the same `/api` contract.
+3. **Dashboard tech stack** — Parity is **capability** (pages/APIs), not a React/Vite/Kumo pixel clone. Go may serve the existing `web/` build or a reimplemented UI against the same `/api` contract.
 4. **Package install channel** — **Decided:** keep `npm i -g jevonian` / `jevonian update` via a **thin JS shim** that downloads/execs the platform Go binary (see `docs/go-rewrite-cutover.md`). Optional brew/GitHub-release direct installs are extra, not a replacement for the npm UX.
 5. **LaunchAgent on non-macOS** — TS foreground-serves elsewhere. **Parity: same split (service where platform supports it).**
 6. **models.dev / `@lobehub/icons`** — External data/assets; Go needs equivalent catalog snapshots and logo story, not necessarily the same npm packages.

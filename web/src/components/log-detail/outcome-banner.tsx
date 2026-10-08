@@ -1,12 +1,12 @@
+import { Badge } from "@cloudflare/kumo";
 import { ProviderIdentity } from "@/components/provider-identity";
-import { Badge } from "@/components/ui/badge";
 import type { LogRecord } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-[10px] tracking-[0.12em] text-muted-foreground uppercase">{label}</span>
+      <span className="text-[10px] tracking-[0.12em] text-kumo-subtle uppercase">{label}</span>
       <span className="min-w-0 font-mono text-xs break-words">{value}</span>
     </div>
   );
@@ -33,19 +33,19 @@ export function OutcomeBanner({
       className={cn(
         "flex min-w-0 flex-col gap-3 rounded-xl border p-4",
         failed
-          ? "border-destructive/40 bg-destructive/5"
-          : "border-emerald-500/30 bg-emerald-500/5",
+          ? "border-kumo-danger/40 bg-kumo-danger-tint"
+          : "border-kumo-success/30 bg-kumo-success-tint",
       )}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
         <span
           className={cn(
             "size-2.5 shrink-0 rounded-full",
-            failed ? "bg-destructive" : "bg-emerald-500",
+            failed ? "bg-kumo-danger" : "bg-kumo-success",
           )}
           aria-hidden
         />
-        <span className={cn("text-sm font-semibold", failed ? "text-destructive" : "")}>
+        <span className={cn("text-sm font-semibold", failed ? "text-kumo-danger" : "")}>
           {failed ? "Failed" : "Succeeded"}
         </span>
         <Badge variant="outline" className="font-mono text-[10px]">
@@ -54,7 +54,7 @@ export function OutcomeBanner({
         <span className="flex min-w-0 items-center gap-1.5">
           <ProviderIdentity provider={record.provider} size="size-4" />
         </span>
-        <span className="min-w-0 text-sm break-all text-muted-foreground">· {record.model}</span>
+        <span className="min-w-0 text-sm break-all text-kumo-subtle">· {record.model}</span>
         {record.requestedModel && record.requestedModel !== record.model ? (
           <Badge variant="outline" className="text-[10px]">
             requested {record.requestedModel}
@@ -76,7 +76,7 @@ export function OutcomeBanner({
       </div>
 
       {record.error ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 font-mono text-xs break-words text-destructive">
+        <p className="rounded-md border border-kumo-danger/30 bg-kumo-danger-tint p-3 font-mono text-xs break-words text-kumo-danger">
           {record.error}
         </p>
       ) : null}

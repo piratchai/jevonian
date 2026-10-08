@@ -43,9 +43,9 @@ export function formatCacheCoverage(coverage: number): string {
 
 /** Tone for a coverage ratio, so a scan of the column reads at a glance. */
 export function cacheCoverageTone(coverage: number): string {
-  if (coverage >= 0.5) return "text-emerald-600 dark:text-emerald-400";
-  if (coverage >= 0.1) return "text-amber-600 dark:text-amber-400";
-  return "text-muted-foreground";
+  if (coverage >= 0.5) return "text-kumo-success";
+  if (coverage >= 0.1) return "text-kumo-warning";
+  return "text-kumo-subtle";
 }
 
 /** The hover explanation for one row's cache cell. */

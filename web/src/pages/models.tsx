@@ -1,3 +1,4 @@
+import { Text } from "@cloudflare/kumo";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
@@ -42,10 +43,12 @@ export function ModelsPage() {
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold">Models &amp; Routing</h1>
-        <p className="text-sm text-muted-foreground">
+        <Text variant="heading" size="lg" as="h1">
+          Models &amp; Routing
+        </Text>
+        <Text variant="secondary" size="sm">
           Choose models for each task. Connect the providers that supply them.
-        </p>
+        </Text>
       </header>
       <section id="task-routes" className="scroll-mt-20" aria-label="Task routes">
         <RoutingPage embedded refreshKey={revision} onChanged={onChanged} />
@@ -55,22 +58,22 @@ export function ModelsPage() {
       </section>
       <details
         id="routing-brain"
-        className="scroll-mt-20 rounded-md border"
+        className="scroll-mt-20 rounded-lg border border-kumo-hairline"
         open={brainOpen}
         onToggle={(event) => setBrainOpen(event.currentTarget.open)}
       >
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-kumo-default">
           Routing settings · auto selector, quota guard, and token saver
         </summary>
-        <div className="flex flex-col gap-4 border-t p-4">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-4 border-t border-kumo-hairline p-4">
+          <Text variant="secondary" size="sm">
             The routing brain chooses a task for auto requests. Explicit tasks and models do not use
             the brain.
-          </p>
+          </Text>
           {error ? (
-            <p role="alert" className="text-sm text-destructive">
+            <Text variant="error" size="sm" as="p" role="alert">
               {error}
-            </p>
+            </Text>
           ) : null}
           <RoutingPage settingsOnly embedded refreshKey={revision} onChanged={onChanged} />
           <ProviderSettings embedded onChanged={onChanged} />
@@ -83,7 +86,9 @@ export function ModelsPage() {
               }}
             />
           ) : !error ? (
-            <p className="text-sm text-muted-foreground">Loading auto selector settings…</p>
+            <Text variant="secondary" size="sm">
+              Loading auto selector settings…
+            </Text>
           ) : null}
         </div>
       </details>

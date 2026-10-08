@@ -1,5 +1,4 @@
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge, LayerCard, Text } from "@cloudflare/kumo";
 import type { LogAttempt, LogRecord } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +15,7 @@ function AttemptDots({ tries }: { tries: LogAttempt[] }) {
             attempt.fail ? ` · ${attemptFailLabel(attempt.fail)}` : ""
           }${attempt.status !== undefined ? ` · ${attempt.status}` : ""}`}
           className={`size-1.5 shrink-0 rounded-full ${
-            attempt.fail ? "bg-destructive" : "bg-emerald-500"
+            attempt.fail ? "bg-kumo-danger" : "bg-kumo-success"
           }`}
         />
       ))}
@@ -27,16 +26,16 @@ function AttemptDots({ tries }: { tries: LogAttempt[] }) {
 function AttemptLabel({ attempt, index }: { attempt: LogAttempt; index: number }) {
   return (
     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
-      <span className="font-mono text-muted-foreground">{index + 1}.</span>
+      <span className="font-mono text-kumo-subtle">{index + 1}.</span>
       <span className="font-medium">{attempt.provider}</span>
-      <span className="min-w-0 break-all text-muted-foreground">{attempt.model}</span>
+      <span className="min-w-0 break-all text-kumo-subtle">{attempt.model}</span>
       <Badge
-        variant={attempt.cause === "failover" ? "default" : "outline"}
+        variant={attempt.cause === "failover" ? "primary" : "outline"}
         className="px-1 py-0 text-[10px]"
       >
         {attempt.cause}
       </Badge>
-      <span className="ml-auto shrink-0 font-mono text-muted-foreground">
+      <span className="ml-auto shrink-0 font-mono text-kumo-subtle">
         {attempt.status !== undefined ? `${attempt.status} · ` : ""}
         {attempt.ms !== undefined ? `${attempt.ms}ms` : "in flight"}
         {attempt.ttftMs !== undefined ? ` · first byte ${attempt.ttftMs}ms` : ""}
@@ -48,14 +47,14 @@ function AttemptLabel({ attempt, index }: { attempt: LogAttempt; index: number }
 function Axis({ total, onAxis }: { total: number; onAxis: boolean }) {
   if (!onAxis) {
     return (
-      <div className="flex justify-between text-[10px] text-muted-foreground">
+      <div className="flex justify-between text-[10px] text-kumo-subtle">
         <span>0</span>
         <span>relative duration</span>
       </div>
     );
   }
   return (
-    <div className="flex justify-between text-[10px] text-muted-foreground">
+    <div className="flex justify-between text-[10px] text-kumo-subtle">
       <span>0</span>
       <span>{Math.round(total / 2)}ms</span>
       <span>{total}ms</span>
@@ -72,16 +71,16 @@ export function AttemptTimeline({ record }: { record: LogRecord }) {
   const tries = record.tries ?? [];
   if (tries.length === 0) {
     return (
-      <Card className="min-w-0 overflow-hidden">
-        <CardHeader>
-          <CardTitle>Attempts</CardTitle>
-          <CardDescription>
+      <LayerCard className="min-w-0">
+        <LayerCard.Secondary className="flex-col items-start gap-1">
+          <Text variant="heading">Attempts</Text>
+          <Text variant="secondary" size="sm">
             {record.status >= 400
               ? "No attempt history was captured for this turn."
               : "This turn was served on its first attempt — nothing was retried or failed over."}
-          </CardDescription>
-        </CardHeader>
-      </Card>
+          </Text>
+        </LayerCard.Secondary>
+      </LayerCard>
     );
   }
   const { onAxis, total, bars } = timelineLayout(tries, record.latencyMs);
@@ -90,64 +89,60 @@ export function AttemptTimeline({ record }: { record: LogRecord }) {
       ? Math.min(100, (record.ttftMs / total) * 100)
       : undefined;
   return (
-    <Card className="min-w-0 overflow-hidden">
-      <CardHeader>
-        <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
-          Attempts
-          <AttemptDots tries={tries} />
-        </CardTitle>
-        <CardDescription>
+    <LayerCard className="min-w-0">
+      <LayerCard.Secondary>
+        <Text variant="heading">Attempts</Text>
+        <AttemptDots tries={tries} />
+      </LayerCard.Secondary>
+      <LayerCard.Primary className="min-w-0 gap-3">
+        <Text variant="secondary" size="sm">
           {tries.length} attempt{tries.length === 1 ? "" : "s"}
           {record.failovers
             ? ` · ${record.failovers} failover${record.failovers === 1 ? "" : "s"}`
             : ""}
           {record.retries ? ` · ${record.retries} retr${record.retries === 1 ? "y" : "ies"}` : ""}
           {record.ttftMs !== undefined ? ` · first token ${record.ttftMs}ms` : ""}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-w-0 flex-col gap-3">
-        <div className="flex min-w-0 flex-col gap-3">
-          {tries.map((attempt, index) => {
-            const bar = bars[index] ?? { leftPct: 0, widthPct: 2 };
-            const failed = Boolean(attempt.fail);
-            return (
-              <div key={`${attempt.provider}-${attempt.model}-${index}`} className="min-w-0">
-                <AttemptLabel attempt={attempt} index={index} />
-                <div className="mt-1 flex min-w-0 items-center gap-2">
-                  <div className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn(
-                        "absolute inset-y-0 rounded-full",
-                        failed ? "bg-destructive" : "bg-emerald-500",
-                      )}
-                      style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
-                    />
-                  </div>
-                  <span
+        </Text>
+        {tries.map((attempt, index) => {
+          const bar = bars[index] ?? { leftPct: 0, widthPct: 2 };
+          const failed = Boolean(attempt.fail);
+          return (
+            <div key={`${attempt.provider}-${attempt.model}-${index}`} className="min-w-0">
+              <AttemptLabel attempt={attempt} index={index} />
+              <div className="mt-1 flex min-w-0 items-center gap-2">
+                <div className="relative h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-kumo-fill">
+                  <div
                     className={cn(
-                      "shrink-0 text-[11px]",
-                      failed ? "text-destructive" : "text-muted-foreground",
+                      "absolute inset-y-0 rounded-full",
+                      failed ? "bg-kumo-danger" : "bg-kumo-success",
                     )}
-                  >
-                    {attempt.fail ? attemptFailLabel(attempt.fail) : "served this turn"}
-                  </span>
+                    style={{ left: `${bar.leftPct}%`, width: `${bar.widthPct}%` }}
+                  />
                 </div>
+                <span
+                  className={cn(
+                    "shrink-0 text-[11px]",
+                    failed ? "text-kumo-danger" : "text-kumo-subtle",
+                  )}
+                >
+                  {attempt.fail ? attemptFailLabel(attempt.fail) : "served this turn"}
+                </span>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
         <div className="relative">
           <Axis total={total} onAxis={onAxis} />
           {ttftPct !== undefined ? (
             <span
-              className="pointer-events-none absolute -top-3 h-3 w-px bg-foreground/50"
+              className="pointer-events-none absolute -top-3 h-3 w-px bg-kumo-contrast/50"
               style={{ left: `${ttftPct}%` }}
               title={`first token at ${record.ttftMs}ms`}
               aria-hidden
             />
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+      </LayerCard.Primary>
+    </LayerCard>
   );
 }

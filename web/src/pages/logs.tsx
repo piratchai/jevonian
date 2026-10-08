@@ -1,3 +1,4 @@
+import { Badge, Button, Input, LayerCard, LayerDialog, Popover, SkeletonLine } from "@cloudflare/kumo";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RequestsChart } from "@/components/activity-charts";
@@ -17,13 +18,6 @@ import { StatusPills } from "@/components/logs/status-pills";
 import { useLogFacets } from "@/components/logs/use-log-facets";
 import { LogsTableSkeleton } from "@/components/page-skeletons";
 import { ProviderIdentity } from "@/components/provider-identity";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useLogStream } from "@/hooks/use-log-stream";
 import { useVirtualizer } from "@/hooks/use-virtualizer";
 import {
@@ -75,7 +69,7 @@ export function LogsPage() {
   // The log table is the point of this page, so filters live in a dropdown
   // beside the search input instead of a rail that costs layout width.
   const [filtersOpen, setFiltersOpen] = useState(false);
-  /** Selected record id; opens the detail Sheet. */
+  /** Selected record id; opens the detail dialog. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [logs, setLogs] = useState<LogRecord[]>([]);
@@ -249,20 +243,19 @@ export function LogsPage() {
           </div>
           <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
             <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
-              <PopoverTrigger
+              <Popover.Trigger
                 render={
                   <Button
                     variant="outline"
-                    size="icon-sm"
-                    className="h-9 w-9 shrink-0"
+                    shape="square"
+                    className="shrink-0"
                     aria-label="Toggle filters"
-                    title="Filters"
                   />
                 }
               >
                 <FilterTriggerFace filters={filters} />
-              </PopoverTrigger>
-              <PopoverContent align="end" sideOffset={6} className="w-72 gap-0 p-0">
+              </Popover.Trigger>
+              <Popover.Content align="end" sideOffset={6} className="w-72 gap-0 p-0">
                 <FilterRail
                   filters={filters}
                   facets={facets}
@@ -271,20 +264,20 @@ export function LogsPage() {
                   onClear={clearFilters}
                   className="max-h-[70vh]"
                 />
-              </PopoverContent>
+              </Popover.Content>
             </Popover>
             <Input
               value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
+              onValueChange={setSearchDraft}
               placeholder="Search…"
               autoComplete="off"
-              className="h-9 w-40 shrink-0"
+              className="w-40 shrink-0"
               aria-label="Search logs"
             />
 
             <Button
               variant="outline"
-              className="h-9 shrink-0 gap-2 px-3"
+              className="shrink-0 gap-2"
               aria-pressed={live}
               title={live ? "Pause live stream" : "Resume live stream"}
               onClick={() => setLive((current) => !current)}
@@ -293,10 +286,10 @@ export function LogsPage() {
                 className={cn(
                   "size-2 rounded-full",
                   streamStatus === "live"
-                    ? "animate-pulse bg-emerald-500"
+                    ? "animate-pulse bg-kumo-success"
                     : streamStatus === "connecting"
-                      ? "animate-pulse bg-amber-500"
-                      : "bg-muted-foreground/50",
+                      ? "animate-pulse bg-kumo-warning"
+                      : "bg-kumo-interact/60",
                 )}
               />
               <span className="capitalize">
@@ -308,13 +301,13 @@ export function LogsPage() {
               </span>
             </Button>
 
-            <Button variant="outline" className="h-9 shrink-0" onClick={() => void loadInitial()}>
+            <Button variant="outline" className="shrink-0" onClick={() => void loadInitial()}>
               Refresh
             </Button>
           </div>
         </div>
 
-        {error ? <p className="shrink-0 text-xs text-destructive">{error}</p> : null}
+        {error ? <p className="shrink-0 text-xs text-kumo-danger">{error}</p> : null}
 
         <div className="shrink-0">
           <RequestsChart
@@ -331,9 +324,9 @@ export function LogsPage() {
           onChange={(next) => setFilters((c) => ({ ...c, status: next }))}
         />
 
-        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden border">
+        <LayerCard className="flex min-h-0 flex-1 flex-col">
           <div
-            className="grid shrink-0 items-center gap-3 border-b bg-muted/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase"
+            className="grid shrink-0 items-center gap-3 border-b border-kumo-hairline bg-kumo-tint/40 px-4 py-2.5 text-xs font-semibold tracking-wider text-kumo-subtle uppercase"
             style={{ gridTemplateColumns: LOG_COLUMNS }}
           >
             <div className="truncate">Time</div>
@@ -352,20 +345,19 @@ export function LogsPage() {
 
           <div
             ref={scrollContainerRef}
-            className="relative min-h-0 flex-1 divide-y divide-border/40 overflow-x-hidden overflow-y-auto"
+            className="relative min-h-0 flex-1 divide-y divide-kumo-hairline overflow-x-hidden overflow-y-auto"
           >
             {loadingInitial ? (
               <LogsTableSkeleton rows={12} />
             ) : logs.length === 0 ? (
-              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-40 items-center justify-center text-sm text-kumo-subtle">
                 {filtered
                   ? "No requests match these filters."
                   : "No traffic yet — proxied requests will stream in here."}
               </div>
             ) : (
               <div style={{ height: `${totalHeight}px`, width: "100%", position: "relative" }}>
-                {virtualItems.map((virtualRow) => {
-                  const log = logs[virtualRow.index];
+                {virtualItems.map((virtualRow) => {                  const log = logs[virtualRow.index];
                   if (!log) return null;
                   const key = logKey(log);
                   const isNew = newLogIds.has(key);
@@ -397,25 +389,29 @@ export function LogsPage() {
                         }
                       }}
                       className={cn(
-                        "grid items-center gap-3 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-muted/70 hover:bg-muted/60",
+                        "grid items-center gap-3 px-4 py-2.5 text-xs transition-colors outline-none focus-visible:bg-kumo-tint/70 hover:bg-kumo-tint/60",
                         log.id ? "cursor-pointer" : "",
                         isNew ? "animate-flash-new" : "",
-                        isSelected ? "bg-muted hover:bg-muted" : failed ? "bg-destructive/5" : "",
+                        isSelected
+                          ? "bg-kumo-tint hover:bg-kumo-tint"
+                          : failed
+                            ? "bg-kumo-danger-tint"
+                            : "",
                       )}
                       title={log.id ? "Inspect this request" : "No record ID captured"}
                     >
-                      <div className="flex min-w-0 items-center gap-1.5 font-mono whitespace-nowrap text-muted-foreground">
+                      <div className="flex min-w-0 items-center gap-1.5 font-mono whitespace-nowrap text-kumo-subtle">
                         <span
                           aria-hidden
                           className={cn(
                             "size-1.5 shrink-0 rounded-full",
-                            failed ? "bg-destructive" : "bg-emerald-500",
+                            failed ? "bg-kumo-danger" : "bg-kumo-success",
                           )}
                         />
                         {formatTime(log.ts)}
                       </div>
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate font-medium text-foreground">{log.model}</span>
+                        <span className="truncate font-medium text-kumo-default">{log.model}</span>
                         {log.billing === "subscription" ? (
                           <Badge variant="outline" className="shrink-0 px-1 py-0 text-[10px]">
                             sub
@@ -426,14 +422,14 @@ export function LogsPage() {
                         <ProviderIdentity
                           provider={log.provider}
                           size="size-4"
-                          nameClassName="text-muted-foreground"
+                          nameClassName="text-kumo-subtle"
                         />
                       </div>
                       <div className="min-w-0 truncate">
                         <Badge
                           variant={
                             log.phase === "plan"
-                              ? "default"
+                              ? "primary"
                               : log.phase === "execute"
                                 ? "secondary"
                                 : "outline"
@@ -445,21 +441,19 @@ export function LogsPage() {
                       </div>
                       <div className="min-w-0 truncate">
                         {log.effort ? (
-                          <Badge
-                            variant="outline"
-                            title={log.effortNote ?? undefined}
-                            className="text-[10px]"
-                          >
-                            {log.effort}
-                          </Badge>
+                          <span title={log.effortNote ?? undefined}>
+                            <Badge variant="outline" className="text-[10px]">
+                              {log.effort}
+                            </Badge>
+                          </span>
                         ) : (
-                          <span className="text-muted-foreground">default</span>
+                          <span className="text-kumo-subtle">default</span>
                         )}
                       </div>
                       <div
                         className={cn(
                           "flex min-w-0 items-center gap-1.5 font-mono font-medium",
-                          failed ? "text-destructive" : "text-muted-foreground",
+                          failed ? "text-kumo-danger" : "text-kumo-subtle",
                         )}
                       >
                         <span>{log.status}</span>
@@ -473,7 +467,7 @@ export function LogsPage() {
                                 }${attempt.status !== undefined ? ` · ${attempt.status}` : ""}`}
                                 className={cn(
                                   "size-1.5 shrink-0 rounded-full",
-                                  attempt.fail ? "bg-destructive" : "bg-emerald-500",
+                                  attempt.fail ? "bg-kumo-danger" : "bg-kumo-success",
                                 )}
                               />
                             ))}
@@ -482,20 +476,20 @@ export function LogsPage() {
                       </div>
                       <div className="flex min-w-0 items-center gap-1.5">
                         {coverage === null ? (
-                          <span className="text-muted-foreground" title={cacheCoverageTitle(log)}>
+                          <span className="text-kumo-subtle" title={cacheCoverageTitle(log)}>
                             —
                           </span>
                         ) : (
                           <>
-                            <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-muted">
+                            <span className="h-1 w-6 shrink-0 overflow-hidden rounded-full bg-kumo-fill">
                               <span
                                 className={cn(
                                   "block h-full rounded-full",
                                   coverage >= 0.5
-                                    ? "bg-emerald-500"
+                                    ? "bg-kumo-success"
                                     : coverage >= 0.1
-                                      ? "bg-amber-500"
-                                      : "bg-muted-foreground/40",
+                                      ? "bg-kumo-warning"
+                                      : "bg-kumo-interact/60",
                                 )}
                                 style={{ width: `${Math.min(100, coverage * 100)}%` }}
                               />
@@ -509,13 +503,13 @@ export function LogsPage() {
                           </>
                         )}
                       </div>
-                      <div className="truncate font-mono text-muted-foreground">
+                      <div className="truncate font-mono text-kumo-subtle">
                         {log.costUsd === null ? "—" : money(log.costUsd)}
                       </div>
-                      <div className="truncate font-mono text-muted-foreground">
+                      <div className="truncate font-mono text-kumo-subtle">
                         {log.latencyMs}ms
                       </div>
-                      <div className="truncate text-right text-muted-foreground">
+                      <div className="truncate text-right text-kumo-subtle">
                         {log.id ? (
                           <Button
                             type="button"
@@ -541,45 +535,48 @@ export function LogsPage() {
             )}
 
             {loadingMore ? (
-              <div className="flex flex-col gap-0 border-t bg-muted/20 px-4 py-2">
+              <div className="flex flex-col gap-0 border-t border-kumo-hairline bg-kumo-tint/20 px-4 py-2">
                 {Array.from({ length: 3 }, (_, index) => (
                   <div
                     key={index}
                     className="grid items-center gap-3 py-1.5"
                     style={{ gridTemplateColumns: LOG_COLUMNS }}
                   >
-                    <Skeleton className="h-3 w-10" />
-                    <Skeleton className="h-3 w-[80%]" />
-                    <Skeleton className="h-3 w-16" />
-                    <Skeleton className="h-3 w-full" style={{ gridColumn: "4 / -1" }} />
+                    <SkeletonLine blockHeight={12} className="w-10" />
+                    <SkeletonLine blockHeight={12} className="w-[80%]" />
+                    <SkeletonLine blockHeight={12} className="w-16" />
+                    <SkeletonLine blockHeight={12} className="w-full [grid-column:4/-1]" />
                   </div>
                 ))}
               </div>
             ) : nextBefore === null && logs.length > 0 ? (
-              <div className="border-t bg-muted/10 py-2.5 text-center text-xs text-muted-foreground">
+              <div className="border-t border-kumo-hairline bg-kumo-tint/10 py-2.5 text-center text-xs text-kumo-subtle">
                 Beginning of ledger reached ({logs.length} records)
               </div>
             ) : null}
           </div>
-        </Card>
+        </LayerCard>
       </div>
 
-      <Sheet
+      <LayerDialog.Root
         open={Boolean(selectedId)}
         onOpenChange={(open) => {
           if (!open) setSelectedId(null);
         }}
       >
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="w-full gap-0 p-0 sm:max-w-[30rem]"
-        >
-          {selectedId ? (
-            <LogDetailView id={selectedId} variant="panel" onClose={() => setSelectedId(null)} />
-          ) : null}
-        </SheetContent>
-      </Sheet>
+        <LayerDialog.Content size="base" verticalAlign="top">
+          <LayerDialog.Title>Request detail</LayerDialog.Title>
+          <LayerDialog.Body>
+            {selectedId ? (
+              <LogDetailView
+                id={selectedId}
+                variant="panel"
+                onClose={() => setSelectedId(null)}
+              />
+            ) : null}
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </div>
   );
 }

@@ -11,11 +11,15 @@ export function RawBlock({
   className?: string;
 }) {
   return (
-    <details className={className ? `rounded-md border ${className}` : "rounded-md border"}>
-      <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
+    <details
+      className={
+        className ? `rounded-md border border-kumo-hairline ${className}` : "rounded-md border border-kumo-hairline"
+      }
+    >
+      <summary className="cursor-pointer px-3 py-2 text-xs text-kumo-subtle">
         {summary}
       </summary>
-      <div className="border-t p-3">{children}</div>
+      <div className="border-t border-kumo-hairline p-3">{children}</div>
     </details>
   );
 }
@@ -23,7 +27,7 @@ export function RawBlock({
 /** Pretty-printed JSON in a scrollable block. */
 export function Json({ value }: { value: unknown }) {
   return (
-    <pre className="max-h-96 overflow-auto rounded-md border bg-muted/40 p-3 text-xs break-words whitespace-pre-wrap">
+    <pre className="max-h-96 overflow-auto rounded-md border border-kumo-hairline bg-kumo-tint/40 p-3 text-xs break-words whitespace-pre-wrap">
       {JSON.stringify(value, null, 2)}
     </pre>
   );

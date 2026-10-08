@@ -43,7 +43,7 @@ Layers run bottom (state/config) to top (HTTP/CLI). `upstream` is one-egress mec
 - `internal/compaction/` — proactive and reactive context compaction
 - `internal/tunnel/` `internal/lan/` `internal/service/` — ops surfaces
 - `internal/update/` — release check and install
-- `web/` — React + Tailwind + shadcn/ui on Base UI components (Vite+, built to `web/dist`, embedded via `embed.FS`)
+- `web/` — React + Tailwind + [Kumo](https://kumo-ui.com/) UI components (Vite+, built to `web/dist`, embedded via `embed.FS`)
 - `bin/jevonian.js` — the only JS runtime: fetches and execs the platform binary
 
 ## Release process

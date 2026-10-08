@@ -1,10 +1,8 @@
-import { Check, Copy } from "lucide-react";
+import { Badge, Button, LayerCard, Text } from "@cloudflare/kumo";
+import { Check, Copy } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActivityModelStatView, ActivityReportView, ActivitySeriesPointView } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -37,13 +35,14 @@ function IconCopyButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon-xs"
+      shape="square"
+      size="xs"
       aria-label={done ? "Copied" : "Copy"}
       title={done ? "Copied" : "Copy"}
-      className="shrink-0 text-muted-foreground"
+      className="shrink-0 text-kumo-subtle"
       onClick={() => onCopy(text, activeId)}
     >
-      {done ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+      {done ? <Check size={14} className="text-kumo-success" /> : <Copy size={14} />}
     </Button>
   );
 }
@@ -80,7 +79,7 @@ function MiniBars({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded-lg border border-dashed bg-muted/30 text-[11px] text-muted-foreground",
+          "flex items-center justify-center rounded-lg border border-dashed border-kumo-hairline bg-kumo-tint/40 text-[11px] text-kumo-subtle",
           className,
         )}
         style={{ height }}
@@ -93,8 +92,8 @@ function MiniBars({
   return (
     <div className={cn("relative w-full", className)}>
       {hovered ? (
-        <div className="pointer-events-none absolute -top-0.5 right-0 z-10 rounded-md border bg-background/95 px-2 py-0.5 font-mono text-[10px] shadow-xs">
-          <span className="font-sans text-muted-foreground">{hovered.label}</span>{" "}
+        <div className="pointer-events-none absolute -top-0.5 right-0 z-10 rounded-md border border-kumo-hairline bg-kumo-elevated px-2 py-0.5 font-mono text-[10px] text-kumo-default shadow-xs">
+          <span className="font-sans text-kumo-subtle">{hovered.label}</span>{" "}
           {formatValue(valueOf(hovered))}
         </div>
       ) : null}
@@ -110,7 +109,7 @@ function MiniBars({
           y1={padTop + chartHeight}
           x2={width}
           y2={padTop + chartHeight}
-          stroke="var(--border)"
+          stroke="var(--color-kumo-hairline)"
           strokeWidth="1"
         />
         {series.map((pt, idx) => {
@@ -139,7 +138,7 @@ function MiniBars({
                   width={barWidth}
                   height={h}
                   rx={2}
-                  fill="var(--primary)"
+                  fill="var(--color-kumo-brand)"
                   opacity={active ? 1 : 0.35 + 0.65 * (value / max)}
                 />
               ) : null}
@@ -148,7 +147,7 @@ function MiniBars({
                   x={x + barWidth / 2}
                   y={height - 2}
                   textAnchor="middle"
-                  fill="var(--muted-foreground)"
+                  fill="var(--text-color-kumo-subtle)"
                   fontSize="9"
                 >
                   {pt.label}
@@ -182,19 +181,21 @@ export function TodayTokensCard({
   });
 
   return (
-    <Card className="flex min-h-0 flex-col overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 px-5 pt-5 pb-2">
+    <LayerCard className="flex min-h-0 flex-col overflow-hidden shadow-none">
+      <div className="flex flex-row items-start justify-between gap-3 px-5 pt-5 pb-2">
         <div>
-          <CardDescription className="text-[11px] tracking-wide">Today tokens</CardDescription>
-          <CardTitle className="mt-1 text-[2rem] font-semibold tracking-[-0.04em] tabular-nums sm:text-[2.35rem]">
+          <Text variant="secondary" size="xs">
+            Today tokens
+          </Text>
+          <h2 className="mt-1 text-[2rem] font-semibold tracking-[-0.04em] tabular-nums text-kumo-default sm:text-[2.35rem]">
             {formatCompact(todayTokens)}
-          </CardTitle>
+          </h2>
         </div>
-        <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground tabular-nums">
+        <span className="rounded-md bg-kumo-tint px-2 py-0.5 text-[11px] text-kumo-subtle tabular-nums">
           {dateLabel}
         </span>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col justify-between gap-4 px-5 pb-5">
+      </div>
+      <div className="flex flex-1 flex-col justify-between gap-4 px-5 pb-5">
         <MiniBars
           series={today.series}
           valueOf={(pt) => pt.totalTokens}
@@ -202,22 +203,22 @@ export function TodayTokensCard({
           className="min-h-[8rem]"
           emptyLabel="No tokens yet today"
         />
-        <div className="grid grid-cols-3 gap-0 border-t pt-3 text-xs">
+        <div className="grid grid-cols-3 gap-0 border-t border-kumo-hairline pt-3 text-xs">
           <div className="pr-3">
-            <p className="font-medium tabular-nums text-foreground">{weekShare}% of week</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">vs last 7 days</p>
+            <p className="font-medium tabular-nums text-kumo-default">{weekShare}% of week</p>
+            <p className="mt-0.5 text-[11px] text-kumo-subtle">vs last 7 days</p>
           </div>
-          <div className="border-l px-3">
-            <p className="font-medium tabular-nums text-foreground">{usd(todaySpend)} today</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">estimated spend</p>
+          <div className="border-l border-kumo-hairline px-3">
+            <p className="font-medium tabular-nums text-kumo-default">{usd(todaySpend)} today</p>
+            <p className="mt-0.5 text-[11px] text-kumo-subtle">estimated spend</p>
           </div>
-          <div className="border-l pl-3">
-            <p className="font-medium tabular-nums text-foreground">{usd(monthSpend)} month</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">last 30 days</p>
+          <div className="border-l border-kumo-hairline pl-3">
+            <p className="font-medium tabular-nums text-kumo-default">{usd(monthSpend)} month</p>
+            <p className="mt-0.5 text-[11px] text-kumo-subtle">last 30 days</p>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -234,7 +235,7 @@ function ShareSpark({ ratio }: { ratio: number }) {
         return (
           <span
             key={i}
-            className={cn("w-1 rounded-[1px]", on ? "bg-primary/80" : "bg-muted")}
+            className={cn("w-1 rounded-[1px]", on ? "bg-kumo-brand" : "bg-kumo-fill")}
             style={{ height: `${h}%` }}
           />
         );
@@ -248,21 +249,21 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
   const maxTokens = Math.max(...top.map((m) => m.totalTokens), 1);
 
   return (
-    <Card className="flex min-h-0 flex-col overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-center justify-between space-y-0 px-5 pt-5 pb-2">
-        <CardTitle className="text-sm font-semibold">Models</CardTitle>
+    <LayerCard className="flex min-h-0 flex-col overflow-hidden shadow-none">
+      <div className="flex flex-row items-center justify-between px-5 pt-5 pb-2">
+        <Text variant="heading" as="h3">
+          Models
+        </Text>
         <Link
           to="/models"
-          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="text-xs text-kumo-subtle transition-colors hover:text-kumo-default"
         >
           All models →
         </Link>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-0.5 px-3 pb-4">
+      </div>
+      <div className="flex flex-1 flex-col gap-0.5 px-3 pb-4">
         {top.length === 0 ? (
-          <p className="px-2 py-8 text-center text-xs text-muted-foreground">
-            No model traffic yet.
-          </p>
+          <p className="px-2 py-8 text-center text-xs text-kumo-subtle">No model traffic yet.</p>
         ) : (
           top.map((m) => {
             const ratio = m.totalTokens / maxTokens;
@@ -270,31 +271,31 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
             return (
               <div
                 key={m.model}
-                className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-muted/50"
+                className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-kumo-tint"
               >
                 <div className="min-w-0">
                   <p
-                    className="truncate text-sm font-medium"
+                    className="truncate text-sm font-medium text-kumo-default"
                     title={m.variants?.join(", ") ?? m.model}
                   >
                     {m.label ?? m.model}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">
+                  <p className="mt-0.5 text-[11px] text-kumo-subtle tabular-nums">
                     {m.requests.toLocaleString()} req
                     {m.percentSpend > 0 ? ` · ${m.percentSpend.toFixed(0)}% spend` : ""}
                   </p>
                 </div>
                 <ShareSpark ratio={ratio} />
-                <div className="min-w-[5.5rem] shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
-                  <span className="text-foreground">{formatCompact(m.totalTokens)}</span>
-                  <span className="text-muted-foreground"> · {usd(cost)}</span>
+                <div className="min-w-[5.5rem] shrink-0 text-right font-mono text-[11px] text-kumo-subtle tabular-nums">
+                  <span className="text-kumo-default">{formatCompact(m.totalTokens)}</span>
+                  <span className="text-kumo-subtle"> · {usd(cost)}</span>
                 </div>
               </div>
             );
           })
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -359,46 +360,50 @@ export function UsageHeatmapCard({
   });
 
   function level(tokens: number): string {
-    if (tokens <= 0) return "bg-muted";
+    if (tokens <= 0) return "bg-kumo-fill";
     const ratio = tokens / max;
-    if (ratio < 0.2) return "bg-primary/25";
-    if (ratio < 0.45) return "bg-primary/45";
-    if (ratio < 0.7) return "bg-primary/70";
-    return "bg-primary";
+    if (ratio < 0.2) return "bg-kumo-brand/25";
+    if (ratio < 0.45) return "bg-kumo-brand/45";
+    if (ratio < 0.7) return "bg-kumo-brand/70";
+    return "bg-kumo-brand";
   }
 
   const gridWidth = weeks.length * CELL + Math.max(0, weeks.length - 1) * CELL_GAP;
 
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 px-5 pt-5 pb-2">
+    <LayerCard className="overflow-hidden shadow-none">
+      <div className="flex flex-row items-start justify-between gap-3 px-5 pt-5 pb-2">
         <div>
-          <CardTitle className="text-sm font-semibold">Usage</CardTitle>
-          <CardDescription className="text-[11px]">Daily token activity</CardDescription>
+          <Text variant="heading" as="h3">
+            Usage
+          </Text>
+          <Text variant="secondary" size="xs">
+            Daily token activity
+          </Text>
         </div>
-        <div className="space-y-1 text-right text-[11px] text-muted-foreground">
+        <div className="space-y-1 text-right text-[11px] text-kumo-subtle">
           <p>
             This week{" "}
-            <span className="font-medium text-foreground tabular-nums">
+            <span className="font-medium text-kumo-default tabular-nums">
               {formatCompact(weekTokens)}
             </span>
           </p>
           <p>
             This month{" "}
-            <span className="font-medium text-foreground tabular-nums">
+            <span className="font-medium text-kumo-default tabular-nums">
               {formatCompact(monthTokens)}
             </span>
           </p>
         </div>
-      </CardHeader>
-      <CardContent className="px-5 pb-5">
+      </div>
+      <div className="px-5 pb-5">
         {weeks.length === 0 ? (
-          <p className="py-6 text-center text-xs text-muted-foreground">No usage yet.</p>
+          <p className="py-6 text-center text-xs text-kumo-subtle">No usage yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <div style={{ width: gridWidth, minWidth: gridWidth }}>
               <div
-                className="mb-1.5 grid text-[10px] text-muted-foreground"
+                className="mb-1.5 grid text-[10px] text-kumo-subtle"
                 style={{
                   gridTemplateColumns: `repeat(${weeks.length}, ${CELL}px)`,
                   columnGap: CELL_GAP,
@@ -445,7 +450,7 @@ export function UsageHeatmapCard({
                         title={`${cell.label}: ${formatCompact(cell.tokens)} tokens`}
                         className={cn(
                           "rounded-[3px] outline-none transition-[transform,opacity] duration-150 ease-out",
-                          "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring",
+                          "hover:scale-110 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-kumo-line",
                           level(cell.tokens),
                         )}
                         style={{ width: CELL, height: CELL }}
@@ -456,12 +461,12 @@ export function UsageHeatmapCard({
                 )}
               </div>
             </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+            <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-kumo-subtle">
               <p className="min-h-[1rem] tabular-nums">
                 {hover ? (
                   <>
                     {hover.label}:{" "}
-                    <span className="font-medium text-foreground">
+                    <span className="font-medium text-kumo-default">
                       {formatCompact(hover.tokens)} tokens
                     </span>
                   </>
@@ -482,8 +487,8 @@ export function UsageHeatmapCard({
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -495,17 +500,19 @@ export function SpendCard({
   series: ActivitySeriesPointView[];
 }) {
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="space-y-1 px-5 pt-5 pb-2">
-        <CardDescription className="text-[11px] tracking-wide">Cost · 30 days</CardDescription>
-        <CardTitle className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums">
+    <LayerCard className="overflow-hidden shadow-none">
+      <div className="space-y-1 px-5 pt-5 pb-2">
+        <Text variant="secondary" size="xs">
+          Cost · 30 days
+        </Text>
+        <h3 className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums text-kumo-default">
           {usd(summary.totalSpendUsd)}
-        </CardTitle>
-        <p className="text-[11px] text-muted-foreground">
+        </h3>
+        <p className="text-[11px] text-kumo-subtle">
           api {usd(summary.apiSpendUsd)} · sub {usd(summary.subscriptionValueUsd)}
         </p>
-      </CardHeader>
-      <CardContent className="px-5 pb-5">
+      </div>
+      <div className="px-5 pb-5">
         <MiniBars
           series={series}
           valueOf={(pt) => pt.spendUsd + pt.subscriptionUsd}
@@ -513,8 +520,8 @@ export function SpendCard({
           emptyLabel="No spend in this window"
           formatValue={usd}
         />
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -528,27 +535,29 @@ export function TokensCard({
   cacheHitRate: number;
 }) {
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardHeader className="space-y-1 px-5 pt-5 pb-2">
-        <CardDescription className="text-[11px] tracking-wide">Tokens · 30 days</CardDescription>
-        <CardTitle className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums">
+    <LayerCard className="overflow-hidden shadow-none">
+      <div className="space-y-1 px-5 pt-5 pb-2">
+        <Text variant="secondary" size="xs">
+          Tokens · 30 days
+        </Text>
+        <h3 className="text-[1.75rem] font-semibold tracking-[-0.03em] tabular-nums text-kumo-default">
           {formatCompact(summary.totalTokens)}
-        </CardTitle>
-        <p className="text-[11px] text-muted-foreground">
+        </h3>
+        <p className="text-[11px] text-kumo-subtle">
           prompt {formatCompact(summary.promptTokens)} · out{" "}
           {formatCompact(summary.completionTokens)} · cache {formatCompact(summary.cacheReadTokens)}{" "}
           · hit {(cacheHitRate * 100).toFixed(0)}%
         </p>
-      </CardHeader>
-      <CardContent className="px-5 pb-5">
+      </div>
+      <div className="px-5 pb-5">
         <MiniBars
           series={series}
           valueOf={(pt) => pt.totalTokens}
           height={56}
           emptyLabel="No tokens in this window"
         />
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -564,11 +573,11 @@ function StripChip({
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5",
+        "flex items-center gap-1.5 rounded-lg border border-kumo-hairline bg-kumo-base px-2.5 py-1.5",
         className,
       )}
     >
-      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="text-[11px] text-kumo-subtle">{label}</span>
       {children}
     </div>
   );
@@ -593,18 +602,10 @@ export function OverviewStatusStrip({
     <div className="flex flex-wrap items-center gap-2">
       <StripChip label="Status">
         <Badge
-          variant="secondary"
-          className={cn(
-            "h-5 px-1.5 text-[11px] font-medium",
-            running && "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-          )}
+          variant={running ? "success" : "neutral"}
+          appearance="dot"
+          className="h-5 px-1.5 text-[11px] font-medium"
         >
-          <span
-            className={cn(
-              "mr-1 inline-block size-1.5 rounded-full",
-              running ? "bg-emerald-500" : "bg-muted-foreground",
-            )}
-          />
           {running ? "Running" : "Offline"}
         </Badge>
       </StripChip>
@@ -616,7 +617,7 @@ export function OverviewStatusStrip({
       </StripChip>
 
       <StripChip label="Local URL" className="min-w-0 max-w-full">
-        <code className="max-w-[14rem] truncate font-mono text-[11px] sm:max-w-[18rem]">
+        <code className="max-w-[14rem] truncate font-mono text-[11px] text-kumo-default sm:max-w-[18rem]">
           {localUrl}
         </code>
         <IconCopyButton text={localUrl} copiedId={copied} activeId="local" onCopy={onCopyUrl} />
@@ -624,7 +625,7 @@ export function OverviewStatusStrip({
 
       {apiKeyHint ? (
         <StripChip label="API key">
-          <code className="font-mono text-[11px] tracking-wide">{apiKeyHint}</code>
+          <code className="font-mono text-[11px] tracking-wide text-kumo-default">{apiKeyHint}</code>
         </StripChip>
       ) : null}
     </div>

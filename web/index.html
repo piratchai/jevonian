@@ -20,7 +20,9 @@
                 ? "dark"
                 : "light"
               : theme;
+          document.documentElement.classList.remove("light", "dark");
           document.documentElement.classList.add(resolved);
+          document.documentElement.setAttribute("data-mode", resolved);
           document.documentElement.style.colorScheme = resolved;
         } catch (error) {
           /* private mode or blocked storage: fall back to the CSS default */

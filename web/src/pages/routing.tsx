@@ -15,26 +15,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ArrowDown, ArrowUp, GripVertical, X } from "lucide-react";
+import { Button, Combobox, Input, LayerCard, LayerDialog, Text, Tooltip } from "@cloudflare/kumo";
+import { ArrowDown, ArrowUp, DotsSixVertical, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { RoutingSkeleton } from "@/components/page-skeletons";
 import { ProviderIdentity } from "@/components/provider-identity";
 import { ProviderLogo } from "@/components/provider-logo";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Combobox } from "@/components/ui/combobox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   api,
   type ProviderView,
@@ -87,7 +74,7 @@ function OrderedRow({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className="flex items-start gap-2 rounded-lg border bg-background p-3"
+      className="flex items-start gap-2 rounded-lg border border-kumo-hairline bg-kumo-base p-3"
     >
       <div className="flex shrink-0 flex-col gap-1">
         <button
@@ -96,27 +83,27 @@ function OrderedRow({
           {...attributes}
           {...listeners}
           aria-label={`Drag ${id}`}
-          className="touch-none rounded p-1 hover:bg-muted"
+          className="touch-none rounded p-1 hover:bg-kumo-tint"
         >
-          <GripVertical className="size-4" />
+          <DotsSixVertical size={16} aria-hidden />
         </button>
         <button
           type="button"
           aria-label={`Move ${id} up`}
           disabled={index === 0}
           onClick={() => onMove(index, index - 1)}
-          className="rounded p-1 hover:bg-muted disabled:opacity-30"
+          className="rounded p-1 hover:bg-kumo-tint disabled:opacity-30"
         >
-          <ArrowUp className="size-4" />
+          <ArrowUp size={16} aria-hidden />
         </button>
         <button
           type="button"
           aria-label={`Move ${id} down`}
           disabled={index === count - 1}
           onClick={() => onMove(index, index + 1)}
-          className="rounded p-1 hover:bg-muted disabled:opacity-30"
+          className="rounded p-1 hover:bg-kumo-tint disabled:opacity-30"
         >
-          <ArrowDown className="size-4" />
+          <ArrowDown size={16} aria-hidden />
         </button>
       </div>
       <div className="min-w-0 flex-1">{children}</div>
@@ -177,19 +164,19 @@ function ProviderMark({
   const input = record ?? provider;
   const identity = resolveProviderIdentity(input);
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span className="inline-flex size-4 shrink-0 items-center justify-center">
-            <ProviderLogo id={identity.brand} className="size-4" />
-          </span>
-        }
-      />
-      <TooltipContent>
-        {identity.name}
-        {identity.account ? ` · ${identity.account}` : ""} · {status ?? "quota unknown"}
-      </TooltipContent>
-    </Tooltip>
+    <Tooltip
+      content={
+        <>
+          {identity.name}
+          {identity.account ? ` · ${identity.account}` : ""} · {status ?? "quota unknown"}
+        </>
+      }
+      render={
+        <span className="inline-flex size-4 shrink-0 items-center justify-center">
+          <ProviderLogo id={identity.brand} className="size-4" />
+        </span>
+      }
+    />
   );
 }
 
@@ -471,7 +458,7 @@ export function RoutingPage({
     return (
       <div>
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-kumo-danger">
             {error}{" "}
             <Button variant="outline" onClick={() => void load()}>
               Retry
@@ -485,14 +472,18 @@ export function RoutingPage({
 
   const settings = (
     <div className="grid gap-4 md:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>Quota guard</CardTitle>
-          <CardDescription>
-            Skip exhausted providers when an alternative exists. Keep context checks active.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+      <LayerCard>
+        <LayerCard.Secondary className="block">
+          <span className="flex flex-col gap-1">
+            <Text variant="heading" as="h3">
+              Quota guard
+            </Text>
+            <Text variant="secondary" size="sm">
+              Skip exhausted providers when an alternative exists. Keep context checks active.
+            </Text>
+          </span>
+        </LayerCard.Secondary>
+        <LayerCard.Primary className="flex flex-col gap-4">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -501,17 +492,15 @@ export function RoutingPage({
             />
             Enable quota guard
           </label>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="routing-guard-low">Low quota threshold (%)</Label>
-            <Input
-              id="routing-guard-low"
-              type="number"
-              min={0}
-              max={100}
-              value={guard.lowPercent}
-              onChange={(event) => setGuard({ ...guard, lowPercent: Number(event.target.value) })}
-            />
-          </div>
+          <Input
+            id="routing-guard-low"
+            label="Low quota threshold (%)"
+            type="number"
+            min={0}
+            max={100}
+            value={guard.lowPercent}
+            onChange={(event) => setGuard({ ...guard, lowPercent: Number(event.target.value) })}
+          />
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -520,7 +509,7 @@ export function RoutingPage({
             />
             Prefer the allowance that resets first
           </label>
-          <div className="space-y-1 text-xs text-muted-foreground">
+          <div className="space-y-1 text-xs text-kumo-subtle">
             {health
               .filter((entry) => entry.billing !== "api")
               .map((entry) => (
@@ -552,16 +541,20 @@ export function RoutingPage({
               Cancel
             </Button>
           </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Token saver</CardTitle>
-          <CardDescription>
-            Compress tool results with rtk before requests leave. Install with brew install rtk.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        </LayerCard.Primary>
+      </LayerCard>
+      <LayerCard>
+        <LayerCard.Secondary className="block">
+          <span className="flex flex-col gap-1">
+            <Text variant="heading" as="h3">
+              Token saver
+            </Text>
+            <Text variant="secondary" size="sm">
+              Compress tool results with rtk before requests leave. Install with brew install rtk.
+            </Text>
+          </span>
+        </LayerCard.Secondary>
+        <LayerCard.Primary className="flex flex-col gap-4">
           {saver ? (
             <>
               <label className="flex items-center gap-2 text-sm">
@@ -573,39 +566,33 @@ export function RoutingPage({
                 />
                 Enable token saver
               </label>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="routing-saver-command">rtk command</Label>
-                <Input
-                  id="routing-saver-command"
-                  value={saver.command}
-                  disabled={saverBusy}
-                  onChange={(event) => setSaver({ ...saver, command: event.target.value })}
-                  onBlur={() => void saveSaver({ command: saver.command })}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="routing-saver-timeout">Timeout (ms)</Label>
-                <Input
-                  id="routing-saver-timeout"
-                  type="number"
-                  min={0}
-                  value={saver.timeoutMs}
-                  disabled={saverBusy}
-                  onChange={(event) =>
-                    setSaver({ ...saver, timeoutMs: Number(event.target.value) })
-                  }
-                  onBlur={() => {
-                    if (Number.isFinite(saver.timeoutMs) && saver.timeoutMs >= 0)
-                      void saveSaver({ timeoutMs: saver.timeoutMs });
-                  }}
-                />
-              </div>
+              <Input
+                id="routing-saver-command"
+                label="rtk command"
+                value={saver.command}
+                disabled={saverBusy}
+                onChange={(event) => setSaver({ ...saver, command: event.target.value })}
+                onBlur={() => void saveSaver({ command: saver.command })}
+              />
+              <Input
+                id="routing-saver-timeout"
+                label="Timeout (ms)"
+                type="number"
+                min={0}
+                value={saver.timeoutMs}
+                disabled={saverBusy}
+                onChange={(event) => setSaver({ ...saver, timeoutMs: Number(event.target.value) })}
+                onBlur={() => {
+                  if (Number.isFinite(saver.timeoutMs) && saver.timeoutMs >= 0)
+                    void saveSaver({ timeoutMs: saver.timeoutMs });
+                }}
+              />
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Token saver settings are unavailable.</p>
+            <p className="text-sm text-kumo-subtle">Token saver settings are unavailable.</p>
           )}
-        </CardContent>
-      </Card>
+        </LayerCard.Primary>
+      </LayerCard>
     </div>
   );
 
@@ -619,13 +606,17 @@ export function RoutingPage({
           <div className="flex items-start justify-between gap-3">
             <div>
               {embedded ? (
-                <h2 className="font-semibold">Task routing</h2>
+                <Text variant="heading" as="h2">
+                  Task routing
+                </Text>
               ) : (
-                <h1 className="text-lg font-semibold">Routing</h1>
+                <Text variant="heading" size="lg" as="h1">
+                  Routing
+                </Text>
               )}
-              <p className="text-sm text-muted-foreground">
+              <Text variant="secondary" size="sm">
                 Describe the task. Set a short model fallback chain.
-              </p>
+              </Text>
             </div>
             <Button
               variant="outline"
@@ -639,83 +630,79 @@ export function RoutingPage({
               Add task
             </Button>
           </div>
-          <div className="divide-y rounded-lg border">
-            <TooltipProvider>
-              {drafts.map((entry) => {
-                const automatic = entry.models.length === 0;
-                const chain = automatic ? (derived.get(entry.id) ?? []) : entry.models;
-                const shown = chain.slice(0, 3);
-                return (
-                  <div
-                    key={entry.id}
-                    className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <h3 className="text-sm font-medium">
-                        {entry.label}{" "}
-                        <span className="font-normal text-muted-foreground">· {entry.id}</span>
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {entry.description || "No task description"}
-                      </p>
-                      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                        <span className="text-muted-foreground">
-                          {automatic ? "Automatic" : "Fixed"} ·
-                        </span>
-                        {shown.length ? (
-                          shown.map((id, index) => {
-                            const discovered = providersByModel.get(id) ?? [];
-                            const allowed = allowedProviders(discovered, entry.providers?.[id]);
-                            return (
-                              <span key={id} className="flex items-center gap-1.5">
-                                {index > 0 ? (
-                                  <span className="text-muted-foreground">→</span>
-                                ) : null}
-                                <span className="truncate">{names.get(id) || id}</span>
-                                <span className="flex shrink-0 items-center gap-1">
-                                  {allowed.map((provider) => (
-                                    <ProviderMark
-                                      key={provider}
-                                      provider={provider}
-                                      status={statuses.get(provider)}
-                                      record={providerRecords.get(provider)}
-                                    />
-                                  ))}
-                                </span>
+          <div className="divide-y divide-kumo-hairline rounded-lg border border-kumo-hairline">
+            {drafts.map((entry) => {
+              const automatic = entry.models.length === 0;
+              const chain = automatic ? (derived.get(entry.id) ?? []) : entry.models;
+              const shown = chain.slice(0, 3);
+              return (
+                <div
+                  key={entry.id}
+                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <h3 className="text-sm font-medium">
+                      {entry.label}{" "}
+                      <span className="font-normal text-kumo-subtle">· {entry.id}</span>
+                    </h3>
+                    <p className="text-sm text-kumo-subtle">
+                      {entry.description || "No task description"}
+                    </p>
+                    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                      <span className="text-kumo-subtle">
+                        {automatic ? "Automatic" : "Fixed"} ·
+                      </span>
+                      {shown.length ? (
+                        shown.map((id, index) => {
+                          const discovered = providersByModel.get(id) ?? [];
+                          const allowed = allowedProviders(discovered, entry.providers?.[id]);
+                          return (
+                            <span key={id} className="flex items-center gap-1.5">
+                              {index > 0 ? <span className="text-kumo-subtle">→</span> : null}
+                              <span className="truncate">{names.get(id) || id}</span>
+                              <span className="flex shrink-0 items-center gap-1">
+                                {allowed.map((provider) => (
+                                  <ProviderMark
+                                    key={provider}
+                                    provider={provider}
+                                    status={statuses.get(provider)}
+                                    record={providerRecords.get(provider)}
+                                  />
+                                ))}
                               </span>
-                            );
-                          })
-                        ) : (
-                          <span className="text-muted-foreground">No models available</span>
-                        )}
-                        {chain.length > 3 ? (
-                          <span className="text-muted-foreground">→ +{chain.length - 3} more</span>
-                        ) : null}
-                      </p>
-                    </div>
-                    <Button
-                      className="self-start shrink-0"
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || editingId !== null}
-                      onClick={() => {
-                        setEditingId(entry.id);
-                        setConfirmClose(false);
-                        setConfirmDelete(false);
-                      }}
-                    >
-                      Customize
-                    </Button>
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <span className="text-kumo-subtle">No models available</span>
+                      )}
+                      {chain.length > 3 ? (
+                        <span className="text-kumo-subtle">→ +{chain.length - 3} more</span>
+                      ) : null}
+                    </p>
                   </div>
-                );
-              })}
-            </TooltipProvider>
+                  <Button
+                    className="self-start shrink-0"
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || editingId !== null}
+                    onClick={() => {
+                      setEditingId(entry.id);
+                      setConfirmClose(false);
+                      setConfirmDelete(false);
+                    }}
+                  >
+                    Customize
+                  </Button>
+                </div>
+              );
+            })}
           </div>
-          <details className="rounded-lg border">
-            <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+          <details className="rounded-lg border border-kumo-hairline">
+            <summary className="cursor-pointer p-3 text-sm text-kumo-subtle">
               How routing works
             </summary>
-            <div className="space-y-2 border-t p-3 text-sm text-muted-foreground">
+            <div className="space-y-2 border-t border-kumo-hairline p-3 text-sm text-kumo-subtle">
               <p>
                 The brain selects a task and thinking level. An explicit task or model skips the
                 brain.
@@ -737,314 +724,323 @@ export function RoutingPage({
         embedded ? (
           settings
         ) : (
-          <details className="rounded-lg border">
-            <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+          <details className="rounded-lg border border-kumo-hairline">
+            <summary className="cursor-pointer p-3 text-sm text-kumo-subtle">
               Routing settings · quota guard and token saver
             </summary>
-            <div className="border-t p-3">{settings}</div>
+            <div className="border-t border-kumo-hairline p-3">{settings}</div>
           </details>
         )
       ) : embedded ? null : (
-        <details className="rounded-lg border">
-          <summary className="cursor-pointer p-3 text-sm text-muted-foreground">
+        <details className="rounded-lg border border-kumo-hairline">
+          <summary className="cursor-pointer p-3 text-sm text-kumo-subtle">
             Routing settings · quota guard and token saver
           </summary>
-          <div className="border-t p-3">{settings}</div>
+          <div className="border-t border-kumo-hairline p-3">{settings}</div>
         </details>
       )}
       {error ? (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-kumo-danger">
           {error}
         </p>
       ) : null}
       {message ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-sm text-kumo-subtle">
           {message}
         </p>
       ) : null}
-      <Sheet
+      <LayerDialog.Root
         open={editingId !== null}
         onOpenChange={(open) => {
           if (!open) closeEditor();
         }}
+        dismissDisabled={busy}
       >
-        <SheetContent className="w-full sm:w-full sm:max-w-xl" showCloseButton={!busy}>
-          <SheetHeader>
-            <SheetTitle>
-              {editingId === NEW_ROUTE ? "Add task" : `Customize ${route?.label ?? "task"}`}
-            </SheetTitle>
-            <SheetDescription>Changes apply only when you select Save route.</SheetDescription>
-          </SheetHeader>
-          {route ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
-              <div className="space-y-2">
-                <Label htmlFor="routing-task-id">Task id (jevonian/…)</Label>
+        <LayerDialog.Content size="lg" verticalAlign="top">
+          <LayerDialog.Title>
+            {editingId === NEW_ROUTE ? "Add task" : `Customize ${route?.label ?? "task"}`}
+          </LayerDialog.Title>
+          <LayerDialog.Description>
+            Changes apply only when you select Save route.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            {route ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-5 pb-4">
                 <Input
                   id="routing-task-id"
+                  label="Task id (jevonian/…)"
                   value={route.id}
                   disabled={editingId !== NEW_ROUTE || busy}
                   placeholder="frontend"
                   onChange={(event) => updateRoute({ id: event.target.value })}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="routing-task-name">Task name</Label>
                 <Input
                   id="routing-task-name"
+                  label="Task name"
                   value={route.label}
                   disabled={busy}
                   onChange={(event) => updateRoute({ label: event.target.value })}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="routing-task-description">When to use this task</Label>
                 <Input
                   id="routing-task-description"
+                  label="When to use this task"
                   value={route.description}
                   disabled={busy}
                   placeholder="React, CSS, and UI changes"
                   onChange={(event) => updateRoute({ description: event.target.value })}
                 />
-              </div>
-              <fieldset disabled={busy} className="space-y-3">
-                <legend className="mb-2 text-sm font-medium">Model selection</legend>
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="routing-model-mode"
-                    checked={!fixed}
-                    onChange={() => {
-                      updateRoute({ models: [] });
-                      if (editingId === NEW_ROUTE) setFixedNew(false);
-                      setFixedEmpty(null);
-                    }}
-                  />
-                  Automatic · derive models from the price table
-                </label>
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="routing-model-mode"
-                    checked={fixed}
-                    onChange={() => {
-                      updateRoute({
-                        models: route.models.length
-                          ? route.models
-                          : [...(derived.get(route.id) ?? [])],
-                      });
-                      if (editingId === NEW_ROUTE) setFixedNew(true);
-                      else setFixedEmpty(editingId);
-                    }}
-                  />
-                  Fixed · choose and order models
-                </label>
-                {!fixed ? (
-                  <div className="rounded-lg bg-muted p-3 text-sm">
-                    <p className="mb-2 text-muted-foreground">
-                      These models are derived. Select Fixed to copy and change this chain.
-                    </p>
-                    <p className="break-words">
-                      {(derived.get(route.id) ?? []).join(" → ") ||
-                        "No derived models are available for this task yet."}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-xs text-muted-foreground">
-                      Models run from top to bottom. Expand sources to set provider order.
-                    </p>
-                    <OrderedList
-                      items={route.models}
-                      onChange={(next) => updateRoute({ models: next })}
-                    >
-                      {(model, index) => {
-                        const discovered = providersByModel.get(model) ?? [];
-                        const preferred = route.providers?.[model];
-                        const sources = allowedProviders(discovered, preferred);
-                        const stale = (preferred ?? []).filter(
-                          (provider) => !discovered.includes(provider),
-                        );
-                        return (
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="break-words text-sm font-medium">
-                                  {index + 1}. {names.get(model) || model}
-                                </p>
-                                {names.get(model) ? (
-                                  <p className="break-words text-xs text-muted-foreground">
-                                    {model}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <button
-                                type="button"
-                                aria-label={`Remove ${model}`}
-                                className="rounded p-1 hover:bg-muted"
-                                onClick={() => removeModel(model)}
-                              >
-                                <X className="size-4" />
-                              </button>
-                            </div>
-                            <details>
-                              <summary className="cursor-pointer text-xs text-muted-foreground">
-                                Sources ·{" "}
-                                {preferred === undefined
-                                  ? "All providers (automatic)"
-                                  : `${sources.length} allowed (explicit)`}
-                              </summary>
-                              <div className="mt-3 space-y-3">
-                                <p className="text-xs text-muted-foreground">
-                                  An explicit empty list blocks this model. All providers includes
-                                  new providers automatically.
-                                </p>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    setProviders(
-                                      model,
-                                      preferred === undefined ? [...discovered] : undefined,
-                                    )
-                                  }
-                                >
-                                  {preferred === undefined
-                                    ? "Choose providers explicitly"
-                                    : "Use all providers automatically"}
-                                </Button>
-                                {preferred === undefined ? (
-                                  <div className="text-xs text-muted-foreground">
-                                    {discovered.map(providerDisplayName).join(" · ") ||
-                                      "No provider serves this model."}
-                                  </div>
-                                ) : (
-                                  <>
-                                    <OrderedList
-                                      items={preferred}
-                                      onChange={(next) => setProviders(model, next)}
-                                    >
-                                      {(provider) => (
-                                        <div className="flex items-center justify-between gap-2 text-xs">
-                                          <span className="flex min-w-0 items-center gap-2">
-                                            <ProviderIdentity provider={provider} size="size-4" />
-                                            <span className="shrink-0 text-muted-foreground">
-                                              ·{" "}
-                                              {stale.includes(provider)
-                                                ? "not available"
-                                                : (statuses.get(provider) ?? "quota unknown")}
-                                            </span>
-                                          </span>
-                                          <button
-                                            type="button"
-                                            aria-label={`Remove ${provider} from ${model}`}
-                                            className="rounded p-1 hover:bg-muted"
-                                            onClick={() =>
-                                              setProviders(
-                                                model,
-                                                preferred.filter((id) => id !== provider),
-                                              )
-                                            }
-                                          >
-                                            <X className="size-4" />
-                                          </button>
-                                        </div>
-                                      )}
-                                    </OrderedList>
-                                    {sources.length === 0 ? (
-                                      <p className="text-xs text-destructive">
-                                        No available provider. Routing will not use this model.
-                                      </p>
-                                    ) : null}
-                                    <div className="flex flex-wrap gap-2">
-                                      {discovered
-                                        .filter((provider) => !preferred.includes(provider))
-                                        .map((provider) => (
-                                          <Button
-                                            key={provider}
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() =>
-                                              setProviders(model, [...preferred, provider])
-                                            }
-                                          >
-                                            Add {providerDisplayName(provider)}
-                                          </Button>
-                                        ))}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </details>
-                          </div>
-                        );
+                <fieldset disabled={busy} className="space-y-3">
+                  <legend className="mb-2 text-sm font-medium">Model selection</legend>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="routing-model-mode"
+                      checked={!fixed}
+                      onChange={() => {
+                        updateRoute({ models: [] });
+                        if (editingId === NEW_ROUTE) setFixedNew(false);
+                        setFixedEmpty(null);
                       }}
-                    </OrderedList>
-                    <div className="space-y-2">
-                      <Label>Add model</Label>
-                      <Combobox
-                        value=""
-                        onChange={(model) => {
-                          if (model) updateRoute({ models: [...route.models, model] });
-                        }}
-                        options={options}
-                        placeholder="Search model id, name, or provider…"
-                        emptyText="No matching model is available."
-                      />
+                    />
+                    Automatic · derive models from the price table
+                  </label>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="routing-model-mode"
+                      checked={fixed}
+                      onChange={() => {
+                        updateRoute({
+                          models: route.models.length
+                            ? route.models
+                            : [...(derived.get(route.id) ?? [])],
+                        });
+                        if (editingId === NEW_ROUTE) setFixedNew(true);
+                        else setFixedEmpty(editingId);
+                      }}
+                    />
+                    Fixed · choose and order models
+                  </label>
+                  {!fixed ? (
+                    <div className="rounded-lg bg-kumo-tint p-3 text-sm">
+                      <p className="mb-2 text-kumo-subtle">
+                        These models are derived. Select Fixed to copy and change this chain.
+                      </p>
+                      <p className="break-words">
+                        {(derived.get(route.id) ?? []).join(" → ") ||
+                          "No derived models are available for this task yet."}
+                      </p>
                     </div>
-                  </>
-                )}
-              </fieldset>
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
-              {confirmClose ? (
-                <div role="alert" className="space-y-3 rounded-lg border p-3 text-sm">
-                  <p>Discard unsaved route changes?</p>
-                  <div className="flex gap-2">
-                    <Button variant="destructive" onClick={() => closeEditor(true)}>
-                      Discard changes
-                    </Button>
-                    <Button variant="outline" onClick={() => setConfirmClose(false)}>
-                      Keep editing
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-              {confirmDelete ? (
-                <div role="alert" className="space-y-3 rounded-lg border p-3 text-sm">
-                  <p>
-                    Delete this task? Clients that use jevonian/{route.id} will need another route.
+                  ) : (
+                    <>
+                      <p className="text-xs text-kumo-subtle">
+                        Models run from top to bottom. Expand sources to set provider order.
+                      </p>
+                      <OrderedList
+                        items={route.models}
+                        onChange={(next) => updateRoute({ models: next })}
+                      >
+                        {(model, index) => {
+                          const discovered = providersByModel.get(model) ?? [];
+                          const preferred = route.providers?.[model];
+                          const sources = allowedProviders(discovered, preferred);
+                          const stale = (preferred ?? []).filter(
+                            (provider) => !discovered.includes(provider),
+                          );
+                          return (
+                            <div className="space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="break-words text-sm font-medium">
+                                    {index + 1}. {names.get(model) || model}
+                                  </p>
+                                  {names.get(model) ? (
+                                    <p className="break-words text-xs text-kumo-subtle">
+                                      {model}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${model}`}
+                                  className="rounded p-1 hover:bg-kumo-tint"
+                                  onClick={() => removeModel(model)}
+                                >
+                                  <X size={16} aria-hidden />
+                                </button>
+                              </div>
+                              <details>
+                                <summary className="cursor-pointer text-xs text-kumo-subtle">
+                                  Sources ·{" "}
+                                  {preferred === undefined
+                                    ? "All providers (automatic)"
+                                    : `${sources.length} allowed (explicit)`}
+                                </summary>
+                                <div className="mt-3 space-y-3">
+                                  <p className="text-xs text-kumo-subtle">
+                                    An explicit empty list blocks this model. All providers includes
+                                    new providers automatically.
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      setProviders(
+                                        model,
+                                        preferred === undefined ? [...discovered] : undefined,
+                                      )
+                                    }
+                                  >
+                                    {preferred === undefined
+                                      ? "Choose providers explicitly"
+                                      : "Use all providers automatically"}
+                                  </Button>
+                                  {preferred === undefined ? (
+                                    <div className="text-xs text-kumo-subtle">
+                                      {discovered.map(providerDisplayName).join(" · ") ||
+                                        "No provider serves this model."}
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <OrderedList
+                                        items={preferred}
+                                        onChange={(next) => setProviders(model, next)}
+                                      >
+                                        {(provider) => (
+                                          <div className="flex items-center justify-between gap-2 text-xs">
+                                            <span className="flex min-w-0 items-center gap-2">
+                                              <ProviderIdentity provider={provider} size="size-4" />
+                                              <span className="shrink-0 text-kumo-subtle">
+                                                ·{" "}
+                                                {stale.includes(provider)
+                                                  ? "not available"
+                                                  : (statuses.get(provider) ?? "quota unknown")}
+                                              </span>
+                                            </span>
+                                            <button
+                                              type="button"
+                                              aria-label={`Remove ${provider} from ${model}`}
+                                              className="rounded p-1 hover:bg-kumo-tint"
+                                              onClick={() =>
+                                                setProviders(
+                                                  model,
+                                                  preferred.filter((id) => id !== provider),
+                                                )
+                                              }
+                                            >
+                                              <X size={16} aria-hidden />
+                                            </button>
+                                          </div>
+                                        )}
+                                      </OrderedList>
+                                      {sources.length === 0 ? (
+                                        <p className="text-xs text-kumo-danger">
+                                          No available provider. Routing will not use this model.
+                                        </p>
+                                      ) : null}
+                                      <div className="flex flex-wrap gap-2">
+                                        {discovered
+                                          .filter((provider) => !preferred.includes(provider))
+                                          .map((provider) => (
+                                            <Button
+                                              key={provider}
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() =>
+                                                setProviders(model, [...preferred, provider])
+                                              }
+                                            >
+                                              Add {providerDisplayName(provider)}
+                                            </Button>
+                                          ))}
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </details>
+                            </div>
+                          );
+                        }}
+                      </OrderedList>
+                      <Combobox
+                        label="Add model"
+                        items={options}
+                        itemToStringLabel={(option: any) => option?.label ?? option?.value ?? ""}
+                        value={null}
+                        onValueChange={(option: any) => {
+                          const value = typeof option === "string" ? option : option?.value;
+                          if (value) updateRoute({ models: [...route.models, value] });
+                        }}
+                      >
+                        <Combobox.Input
+                          placeholder="Search model id, name, or provider…"
+                          aria-label="Add model"
+                        />
+                        <Combobox.Content>
+                          <Combobox.Empty>No matching model is available.</Combobox.Empty>
+                          <Combobox.List>
+                            {(option: any) => (
+                              <Combobox.Item key={option.value} value={option}>
+                                <span className="flex-1 truncate">{option.label}</span>
+                                {option.hint ? (
+                                  <span className="text-xs text-kumo-subtle">{option.hint}</span>
+                                ) : null}
+                              </Combobox.Item>
+                            )}
+                          </Combobox.List>
+                        </Combobox.Content>
+                      </Combobox>
+                    </>
+                  )}
+                </fieldset>
+                {error ? (
+                  <p role="alert" className="text-sm text-kumo-danger">
+                    {error}
                   </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="destructive"
-                      disabled={busy}
-                      onClick={() => void deleteRoute()}
-                    >
-                      Confirm delete
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      Keep task
-                    </Button>
+                ) : null}
+                {confirmClose ? (
+                  <div
+                    role="alert"
+                    className="space-y-3 rounded-lg border border-kumo-hairline bg-kumo-tint p-3 text-sm"
+                  >
+                    <p>Discard unsaved route changes?</p>
+                    <div className="flex gap-2">
+                      <Button variant="destructive" onClick={() => closeEditor(true)}>
+                        Discard changes
+                      </Button>
+                      <Button variant="outline" onClick={() => setConfirmClose(false)}>
+                        Keep editing
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          <SheetFooter className="border-t">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+                ) : null}
+                {confirmDelete ? (
+                  <div
+                    role="alert"
+                    className="space-y-3 rounded-lg border border-kumo-hairline bg-kumo-tint p-3 text-sm"
+                  >
+                    <p>
+                      Delete this task? Clients that use jevonian/{route.id} will need another route.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="destructive" disabled={busy} onClick={() => void deleteRoute()}>
+                        Confirm delete
+                      </Button>
+                      <Button variant="outline" disabled={busy} onClick={() => setConfirmDelete(false)}>
+                        Keep task
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-kumo-hairline pt-3">
               {route && editingId !== NEW_ROUTE && !BUILTIN_ROUTING_IDS.has(route.id) ? (
                 <Button variant="ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
                   Delete task
                 </Button>
               ) : (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-kumo-subtle">
                   {editingId !== NEW_ROUTE ? "Built-in task" : "New task"}
                 </span>
               )}
@@ -1052,14 +1048,18 @@ export function RoutingPage({
                 <Button variant="outline" disabled={busy} onClick={() => closeEditor()}>
                   Cancel
                 </Button>
-                <Button disabled={busy || !route} onClick={() => void saveRoute()}>
+                <Button
+                  variant="primary"
+                  disabled={busy || !route}
+                  onClick={() => void saveRoute()}
+                >
                   {busy ? "Saving…" : "Save route"}
                 </Button>
               </div>
             </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          </LayerDialog.Body>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </section>
   );
 }

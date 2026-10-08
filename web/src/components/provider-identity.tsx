@@ -1,6 +1,6 @@
+import { Badge, Tooltip } from "@cloudflare/kumo";
+
 import { ProviderLogo } from "@/components/provider-logo";
-import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveProviderIdentity, type ProviderIdentityInput } from "@/lib/provider-name";
 import { cn } from "@/lib/utils";
 
@@ -65,23 +65,11 @@ export function AccountChip({
   const chip = (
     <Badge
       variant="outline"
-      className={cn(
-        "shrink-0 px-1.5 py-0 text-[10px] font-normal text-muted-foreground",
-        className,
-      )}
+      className={cn("shrink-0 px-1.5 py-0 text-[10px] font-normal text-kumo-subtle", className)}
     >
       {text}
     </Badge>
   );
   if (!detail) return chip;
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger render={chip} />
-        <TooltipContent>
-          <span className="font-mono">{detail}</span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
+  return <Tooltip content={<span className="font-mono">{detail}</span>} render={chip} />;
 }

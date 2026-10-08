@@ -1,20 +1,11 @@
-import { Gauge, ShieldCheck } from "lucide-react";
+import { Badge, Button, Input, LayerCard, Select, Text } from "@cloudflare/kumo";
+import { CaretDown, Gauge, ShieldCheck } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 
 import { OverviewDashboardGrid, OverviewStatusStrip } from "@/components/overview-dashboard";
 import { OverviewSkeleton } from "@/components/page-skeletons";
 import { QuotaGrid } from "@/components/quota-card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   api,
   type ActivityReportView,
@@ -42,12 +33,19 @@ function Panel({
   defaultOpen?: boolean;
 }) {
   return (
-    <details className="rounded-xl border bg-card p-5" open={defaultOpen || undefined}>
-      <summary className="cursor-pointer text-sm font-semibold tracking-tight">
-        {title} <span className="font-normal text-muted-foreground">· {summary}</span>
-      </summary>
-      <div className="mt-3 flex flex-col gap-3">{children}</div>
-    </details>
+    <LayerCard>
+      <details className="group p-5" open={defaultOpen || undefined}>
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold tracking-tight text-kumo-default">
+          <CaretDown
+            size={14}
+            className="shrink-0 text-kumo-subtle transition-transform group-open:rotate-180"
+          />
+          <span>{title}</span>
+          <span className="font-normal text-kumo-subtle">· {summary}</span>
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">{children}</div>
+      </details>
+    </LayerCard>
   );
 }
 
@@ -219,7 +217,7 @@ export function OverviewPage() {
     }
   }
 
-  if (error) return <p className="text-sm text-destructive">{error}</p>;
+  if (error) return <p className="text-sm text-kumo-danger">{error}</p>;
   if (!state || !stats || !today || !week || !month || !history) return <OverviewSkeleton />;
 
   const localUrl = `http://${state.config.listen.host}:${state.config.listen.port}/v1`;
@@ -245,10 +243,14 @@ export function OverviewPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.03em] sm:text-[1.75rem]">
+          <Text variant="heading" size="lg" as="h1">
             Welcome back
-          </h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">{nowLabel}</p>
+          </Text>
+          <div className="mt-1">
+            <Text variant="secondary" size="sm">
+              {nowLabel}
+            </Text>
+          </div>
         </div>
         <OverviewStatusStrip
           running
@@ -268,73 +270,81 @@ export function OverviewPage() {
         cacheHitRate={stats.cacheHitRate}
       />
 
-      <details className="rounded-xl border bg-card p-5" open={hash === "#activity" || undefined}>
-        <summary className="cursor-pointer text-sm font-semibold tracking-tight">
-          Activity detail{" "}
-          <span className="font-normal text-muted-foreground">
-            · filters, tables, and full charts
-          </span>
-        </summary>
-        <div className="mt-4">
-          <ActivitySection />
-        </div>
-      </details>
+      <LayerCard>
+        <details className="group p-5" open={hash === "#activity" || undefined}>
+          <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold tracking-tight text-kumo-default">
+            <CaretDown
+              size={14}
+              className="shrink-0 text-kumo-subtle transition-transform group-open:rotate-180"
+            />
+            <span>Activity detail</span>
+            <span className="font-normal text-kumo-subtle">· filters, tables, and full charts</span>
+          </summary>
+          <div className="mt-4">
+            <ActivitySection />
+          </div>
+        </details>
+      </LayerCard>
 
       <div className="flex items-center gap-2 pt-2">
-        <ShieldCheck className="size-4 text-primary" />
-        <h2 className="text-lg font-semibold tracking-tight">Connect &amp; maintain</h2>
+        <ShieldCheck className="size-4 text-kumo-brand" />
+        <Text variant="heading" as="h2">
+          Connect &amp; maintain
+        </Text>
       </div>
-      <p className="-mt-3 text-sm text-muted-foreground">
-        Endpoints, provider limits, tunnel, LAN, and updates. Open a section when you need it.
-      </p>
+      <div className="-mt-3">
+        <Text variant="secondary" size="sm">
+          Endpoints, provider limits, tunnel, LAN, and updates. Open a section when you need it.
+        </Text>
+      </div>
 
       <Panel title="Agent endpoints" summary={publicUrl ? "local + public" : "local only"}>
-        <p className="text-xs text-muted-foreground">
+        <Text variant="secondary" size="xs">
           {authed
             ? "Both endpoints speak OpenAI and Anthropic protocols; every request needs a Jevonian key."
             : "OpenAI- and Anthropic-compatible. No keys exist yet, so requests are accepted without authentication — create one on the Keys page."}
-        </p>
+        </Text>
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary">local</Badge>
-            <code className="rounded-md bg-muted px-3 py-2 text-sm">{localUrl}</code>
+            <code className="rounded-md bg-kumo-tint px-3 py-2 text-sm">{localUrl}</code>
             <Button variant="outline" size="sm" onClick={() => void copy(localUrl, "local-ops")}>
               {copied === "local-ops" ? "Copied" : "Copy"}
             </Button>
           </div>
           <details>
-            <summary className="cursor-pointer text-xs text-muted-foreground">curl example</summary>
-            <pre className="mt-2 overflow-auto rounded-md bg-muted p-3 text-xs">
+            <summary className="cursor-pointer text-xs text-kumo-subtle">curl example</summary>
+            <pre className="mt-2 overflow-auto rounded-md bg-kumo-tint p-3 text-xs">
               {curl(localUrl)}
             </pre>
           </details>
         </div>
-        <div className="flex flex-col gap-2 border-t pt-3">
+        <div className="flex flex-col gap-2 border-t border-kumo-hairline pt-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={publicUrl ? "default" : "outline"}>
+            <Badge variant={publicUrl ? "primary" : "outline"}>
               public{publicUrl ? "" : " · off"}
             </Badge>
             {publicUrl ? (
               <>
-                <code className="rounded-md bg-muted px-3 py-2 text-sm">{publicUrl}</code>
+                <code className="rounded-md bg-kumo-tint px-3 py-2 text-sm">{publicUrl}</code>
                 <Button variant="outline" size="sm" onClick={() => void copy(publicUrl, "public")}>
                   {copied === "public" ? "Copied" : "Copy"}
                 </Button>
               </>
             ) : (
-              <span className="text-xs text-muted-foreground">
+              <Text variant="secondary" size="xs">
                 Start a tunnel under “Public tunnel” below to publish this machine.
-              </span>
+              </Text>
             )}
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <Text variant="secondary" size="xs">
           Prefer <code>jevonian/auto</code>. Tier setup lives on{" "}
-          <Link to="/models#task-routes" className="underline hover:text-foreground">
+          <Link to="/models#task-routes" className="underline hover:text-kumo-default">
             Models &amp; Routing
           </Link>
           .
-        </p>
+        </Text>
       </Panel>
 
       <Panel
@@ -342,14 +352,14 @@ export function OverviewPage() {
         summary={`${quotas.length} provider${quotas.length === 1 ? "" : "s"}`}
       >
         <QuotaGrid quotas={quotas} health={health} bare />
-        <details className="border-t pt-3">
-          <summary className="cursor-pointer text-xs text-muted-foreground">
+        <details className="border-t border-kumo-hairline pt-3">
+          <summary className="cursor-pointer text-xs text-kumo-subtle">
             Savings and baseline
           </summary>
-          <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground">
+          <div className="mt-2 flex flex-col gap-1 text-xs text-kumo-subtle">
             {stats.apiBaselineUsd > 0 ? (
               <>
-                <p className="text-foreground">
+                <p className="text-kumo-default">
                   {stats.savingsPct.toFixed(1)}% lower on pay-per-token traffic (
                   {money(stats.savingsUsd)} saved) against baseline model{" "}
                   <code>{stats.baselineModel ?? "unknown"}</code>.
@@ -391,7 +401,7 @@ export function OverviewPage() {
             const needsAction = Boolean(status?.updateAvailable || status?.restartRequired);
             return (
               <>
-                <Badge variant={needsAction ? "default" : "outline"}>
+                <Badge variant={needsAction ? "primary" : "outline"}>
                   {update?.active
                     ? `restarting · ${update.activeRequests ?? 0} active`
                     : restartOnly
@@ -403,6 +413,7 @@ export function OverviewPage() {
                 {status?.channel !== "source" && status?.channel !== "unknown" ? (
                   needsAction ? (
                     <Button
+                      variant="primary"
                       size="sm"
                       onClick={() => void installUpdate()}
                       disabled={updateBusy || Boolean(update?.active)}
@@ -426,12 +437,12 @@ export function OverviewPage() {
                     </Button>
                   )
                 ) : (
-                  <span className="text-xs text-muted-foreground">
+                  <Text variant="secondary" size="xs">
                     Source checkouts update with Git and are never self-updated.
-                  </span>
+                  </Text>
                 )}
                 {updateError || update?.error ? (
-                  <span className="text-xs text-destructive">{updateError || update?.error}</span>
+                  <span className="text-xs text-kumo-danger">{updateError || update?.error}</span>
                 ) : null}
               </>
             );
@@ -449,68 +460,70 @@ export function OverviewPage() {
               : `${tunnelProvider} · off`
         }
       >
-        <p className="text-xs text-muted-foreground">
+        <Text variant="secondary" size="xs">
           Explicit opt-in. Jevonian never publishes this machine on its own.
-        </p>
+        </Text>
         <div className="flex flex-wrap items-center gap-2">
           <Badge
             variant={
               tunnel?.status === "on"
-                ? "default"
+                ? "primary"
                 : tunnel?.status === "error"
-                  ? "destructive"
+                  ? "error"
                   : "secondary"
             }
           >
             {tunnel?.status ?? "off"}
           </Badge>
-          <Select
-            value={tunnelProvider}
-            onValueChange={(value) => editDraft({ provider: value as TunnelProviderView })}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cloudflare">cloudflare (quick tunnel)</SelectItem>
-              <SelectItem value="ngrok">ngrok</SelectItem>
-              <SelectItem value="custom">custom command</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="w-56">
+            <Select
+              aria-label="Tunnel provider"
+              value={tunnelProvider}
+              onValueChange={(value) => editDraft({ provider: value as TunnelProviderView })}
+              items={{
+                cloudflare: "cloudflare (quick tunnel)",
+                ngrok: "ngrok",
+                custom: "custom command",
+              }}
+            />
+          </div>
           {tunnelProvider === "ngrok" ? (
             <Input
               className="max-w-md"
+              aria-label="ngrok static domain"
               placeholder="casqued-….ngrok-free.dev (optional static domain)"
               value={tunnelUrl}
-              onChange={(event) => editDraft({ url: event.target.value })}
+              onValueChange={(value) => editDraft({ url: value })}
             />
           ) : null}
           {tunnelProvider === "custom" ? (
             <>
               <Input
                 className="max-w-md"
+                aria-label="Custom tunnel command"
                 placeholder="cloudflared tunnel run my-named-tunnel"
                 value={tunnelCommand}
-                onChange={(event) => editDraft({ command: event.target.value })}
+                onValueChange={(value) => editDraft({ command: value })}
               />
               <Input
                 className="max-w-xs"
+                aria-label="Custom tunnel stable URL"
                 placeholder="https://ai.example.com (stable URL, optional)"
                 value={tunnelUrl}
-                onChange={(event) => editDraft({ url: event.target.value })}
+                onValueChange={(value) => editDraft({ url: value })}
               />
             </>
           ) : null}
-          <Button onClick={() => void toggleTunnel()} disabled={tunnelBusy}>
+          <Button variant="primary" onClick={() => void toggleTunnel()} disabled={tunnelBusy}>
             {tunnel?.status === "on" ? "Stop tunnel" : "Start tunnel"}
           </Button>
           {draftUnsaved ? (
-            <span className="text-[11px] font-medium text-amber-600">unsaved draft</span>
+            <span className="text-[11px] font-medium text-kumo-warning">unsaved draft</span>
           ) : null}
         </div>
         {tunnel?.url ? (
           <div className="flex items-center gap-2">
-            <code className="rounded-md bg-muted px-3 py-2 text-sm">{tunnel.url}/v1</code>
+            <code className="rounded-md bg-kumo-tint px-3 py-2 text-sm">{tunnel.url}/v1</code>
             <Button
               variant="outline"
               size="sm"
@@ -521,23 +534,23 @@ export function OverviewPage() {
           </div>
         ) : null}
         {tunnelError || tunnel?.error ? (
-          <p className="text-xs text-destructive">{tunnelError || tunnel?.error}</p>
+          <p className="text-xs text-kumo-danger">{tunnelError || tunnel?.error}</p>
         ) : null}
-        <p className="text-[11px] text-amber-600">
+        <p className="text-[11px] text-kumo-warning">
           Security: a tunnel exposes this proxy to the internet. Keep at least one API key active
           and stop the tunnel when you are done.
         </p>
       </Panel>
 
       <Panel title="LAN access" summary={lan?.config.enabled ? "on" : "off"}>
-        <p className="text-xs text-muted-foreground">
+        <Text variant="secondary" size="xs">
           Let another machine on this network use this instance. Only <code>/v1</code> is served.
-        </p>
+        </Text>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void toggleLan()} disabled={lanBusy}>
             {lan?.config.enabled ? "Disable" : "Enable"}
           </Button>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[11px] text-kumo-subtle">
             {lan?.bindHost ?? "0.0.0.0"}:{lan?.port ?? "—"}
             {lan?.restartRequired ? " · restart Jevonian to apply" : ""}
           </span>
@@ -546,7 +559,7 @@ export function OverviewPage() {
           <div className="flex flex-col gap-2">
             {lan?.urls.map((url) => (
               <div key={url} className="flex items-center gap-2">
-                <code className="rounded-md bg-muted px-3 py-2 text-sm">{url}</code>
+                <code className="rounded-md bg-kumo-tint px-3 py-2 text-sm">{url}</code>
                 <Button variant="outline" size="sm" onClick={() => void copy(url, url)}>
                   {copied === url ? "Copied" : "Copy"}
                 </Button>
@@ -554,11 +567,11 @@ export function OverviewPage() {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
+          <Text variant="secondary" size="xs">
             No non-loopback IPv4 address was found on this machine.
-          </p>
+          </Text>
         )}
-        {lanError ? <p className="text-xs text-destructive">{lanError}</p> : null}
+        {lanError ? <p className="text-xs text-kumo-danger">{lanError}</p> : null}
       </Panel>
 
       <Panel
@@ -568,7 +581,7 @@ export function OverviewPage() {
         <div className="flex flex-col gap-2 text-sm">
           {(state.routings ?? state.config.routing.routings ?? []).map((entry) => (
             <div key={entry.id} className="flex justify-between gap-4">
-              <span className="text-muted-foreground">{entry.label || entry.id}</span>
+              <span className="text-kumo-subtle">{entry.label || entry.id}</span>
               <span className="text-right">{entry.models.join(", ") || "—"}</span>
             </div>
           ))}
@@ -578,11 +591,13 @@ export function OverviewPage() {
       <Panel title="Spend by routing" summary={`${stats.byPhase.length} routings with traffic`}>
         <div className="flex flex-col gap-2 text-sm">
           {stats.byPhase.length === 0 ? (
-            <p className="text-muted-foreground">No traffic yet.</p>
+            <Text variant="secondary" size="sm">
+              No traffic yet.
+            </Text>
           ) : (
             stats.byPhase.map((phase) => (
               <div key={phase.phase} className="flex justify-between">
-                <span className="text-muted-foreground">
+                <span className="text-kumo-subtle">
                   {phase.phase} · {phase.requests} reqs
                 </span>
                 <span>{money(phase.costUsd)}</span>
@@ -592,7 +607,7 @@ export function OverviewPage() {
         </div>
       </Panel>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-kumo-subtle">
         <Gauge className="size-3.5" />
         <span>
           Dashboard uses today / 7d / 30d activity windows. All-time ledger totals stay in the

@@ -1,4 +1,5 @@
-import { XIcon } from "lucide-react";
+import { Button, LinkButton, SkeletonLine } from "@cloudflare/kumo";
+import { X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, type JSX } from "react";
 import { Link } from "react-router";
 
@@ -10,8 +11,6 @@ import { Json, RawBlock } from "@/components/log-detail/raw";
 import { RightRail } from "@/components/log-detail/right-rail";
 import { RoutingTable } from "@/components/log-detail/routing-table";
 import { LogDetailSkeleton } from "@/components/page-skeletons";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { api, type LogDetailResponse, type LogRecord } from "@/lib/api";
 import { cn, formatTime } from "@/lib/utils";
 
@@ -32,7 +31,7 @@ function RawSection({ detail }: { detail: LogDetailResponse }) {
             {capture.response ? (
               <Json value={capture.response} />
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-kumo-subtle">
                 Response not captured for this record (recorded before response capture, or
                 JEVONIAN_CAPTURE_BODIES=0).
               </p>
@@ -110,33 +109,31 @@ function PanelHeader({
 }) {
   const failed = record.status >= 400 || Boolean(record.error);
   return (
-    <div className="sticky top-0 z-10 flex min-w-0 shrink-0 items-center gap-3 border-b bg-background px-4 py-3">
+    <div className="sticky top-0 z-10 flex min-w-0 shrink-0 items-center gap-3 border-b border-kumo-hairline bg-kumo-base px-4 py-3">
       <span
         className={cn(
           "size-2.5 shrink-0 rounded-full",
-          failed ? "bg-destructive" : "bg-emerald-500",
+          failed ? "bg-kumo-danger" : "bg-kumo-success",
         )}
         aria-hidden
       />
       <div className="flex min-w-0 flex-col">
         <span className="min-w-0 truncate text-sm font-medium">{record.model}</span>
-        <span className="text-[11px] text-muted-foreground">{formatTime(record.ts)}</span>
+        <span className="text-[11px] text-kumo-subtle">{formatTime(record.ts)}</span>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <Button
-          variant="outline"
-          size="xs"
-          render={<Link to={`/logs/${id}`}>Open full page</Link>}
-        />
+        <LinkButton href={`/logs/${id}`} variant="outline" size="xs">
+          Open full page
+        </LinkButton>
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          shape="square"
+          size="sm"
           aria-label="Close detail"
           onClick={onClose}
-        >
-          <XIcon />
-        </Button>
+          icon={<X size={16} aria-hidden />}
+        />
       </div>
     </div>
   );
@@ -146,28 +143,32 @@ function PanelHeader({
 function PanelSkeleton() {
   return (
     <div className="flex h-full min-h-0 flex-col" aria-busy="true" aria-label="Loading log detail">
-      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
-        <Skeleton className="size-2.5 rounded-full" />
+      <div className="flex shrink-0 items-center gap-3 border-b border-kumo-hairline px-4 py-3">
+        <div className="size-2.5 shrink-0 animate-pulse rounded-full bg-kumo-fill" />
         <div className="flex flex-col gap-1">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-16" />
+          <div className="w-32">
+            <SkeletonLine blockHeight={16} />
+          </div>
+          <div className="w-16">
+            <SkeletonLine blockHeight={12} />
+          </div>
         </div>
-        <Skeleton className="ml-auto h-8 w-28" />
+        <div className="ml-auto h-8 w-28 animate-pulse rounded-md bg-kumo-fill" />
       </div>
       <div className="flex flex-col gap-4 p-4">
-        <Skeleton className="h-24 w-full rounded-xl" />
-        <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-32 w-full rounded-xl" />
+        <div className="h-24 w-full animate-pulse rounded-xl bg-kumo-fill" />
+        <div className="h-48 w-full animate-pulse rounded-xl bg-kumo-fill" />
+        <div className="h-32 w-full animate-pulse rounded-xl bg-kumo-fill" />
       </div>
     </div>
   );
 }
 
 /**
- * The log detail content, shared by the full `/logs/:id` route and the logs list Sheet.
+ * The log detail content, shared by the full `/logs/:id` route and the logs list panel.
  *
  * `variant="page"` keeps the two-column page layout. `variant="panel"` is a single narrow
- * column with a sticky header and its own scroll area, so the parent Sheet can give it a
+ * column with a sticky header and its own scroll area, so the parent panel can give it a
  * fixed height. It owns fetching, loading, error, and the copy-context state in both variants.
  */
 export function LogDetailView({
@@ -176,9 +177,9 @@ export function LogDetailView({
   onClose,
 }: {
   id: string;
-  /** "page" = full route layout (header + two columns). "panel" = narrow Sheet body. */
+  /** "page" = full route layout (header + two columns). "panel" = narrow panel body. */
   variant?: "page" | "panel";
-  /** Panel only: called by the Sheet close button. */
+  /** Panel only: called by the panel close button. */
   onClose?: () => void;
 }): JSX.Element {
   const { detail, error } = useLogDetail(id);
@@ -188,11 +189,11 @@ export function LogDetailView({
     if (variant === "panel") {
       return (
         <div className="flex h-full min-h-0 flex-col items-center justify-center p-6 text-center">
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-sm text-kumo-danger">{error}</p>
         </div>
       );
     }
-    return <p className="text-sm text-destructive">{error}</p>;
+    return <p className="text-sm text-kumo-danger">{error}</p>;
   }
 
   if (!detail) {
@@ -242,7 +243,7 @@ export function LogDetailView({
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <Link to="/logs" className="text-sm text-muted-foreground underline underline-offset-4">
+        <Link to="/logs" className="text-sm text-kumo-subtle underline underline-offset-4">
           ← Logs
         </Link>
         <h1 className="min-w-0 text-lg font-semibold">
@@ -251,12 +252,12 @@ export function LogDetailView({
         {record.requestId ? (
           <Link
             to={`/logs/${record.requestId}`}
-            className="text-xs text-muted-foreground underline underline-offset-4"
+            className="text-xs text-kumo-subtle underline underline-offset-4"
           >
             parent request
           </Link>
         ) : null}
-        <span className="ml-auto text-xs text-muted-foreground">
+        <span className="ml-auto text-xs text-kumo-subtle">
           {record.provider} · {record.model}
         </span>
       </div>

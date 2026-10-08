@@ -18,14 +18,14 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBound
   render() {
     if (this.state.error) {
       return (
-        <div className="rounded-md border border-destructive/50 bg-destructive/5 p-4 text-sm">
-          <p className="font-medium text-destructive">This page hit an error</p>
-          <pre className="mt-2 overflow-auto text-xs whitespace-pre-wrap text-muted-foreground">
+        <div className="rounded-lg border border-kumo-danger/40 bg-kumo-danger-tint p-4 text-sm">
+          <p className="font-medium text-kumo-danger">This page hit an error</p>
+          <pre className="mt-2 overflow-auto text-xs whitespace-pre-wrap text-kumo-subtle">
             {this.state.error.message}
           </pre>
           <button
             type="button"
-            className="mt-3 text-xs underline"
+            className="mt-3 text-xs text-kumo-link underline"
             onClick={() => this.setState({ error: undefined })}
           >
             Retry

@@ -1,26 +1,7 @@
+import { Badge, Button, Input, LayerCard, Select, Table, Text } from "@cloudflare/kumo";
 import { useCallback, useState } from "react";
 
 import { KeysHelp } from "@/components/keys-help";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { api, type BrainChannelView, type BrainView, type StateResponse } from "@/lib/api";
 
 const ADD_TEMPLATE: BrainView = {
@@ -63,6 +44,10 @@ export function BrainSection({
   // visible in the picker instead of showing an empty trigger.
   const customModel =
     (draft.model ?? "") !== "" && !modelPresets.some((option) => option.id === draft.model);
+  const modelItems = [
+    ...(customModel ? [{ value: draft.model ?? "", label: `${draft.model} (custom)` }] : []),
+    ...modelPresets.map((option) => ({ value: option.id, label: option.label })),
+  ];
   const dirty =
     editing === "new" ||
     key.length > 0 ||
@@ -216,136 +201,131 @@ export function BrainSection({
   }
 
   return (
-    <Card id="routing-brain">
-      <CardHeader className="flex-row items-start justify-between gap-4">
+    <LayerCard id="routing-brain">
+      <LayerCard.Secondary className="flex-row items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <CardTitle>Routing brain</CardTitle>
-          <CardDescription>
+          <Text variant="heading" as="h2">
+            Routing brain
+          </Text>
+          <Text variant="secondary" size="sm">
             Tried top to bottom on every routed turn; the first confident verdict wins. Adding one
             is required before <code>jevonian/auto</code> can route.
-          </CardDescription>
+          </Text>
         </div>
         {editing === null ? (
           <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
             Add brain
           </Button>
         ) : null}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>order</TableHead>
-              <TableHead>channel</TableHead>
-              <TableHead>key</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {brains.map((brain, index) => (
-              <TableRow key={`${brain.channel}-${index}`}>
-                <TableCell className="text-xs text-muted-foreground">
-                  {index + 1}
-                  {index === 0 ? " · primary" : ""}
-                  {index > 0 ? " · fallback" : ""}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {`${channelOf(channels, brain.channel)?.label ?? brain.channel}${brain.model ? ` · ${brain.model}` : ""}${brain.accountId ? ` · ${brain.accountId}` : ""}`}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={keyLabel(brain) === "none" ? "destructive" : "secondary"}
-                    className="text-[10px]"
-                  >
-                    {keyLabel(brain)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void move(index, "up")}
-                    disabled={busy || index === 0}
-                  >
-                    ↑
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void move(index, "down")}
-                    disabled={busy || index === brains.length - 1}
-                  >
-                    ↓
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => beginEdit(index)}
-                    disabled={busy}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => void remove(index)}
-                    disabled={busy}
-                  >
-                    Remove
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {brains.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                  No brain configured — jevonian/auto is disabled until you add one.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+      </LayerCard.Secondary>
+      <LayerCard.Primary className="flex flex-col gap-5">
+        <div className="overflow-x-auto">
+          <Table>
+            <Table.Header>
+              <Table.Row>
+                <Table.Head>order</Table.Head>
+                <Table.Head>channel</Table.Head>
+                <Table.Head>key</Table.Head>
+                <Table.Head />
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {brains.map((brain, index) => (
+                <Table.Row key={`${brain.channel}-${index}`}>
+                  <Table.Cell className="text-xs text-kumo-subtle">
+                    {index + 1}
+                    {index === 0 ? " · primary" : ""}
+                    {index > 0 ? " · fallback" : ""}
+                  </Table.Cell>
+                  <Table.Cell className="text-xs text-kumo-subtle">
+                    {`${channelOf(channels, brain.channel)?.label ?? brain.channel}${brain.model ? ` · ${brain.model}` : ""}${brain.accountId ? ` · ${brain.accountId}` : ""}`}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Badge
+                      variant={keyLabel(brain) === "none" ? "error" : "secondary"}
+                      className="text-[10px]"
+                    >
+                      {keyLabel(brain)}
+                    </Badge>
+                  </Table.Cell>
+                  <Table.Cell className="whitespace-nowrap text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void move(index, "up")}
+                      disabled={busy || index === 0}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void move(index, "down")}
+                      disabled={busy || index === brains.length - 1}
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => beginEdit(index)}
+                      disabled={busy}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-kumo-danger hover:text-kumo-danger"
+                      onClick={() => void remove(index)}
+                      disabled={busy}
+                    >
+                      Remove
+                    </Button>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+              {brains.length === 0 ? (
+                <Table.Row>
+                  <Table.Cell colSpan={4} className="text-sm text-kumo-subtle">
+                    No brain configured — jevonian/auto is disabled until you add one.
+                  </Table.Cell>
+                </Table.Row>
+              ) : null}
+            </Table.Body>
+          </Table>
+        </div>
 
         {editing === null ? (
           <div className="flex items-center gap-3">
             {brains.length > 0 ? (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-kumo-subtle">
                 Tried in this order; add more for redundancy.
               </span>
             ) : null}
-            {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
-            {error ? <span className="text-xs text-destructive">{error}</span> : null}
+            {message ? <span className="text-xs text-kumo-subtle">{message}</span> : null}
+            {error ? <span className="text-xs text-kumo-danger">{error}</span> : null}
           </div>
         ) : (
           <>
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
+                <Select
+                  id="brainChannel"
+                  className="w-full"
+                  label="Channel"
+                  items={channels.map((channel) => ({
+                    value: channel.id,
+                    label: channel.label,
+                  }))}
+                  value={draft.channel}
+                  onValueChange={(value) => applyChannel(String(value))}
+                  description="Where the brain asks for a verdict; picking a channel loads its defaults."
+                />
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="brainChannel">Channel</Label>
-                  <Select
-                    value={draft.channel}
-                    onValueChange={(value) => applyChannel(String(value))}
-                  >
-                    <SelectTrigger id="brainChannel" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {channels.map((channel) => (
-                        <SelectItem key={channel.id} value={channel.id}>
-                          {channel.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <span className="text-[11px] text-muted-foreground">
-                    Where the brain asks for a verdict; picking a channel loads its defaults.
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="brainKey">API key</Label>
                   <Input
                     id="brainKey"
+                    label="API key"
                     type="password"
                     value={key}
                     placeholder={
@@ -353,23 +333,23 @@ export function BrainSection({
                         ? `set (${saved.keySource}) — paste to replace`
                         : "stored per channel (0600)"
                     }
-                    onChange={(event) => setKey(event.target.value)}
+                    onValueChange={(value) => setKey(value)}
                   />
                   <KeysHelp keysUrl={active?.keysUrl} hint={active?.hint} />
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[11px] text-kumo-subtle">
                     Stored encrypted on this machine; leave empty to keep the stored key.
                   </span>
                 </div>
                 {active?.requiresAccountId ? (
                   <div className="col-span-2 flex flex-col gap-1.5">
-                    <Label htmlFor="brainAccountId">Account ID</Label>
                     <Input
                       id="brainAccountId"
+                      label="Account ID"
                       value={draft.accountId ?? ""}
                       placeholder="Cloudflare account id from the dashboard overview"
-                      onChange={(event) => setDraft({ ...draft, accountId: event.target.value })}
+                      onValueChange={(value) => setDraft({ ...draft, accountId: value })}
                     />
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[11px] text-kumo-subtle">
                       Used to call{" "}
                       <code className="text-[10px]">/client/v4/accounts/{"{id}"}/ai/run</code> with
                       model{" "}
@@ -382,33 +362,20 @@ export function BrainSection({
                 ) : null}
                 {modelPresets.length > 0 ? (
                   <div className="col-span-2 flex flex-col gap-1.5">
-                    <Label htmlFor="brainModelPreset">Model</Label>
                     <Select
+                      id="brainModelPreset"
+                      className="w-full"
+                      label="Model"
+                      items={modelItems}
                       value={draft.model ?? ""}
                       onValueChange={(value) => setDraft({ ...draft, model: String(value) })}
-                    >
-                      <SelectTrigger id="brainModelPreset" className="w-full">
-                        <SelectValue>
-                          {(value: string | null) =>
-                            modelPresets.find((option) => option.id === value)?.label ??
-                            (value ? `${value} (custom)` : "Pick a decision model")
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {customModel ? (
-                          <SelectItem
-                            value={draft.model ?? ""}
-                          >{`${draft.model} (custom)`}</SelectItem>
-                        ) : null}
-                        {modelPresets.map((option) => (
-                          <SelectItem key={option.id} value={option.id}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-[11px] text-muted-foreground">
+                      placeholder="Pick a decision model"
+                      renderValue={(value) =>
+                        modelPresets.find((option) => option.id === value)?.label ??
+                        (value ? `${value} (custom)` : undefined)
+                      }
+                    />
+                    <span className="text-[11px] text-kumo-subtle">
                       {selectedModelHint ??
                         (customModel
                           ? "A model id not on this channel's preset list."
@@ -418,91 +385,83 @@ export function BrainSection({
                 ) : null}
               </div>
 
-              <details className="rounded-md border">
+              <details className="rounded-md border border-kumo-hairline">
                 <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium">
                   Advanced settings
                 </summary>
-                <div className="flex flex-col gap-4 border-t p-4">
+                <div className="flex flex-col gap-4 border-t border-kumo-hairline p-4">
                   <div className="grid grid-cols-2 gap-4">
                     {active?.requiresAccountId ? null : (
                       <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="brainBaseUrl">Endpoint</Label>
                         <Input
                           id="brainBaseUrl"
+                          label="Endpoint"
                           value={draft.baseUrl ?? ""}
                           placeholder={active?.baseUrl || "https://…/v1/systemone"}
-                          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+                          onValueChange={(value) => setDraft({ ...draft, baseUrl: value })}
                         />
                       </div>
                     )}
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="brainModel">
-                        {modelPresets.length > 0 ? "Model (override)" : "Model"}
-                      </Label>
                       <Input
                         id="brainModel"
+                        label={modelPresets.length > 0 ? "Model (override)" : "Model"}
                         value={draft.model ?? ""}
                         placeholder={active?.model ?? "jev-latest"}
-                        onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+                        onValueChange={(value) => setDraft({ ...draft, model: value })}
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="brainEnv">API key env var</Label>
                       <Input
                         id="brainEnv"
+                        label="API key env var"
                         value={draft.apiKeyEnv ?? ""}
                         placeholder={active?.apiKeyEnv ?? "TYPESAFE_API_KEY"}
-                        onChange={(event) => setDraft({ ...draft, apiKeyEnv: event.target.value })}
+                        onValueChange={(value) => setDraft({ ...draft, apiKeyEnv: value })}
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="brainTimeout">Timeout (ms)</Label>
                       <Input
                         id="brainTimeout"
+                        label="Timeout (ms)"
                         type="number"
                         value={draft.timeoutMs}
-                        onChange={(event) =>
-                          setDraft({ ...draft, timeoutMs: Number(event.target.value) })
-                        }
+                        onValueChange={(value) => setDraft({ ...draft, timeoutMs: Number(value) })}
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="brainConfidence">Min confidence</Label>
                       <Input
                         id="brainConfidence"
+                        label="Min confidence"
                         type="number"
                         min={0}
                         max={1}
                         step={0.05}
                         value={draft.minConfidence}
-                        onChange={(event) =>
-                          setDraft({ ...draft, minConfidence: Number(event.target.value) })
+                        onValueChange={(value) =>
+                          setDraft({ ...draft, minConfidence: Number(value) })
                         }
                       />
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-[11px] text-kumo-subtle">
                         Below this the turn is marked low-confidence. Later brains are only tried
                         when this channel fails.
                       </span>
                     </div>
                     <div className="col-span-2 flex flex-col gap-1.5">
-                      <Label htmlFor="brainContext">Context sent to the brain</Label>
                       <Select
+                        id="brainContext"
+                        className="w-full"
+                        label="Context sent to the brain"
+                        items={{
+                          compact: "compact — goal, recent turns, tool activity",
+                          full: "full prompt — every message verbatim",
+                        }}
                         value={draft.fullPrompt ? "full" : "compact"}
                         onValueChange={(value) =>
                           setDraft({ ...draft, fullPrompt: value === "full" })
                         }
-                      >
-                        <SelectTrigger id="brainContext" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="compact">
-                            compact — goal, recent turns, tool activity
-                          </SelectItem>
-                          <SelectItem value="full">full prompt — every message verbatim</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <span className="text-[11px] text-muted-foreground">
+                      />
+                      <span className="text-[11px] text-kumo-subtle">
                         compact sends only the goal, recent turns, and tool activity. full prompt
                         sends every message verbatim, which is more private-data exposure but more
                         accurate. This content is sent to the channel above, not stored locally.
@@ -514,7 +473,7 @@ export function BrainSection({
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => void save()} disabled={busy || !dirty}>
+              <Button variant="primary" onClick={() => void save()} disabled={busy || !dirty}>
                 {editing === "new" ? "Add brain" : "Save brain"}
               </Button>
               <Button variant="outline" onClick={() => void test()} disabled={busy}>
@@ -524,14 +483,14 @@ export function BrainSection({
                 Cancel
               </Button>
               {dirty ? (
-                <span className="text-xs font-medium text-amber-600">unsaved changes</span>
+                <span className="text-xs font-medium text-kumo-warning">unsaved changes</span>
               ) : null}
-              {result ? <span className="text-xs text-muted-foreground">{result}</span> : null}
-              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+              {result ? <span className="text-xs text-kumo-subtle">{result}</span> : null}
+              {error ? <span className="text-xs text-kumo-danger">{error}</span> : null}
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </LayerCard.Primary>
+    </LayerCard>
   );
 }

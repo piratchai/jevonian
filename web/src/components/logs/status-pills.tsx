@@ -17,8 +17,8 @@ export function StatusPills({
     cn(
       "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
       active
-        ? "border-primary/40 bg-primary/10 text-primary"
-        : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+        ? "border-kumo-brand/40 bg-kumo-brand/10 text-kumo-brand"
+        : "border-transparent text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default",
     );
   return (
     <div className="flex shrink-0 items-center gap-1" role="group" aria-label="Status filter">
@@ -36,7 +36,7 @@ export function StatusPills({
         aria-pressed={errorsOnly}
         onClick={() => onChange(["error"])}
       >
-        <span aria-hidden className="size-1.5 rounded-full bg-destructive" />
+        <span aria-hidden className="size-1.5 rounded-full bg-kumo-danger" />
         Errors
       </button>
     </div>

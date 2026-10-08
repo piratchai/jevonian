@@ -1,3 +1,5 @@
+import { Badge, Button, Input, LayerCard, LayerDialog, Select, Text } from "@cloudflare/kumo";
+import { X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KeysHelp } from "@/components/keys-help";
@@ -5,25 +7,6 @@ import { ProvidersSkeleton } from "@/components/page-skeletons";
 import { ProviderIdentity } from "@/components/provider-identity";
 import { ProviderLogo } from "@/components/provider-logo";
 import { ProviderQuotaCard } from "@/components/quota-card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   api,
   type ModelSyncResponse,
@@ -807,7 +790,7 @@ export function ProvidersPage({
     };
   }
 
-  if (error && !state) return <p className="text-sm text-destructive">{error}</p>;
+  if (error && !state) return <p className="text-sm text-kumo-danger">{error}</p>;
   if (!state) return <ProvidersSkeleton />;
 
   return (
@@ -815,7 +798,7 @@ export function ProvidersPage({
       {!embedded && !settingsOnly ? (
         <div>
           <h1 className="text-lg font-semibold">Connected sources</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-kumo-subtle">
             Connect API providers, subscription endpoints, and local agent credentials. Secrets stay
             on this machine.
           </p>
@@ -823,13 +806,13 @@ export function ProvidersPage({
       ) : null}
 
       {!embedded ? (
-        <details className="order-2 rounded-md border" open={settingsOnly}>
+        <details className="order-2 rounded-lg border border-kumo-hairline" open={settingsOnly}>
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
             Model auto-sync
           </summary>
-          <div className="flex flex-col gap-3 border-t px-4 py-3">
+          <div className="flex flex-col gap-3 border-t border-kumo-hairline px-4 py-3">
             <div className="flex items-start justify-between gap-4">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-kumo-subtle">
                 While <code>serve</code> is running, Jevonian periodically discovers each
                 provider&apos;s model list and appends new ids. Removals stick; fixed routings are
                 never rewritten.
@@ -838,7 +821,7 @@ export function ProvidersPage({
                 {modelSync?.config.enabled === false ? "off" : "on"}
               </Badge>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-kumo-subtle">
               {modelSync?.lastCheckedAt
                 ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
                 : "No sync has run yet — start serve or Sync now."}
@@ -869,7 +852,7 @@ export function ProvidersPage({
       ) : settingsOnly ? (
         <div className="order-2 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-kumo-subtle">
               While <code>serve</code> is running, Jevonian periodically discovers each
               provider&apos;s model list and appends new ids. Removals stick; fixed routings are
               never rewritten.
@@ -878,7 +861,7 @@ export function ProvidersPage({
               {modelSync?.config.enabled === false ? "off" : "on"}
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-kumo-subtle">
             {modelSync?.lastCheckedAt
               ? `Last check ${new Date(modelSync.lastCheckedAt).toLocaleString()} · +${modelSync.lastAdded} last pass`
               : "No sync has run yet — start serve or Sync now."}
@@ -907,18 +890,18 @@ export function ProvidersPage({
         </div>
       ) : null}
 
-      {!formOpen && message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-      {!formOpen && error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {!formOpen && message ? <p className="text-sm text-kumo-subtle">{message}</p> : null}
+      {!formOpen && error ? <p className="text-sm text-kumo-danger">{error}</p> : null}
 
       {!settingsOnly ? (
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-4">
+        <LayerCard>
+          <LayerCard.Secondary className="flex-row items-start justify-between gap-4">
             <div className="flex flex-col gap-1">
-              <CardTitle>Usage &amp; limits</CardTitle>
-              <CardDescription>
+              <Text variant="heading" as="h2">Usage &amp; limits</Text>
+              <Text variant="secondary" size="sm">
                 {state.config.providers.length} sources · windows, reset times, and local spend.
                 Estimates use models.dev rates.
-              </CardDescription>
+              </Text>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={beginAdd} disabled={busy}>
@@ -933,10 +916,10 @@ export function ProvidersPage({
                 Refresh quota
               </Button>
             </div>
-          </CardHeader>
-          <CardContent>
+          </LayerCard.Secondary>
+          <LayerCard.Primary>
             {usageEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-kumo-subtle">
                 No providers yet — choose Add provider to connect one.
               </p>
             ) : (
@@ -955,115 +938,103 @@ export function ProvidersPage({
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </LayerCard.Primary>
+        </LayerCard>
       ) : null}
 
-      <Sheet
+      <LayerDialog.Root
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) closeForm();
         }}
       >
-        <SheetContent showCloseButton={false} className="w-full overflow-y-auto sm:max-w-2xl">
-          <SheetHeader>
-            <SheetTitle>{editing ? `Edit source "${editing}"` : "Connect a source"}</SheetTitle>
-            <SheetDescription>
-              Step {step} of 3:{" "}
-              {step === 1
-                ? "Source and authentication"
-                : step === 2
-                  ? "Check connection and choose models"
-                  : "Assign tasks and save"}
-              {editing && step === 1 ? " — settings keep their values" : ""}
-            </SheetDescription>
-          </SheetHeader>
-          <div id="provider-form" className="flex flex-col gap-5 px-4 pb-4">
-            <fieldset
-              disabled={busy || Boolean(savedProvider)}
-              className={cn("contents", step !== 1 && "hidden")}
-            >
-              {!editing ? (
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
-                  {presets.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => choosePreset(preset)}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted",
-                        presetId === preset.id && "border-primary bg-muted",
-                      )}
-                    >
-                      <ProviderLogo id={preset.id} />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="leading-tight">{preset.name}</span>
-                        {preset.billing === "subscription" ? (
-                          <span className="text-[10px] text-muted-foreground">subscription</span>
-                        ) : null}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+        <LayerDialog.Content size="lg" verticalAlign="top">
+          <LayerDialog.Title>
+            {editing ? `Edit source “${editing}”` : "Connect a source"}
+          </LayerDialog.Title>
+          <LayerDialog.Description>
+            Step {step} of 3:{" "}
+            {step === 1
+              ? "Source and authentication"
+              : step === 2
+                ? "Check connection and choose models"
+                : "Assign tasks and save"}
+            {editing && step === 1 ? " — settings keep their values" : ""}
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div id="provider-form" className="flex flex-col gap-5 pb-4">
+              <fieldset
+                disabled={busy || Boolean(savedProvider)}
+                className={cn("contents", step !== 1 && "hidden")}
+              >
+                {!editing ? (
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+                    {presets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => choosePreset(preset)}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-lg border border-kumo-hairline px-3 py-2 text-left text-sm hover:bg-kumo-tint",
+                          presetId === preset.id && "border-kumo-brand bg-kumo-tint",
+                        )}
+                      >
+                        <ProviderLogo id={preset.id} />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="leading-tight">{preset.name}</span>
+                          {preset.billing === "subscription" ? (
+                            <span className="text-[10px] text-kumo-subtle">subscription</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
 
-              {!editing ? (
-                <button
-                  type="button"
-                  onClick={() => choosePreset(CUSTOM_PRESET)}
-                  className="self-start text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                >
-                  Add a custom provider
-                </button>
-              ) : null}
+                {!editing ? (
+                  <button
+                    type="button"
+                    onClick={() => choosePreset(CUSTOM_PRESET)}
+                    className="self-start text-xs text-kumo-subtle underline underline-offset-4 hover:text-kumo-default"
+                  >
+                    Add a custom provider
+                  </button>
+                ) : null}
 
-              <div className="flex flex-col gap-2 rounded-md border p-3">
-                <p className="text-sm font-medium">Credential</p>
-                <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="auth">Auth</Label>
+                <div className="flex flex-col gap-3 rounded-lg border border-kumo-hairline bg-kumo-elevated p-4">
+                  <p className="text-sm font-medium">Credential</p>
+                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
                     <Select
+                      label="Auth"
                       value={auth}
                       onValueChange={(value) => setAuth(value as ProviderAuthView)}
-                    >
-                      <SelectTrigger id="auth" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="api-key">api key</SelectItem>
-                        <SelectItem value="oauth">oauth (subscription)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {auth === "oauth" ? (
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="oauthSource">Credential source</Label>
+                      items={{
+                        "api-key": "api key",
+                        oauth: "oauth (subscription)",
+                      }}
+                    />
+                    {auth === "oauth" ? (
                       <Select
+                        label="Credential source"
                         value={oauthSource}
                         onValueChange={(value) => setOauthSource(String(value) as OAuthSourceView)}
-                      >
-                        <SelectTrigger id="oauthSource" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="claude-code">Claude Code (~/.claude)</SelectItem>
-                          <SelectItem value="codex">Codex (~/.codex)</SelectItem>
-                          <SelectItem value="antigravity">Antigravity (~/.gemini)</SelectItem>
-                          <SelectItem value="devin">Devin (~/.local/share/devin)</SelectItem>
-                          <SelectItem value="cursor">Cursor (cursor-agent)</SelectItem>
-                          <SelectItem value="workbuddy-ai">WorkBuddy AI</SelectItem>
-                          <SelectItem value="freebuff">Freebuff (free tier)</SelectItem>
-                          <SelectItem value="static">stored token</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : null}
-                  {needsApiKey ? (
-                    <>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="apiKey">API key</Label>
+                        items={{
+                          "claude-code": "Claude Code (~/.claude)",
+                          codex: "Codex (~/.codex)",
+                          antigravity: "Antigravity (~/.gemini)",
+                          devin: "Devin (~/.local/share/devin)",
+                          cursor: "Cursor (cursor-agent)",
+                          "workbuddy-ai": "WorkBuddy AI",
+                          freebuff: "Freebuff (free tier)",
+                          static: "stored token",
+                        }}
+                      />
+                    ) : null}
+                    {needsApiKey ? (
+                      <>
                         <Input
                           id="apiKey"
+                          label="API key"
                           type="password"
                           placeholder={
                             editing
@@ -1073,169 +1044,150 @@ export function ProvidersPage({
                           value={apiKey}
                           onChange={(event) => setApiKey(event.target.value)}
                         />
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="apiKeyEnv">or env var</Label>
                         <Input
                           id="apiKeyEnv"
+                          label="or env var"
                           placeholder="DEEPSEEK_API_KEY"
                           value={apiKeyEnv}
                           onChange={(event) => setApiKeyEnv(event.target.value)}
                         />
+                      </>
+                    ) : helpPreset?.noKey ? (
+                      <p className="col-span-2 self-end text-xs text-kumo-subtle xl:col-span-1">
+                        Local server — no API key required. Make sure it is running at the base URL.
+                      </p>
+                    ) : (
+                      <div className="col-span-2 flex flex-col gap-2 self-end xl:col-span-1">
+                        <p className="text-xs text-kumo-subtle">
+                          {oauthSource === "claude-code"
+                            ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
+                            : oauthSource === "codex"
+                              ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
+                              : oauthSource === "devin"
+                                ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
+                                : oauthSource === "cursor"
+                                  ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
+                                  : oauthSource === "workbuddy-ai"
+                                    ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
+                                    : oauthSource === "freebuff"
+                                      ? "Save opens Freebuff sign-in in your browser. Or set FREEBUFF_AUTH_TOKEN. Free tier only: daily quota, one session per account."
+                                      : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
+                        </p>
+                        {oauthSource === "workbuddy-ai" ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="self-start"
+                            onClick={() => void signInWorkbuddy()}
+                            disabled={busy || !baseUrl}
+                          >
+                            Sign in & discover
+                          </Button>
+                        ) : null}
                       </div>
-                    </>
-                  ) : helpPreset?.noKey ? (
-                    <p className="col-span-2 self-end text-xs text-muted-foreground xl:col-span-1">
-                      Local server — no API key required. Make sure it is running at the base URL.
-                    </p>
-                  ) : (
-                    <div className="col-span-2 flex flex-col gap-2 self-end xl:col-span-1">
-                      <p className="text-xs text-muted-foreground">
-                        {oauthSource === "claude-code"
-                          ? "Uses the OAuth token from Claude Code; run `claude` to sign in or refresh."
-                          : oauthSource === "codex"
-                            ? "Uses the OAuth token from Codex; run `codex` to sign in or refresh."
-                            : oauthSource === "devin"
-                              ? "Uses the session token from `devin auth login`; run it again if the token is rejected."
-                              : oauthSource === "cursor"
-                                ? "Uses Cursor's CLI sign-in; run `cursor-agent login` if the token is rejected."
-                                : oauthSource === "workbuddy-ai"
-                                  ? "Discover or Save opens WorkBuddy AI sign-in in your browser; or use a plaintext desktop session."
-                                  : oauthSource === "freebuff"
-                                    ? "Save opens Freebuff sign-in in your browser. Or set FREEBUFF_AUTH_TOKEN. Free tier only: daily quota, one session per account."
-                                    : "Uses the Antigravity token from `agy` / the IDE; run it to sign in or refresh."}
-                      </p>
-                      {oauthSource === "workbuddy-ai" ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="self-start"
-                          onClick={() => void signInWorkbuddy()}
-                          disabled={busy || !baseUrl}
-                        >
-                          Sign in & discover
-                        </Button>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-                <KeysHelp
-                  keysUrl={helpPreset?.keysUrl}
-                  hint={helpPreset?.hint}
-                  linkLabel={
-                    helpPreset?.noKey
-                      ? "Local server docs"
-                      : auth === "oauth"
-                        ? "How to sign in"
-                        : "Get an API key"
-                  }
-                />
-                {loginSource ? (
-                  <details
-                    className="rounded-md border border-dashed p-3"
-                    open={Boolean(loginLabel || loginHome || loginFile || loginKeychain)}
-                  >
-                    <summary className="cursor-pointer text-xs font-medium">
-                      Second account (optional)
-                    </summary>
-                    <div className="flex flex-col gap-1 pt-2">
-                      <p className="text-xs font-medium">
-                        Point this provider at another {loginSourceName} sign-in
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        A work and a home account can each have their own quota, fallback place, and
-                        ledger. Blank reads the agent&apos;s own sign-in. Sign in to that account
-                        once with the {loginSourceName} CLI first, then point Jevonian at where it
-                        stored the sign-in.
-                      </p>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-4">
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="loginLabel">Label</Label>
+                    )}
+                  </div>
+                  <KeysHelp
+                    keysUrl={helpPreset?.keysUrl}
+                    hint={helpPreset?.hint}
+                    linkLabel={
+                      helpPreset?.noKey
+                        ? "Local server docs"
+                        : auth === "oauth"
+                          ? "How to sign in"
+                          : "Get an API key"
+                    }
+                  />
+                  {loginSource ? (
+                    <details
+                      className="rounded-lg border border-dashed border-kumo-line p-3"
+                      open={Boolean(loginLabel || loginHome || loginFile || loginKeychain)}
+                    >
+                      <summary className="cursor-pointer text-xs font-medium">
+                        Second account (optional)
+                      </summary>
+                      <div className="flex flex-col gap-1 pt-2">
+                        <p className="text-xs font-medium">
+                          Point this provider at another {loginSourceName} sign-in
+                        </p>
+                        <p className="text-[11px] text-kumo-subtle">
+                          A work and a home account can each have their own quota, fallback place, and
+                          ledger. Blank reads the agent&apos;s own sign-in. Sign in to that account
+                          once with the {loginSourceName} CLI first, then point Jevonian at where it
+                          stored the sign-in.
+                        </p>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-4">
                         <Input
                           id="loginLabel"
+                          label="Label"
+                          description="Shown beside the provider name."
                           placeholder="work"
                           value={loginLabel}
                           onChange={(event) => setLoginLabel(event.target.value)}
                         />
-                        <span className="text-[11px] text-muted-foreground">
-                          Shown beside the provider name.
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="loginHome">Config dir</Label>
                         <Input
                           id="loginHome"
+                          label="Config dir"
+                          description="Directory the agent keeps this sign-in in."
                           placeholder={loginHint.home}
                           value={loginHome}
                           onChange={(event) => setLoginHome(event.target.value)}
                         />
-                        <span className="text-[11px] text-muted-foreground">
-                          Directory the agent keeps this sign-in in.
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="loginFile">Credential file</Label>
                         <Input
                           id="loginFile"
+                          label="Credential file"
+                          description="Wins over the config dir when both are set."
                           placeholder={loginHint.file ?? "/path/to/credentials.json"}
                           value={loginFile}
                           onChange={(event) => setLoginFile(event.target.value)}
                         />
-                        <span className="text-[11px] text-muted-foreground">
-                          Wins over the config dir when both are set.
-                        </span>
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <Label htmlFor="loginKeychain">Keychain</Label>
                         <Input
                           id="loginKeychain"
+                          label="Keychain"
+                          description="macOS keychain item, as service[:account]."
                           placeholder="service[:account]"
                           value={loginKeychain}
                           onChange={(event) => setLoginKeychain(event.target.value)}
                         />
-                        <span className="text-[11px] text-muted-foreground">
-                          macOS keychain item, as service[:account].
-                        </span>
                       </div>
-                    </div>
-                    {loginIdentityPreview ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
-                        <span className="text-[11px] text-muted-foreground">Reads as</span>
-                        <ProviderIdentity provider={loginIdentityPreview} showAccount />
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {suggestedSecondAccountName}
-                        </span>
-                        {name !== suggestedSecondAccountName ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="ml-auto h-6 px-2 text-[11px]"
-                            onClick={() => setName(suggestedSecondAccountName)}
-                          >
-                            Use this name
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </details>
-                ) : null}
-                <span className="text-[11px] text-muted-foreground">
-                  Secrets stay on this machine; a blank API key keeps the stored value when editing.
-                </span>
-              </div>
-            </fieldset>
+                      {loginIdentityPreview ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-kumo-tint/50 px-3 py-2">
+                          <span className="text-[11px] text-kumo-subtle">Reads as</span>
+                          <ProviderIdentity provider={loginIdentityPreview} showAccount />
+                          <span className="font-mono text-[11px] text-kumo-subtle">
+                            {suggestedSecondAccountName}
+                          </span>
+                          {name !== suggestedSecondAccountName ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="ml-auto h-6 px-2 text-[11px]"
+                              onClick={() => setName(suggestedSecondAccountName)}
+                            >
+                              Use this name
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </details>
+                  ) : null}
+                  <span className="text-[11px] text-kumo-subtle">
+                    Secrets stay on this machine; a blank API key keeps the stored value when editing.
+                  </span>
+                </div>
+              </fieldset>
             <fieldset
               disabled={busy || Boolean(savedProvider)}
               className={cn("contents", step !== 2 && "hidden")}
             >
-              <div className="flex flex-col gap-3 rounded-md border p-4">
+              <div className="flex flex-col gap-3 rounded-lg border border-kumo-hairline bg-kumo-elevated p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Models</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-kumo-subtle">
                       {selected.length} selected
                       {discovered.length > 0 ? ` · ${discovered.length} discovered` : ""}
                     </p>
@@ -1269,10 +1221,11 @@ export function ProvidersPage({
                         {model}
                         <button
                           type="button"
-                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={`Remove ${model}`}
+                          className="text-kumo-subtle hover:text-kumo-default"
                           onClick={() => toggleModel(model)}
                         >
-                          ×
+                          <X size={12} />
                         </button>
                       </Badge>
                     ))}
@@ -1281,6 +1234,7 @@ export function ProvidersPage({
 
                 {discovered.length > 12 ? (
                   <Input
+                    aria-label="Filter models"
                     placeholder="Filter models…"
                     value={filter}
                     onChange={(event) => setFilter(event.target.value)}
@@ -1288,11 +1242,11 @@ export function ProvidersPage({
                 ) : null}
 
                 {visibleModels.length > 0 ? (
-                  <div className="max-h-64 overflow-auto rounded-md border">
+                  <div className="max-h-64 overflow-auto rounded-lg border border-kumo-hairline">
                     {visibleModels.map((model) => (
                       <label
                         key={model}
-                        className="flex cursor-pointer items-center gap-3 border-b px-3 py-1.5 text-sm last:border-b-0 hover:bg-muted"
+                        className="flex cursor-pointer items-center gap-3 border-b border-kumo-hairline px-3 py-1.5 text-sm last:border-b-0 hover:bg-kumo-tint"
                       >
                         <input
                           type="checkbox"
@@ -1300,12 +1254,12 @@ export function ProvidersPage({
                           onChange={() => toggleModel(model)}
                         />
                         <span className="flex-1 truncate">{model}</span>
-                        <span className="text-xs text-muted-foreground">{priceLabel(model)}</span>
+                        <span className="text-xs text-kumo-subtle">{priceLabel(model)}</span>
                       </label>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-kumo-subtle">
                     {discovered.length > 0
                       ? "No models match the filter."
                       : "No models yet — run Discover, or add a model id below."}
@@ -1314,6 +1268,7 @@ export function ProvidersPage({
 
                 <div className="flex items-center gap-2">
                   <Input
+                    aria-label="Add model id manually"
                     placeholder="add model id manually"
                     value={customModel}
                     onChange={(event) => setCustomModel(event.target.value)}
@@ -1339,7 +1294,7 @@ export function ProvidersPage({
                   />
                   <span>
                     <span className="font-medium">Auto-sync new models</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-xs text-kumo-subtle">
                       Append ids this provider newly lists. On by default for ChatGPT Web, Codex,
                       Claude Code, Antigravity, Devin, Cursor, WorkBuddy AI, and presets that
                       discover live (Mistral, Groq, Ollama, LM Studio, OpenCode, Command Code); off
@@ -1355,131 +1310,105 @@ export function ProvidersPage({
               className={cn("contents", step !== 1 && "hidden")}
             >
               {billing === "subscription" ? (
-                <details className="rounded-md border p-4">
+                <details className="rounded-lg border border-kumo-hairline p-4">
                   <summary className="cursor-pointer text-sm font-medium">
                     Quota caps (optional)
                   </summary>
-                  <div>
+                  <div className="pt-2">
                     <p className="text-sm font-medium">Quota caps</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-kumo-subtle">
                       Optional local spend caps for this provider; refresh usage from the quota
                       section above.
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="quotaFiveHour">5h cap (USD, optional)</Label>
-                      <Input
-                        id="quotaFiveHour"
-                        value={quotaFiveHour}
-                        onChange={(event) => setQuotaFiveHour(event.target.value)}
-                        placeholder="12"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="quotaWeekly">weekly cap (USD, optional)</Label>
-                      <Input
-                        id="quotaWeekly"
-                        value={quotaWeekly}
-                        onChange={(event) => setQuotaWeekly(event.target.value)}
-                        placeholder="30"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="quotaMonthly">monthly cap (USD, optional)</Label>
-                      <Input
-                        id="quotaMonthly"
-                        value={quotaMonthly}
-                        onChange={(event) => setQuotaMonthly(event.target.value)}
-                        placeholder="60"
-                      />
-                    </div>
+                  <div className="mt-3 grid grid-cols-2 gap-4 xl:grid-cols-3">
+                    <Input
+                      id="quotaFiveHour"
+                      label="5h cap (USD, optional)"
+                      value={quotaFiveHour}
+                      onChange={(event) => setQuotaFiveHour(event.target.value)}
+                      placeholder="12"
+                    />
+                    <Input
+                      id="quotaWeekly"
+                      label="weekly cap (USD, optional)"
+                      value={quotaWeekly}
+                      onChange={(event) => setQuotaWeekly(event.target.value)}
+                      placeholder="30"
+                    />
+                    <Input
+                      id="quotaMonthly"
+                      label="monthly cap (USD, optional)"
+                      value={quotaMonthly}
+                      onChange={(event) => setQuotaMonthly(event.target.value)}
+                      placeholder="60"
+                    />
                   </div>
                 </details>
               ) : null}
 
-              <details className="rounded-md border" open={presetId === "custom"}>
+              <details className="rounded-lg border border-kumo-hairline" open={presetId === "custom"}>
                 <summary className="cursor-pointer select-none px-4 py-2 text-sm font-medium">
                   Advanced settings
                 </summary>
-                <div className="flex flex-col gap-4 border-t p-4">
-                  <p className="text-xs text-muted-foreground">
+                <div className="flex flex-col gap-4 border-t border-kumo-hairline p-4">
+                  <p className="text-xs text-kumo-subtle">
                     {presetId === "custom"
                       ? "Provider name, endpoint protocol, billing mode, and extra capability flags."
                       : "Fine-tune how this provider is addressed; the preset already fills sensible defaults."}
                   </p>
                   <div className="grid grid-cols-2 gap-4 xl:grid-cols-3">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="name">Provider name</Label>
-                      <Input
-                        id="name"
-                        disabled={Boolean(editing)}
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                      />
-                      <span className="text-[11px] text-muted-foreground">
-                        Key used in routing rules and the provider list.
-                      </span>
-                    </div>
-                    <div className="col-span-2 flex flex-col gap-1.5 xl:col-span-1">
-                      <Label htmlFor="baseUrl">Base URL</Label>
+                    <Input
+                      id="name"
+                      label="Provider name"
+                      description="Key used in routing rules and the provider list."
+                      disabled={Boolean(editing)}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                    <div className="col-span-2 xl:col-span-1">
                       <Input
                         id="baseUrl"
+                        label="Base URL"
+                        description="Preset default — change only for proxies or self-hosted endpoints."
                         value={baseUrl}
                         onChange={(event) => setBaseUrl(event.target.value)}
                       />
-                      <span className="text-[11px] text-muted-foreground">
-                        Preset default — change only for proxies or self-hosted endpoints.
-                      </span>
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="type">Protocol</Label>
+                    <div>
                       <Select
+                        label="Protocol"
                         value={effectiveType}
                         onValueChange={(value) => setType(String(value))}
                         disabled={lockedType !== undefined}
-                      >
-                        <SelectTrigger id="type" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="openai">openai (chat/completions)</SelectItem>
-                          <SelectItem value="anthropic">anthropic (messages)</SelectItem>
-                          <SelectItem value="both">both — openai + anthropic</SelectItem>
-                          <SelectItem value="responses">responses</SelectItem>
-                          <SelectItem value="gemini">gemini — cloud code (Antigravity)</SelectItem>
-                          <SelectItem value="devin">devin — Connect-RPC (Devin CLI)</SelectItem>
-                          <SelectItem value="cursor">
-                            cursor — Connect-RPC (Cursor agent)
-                          </SelectItem>
-                          <SelectItem value="chatgpt-web">
-                            chatgpt-web — ChatGPT Web browser bridge
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                        items={{
+                          openai: "openai (chat/completions)",
+                          anthropic: "anthropic (messages)",
+                          both: "both — openai + anthropic",
+                          responses: "responses",
+                          gemini: "gemini — cloud code (Antigravity)",
+                          devin: "devin — Connect-RPC (Devin CLI)",
+                          cursor: "cursor — Connect-RPC (Cursor agent)",
+                          "chatgpt-web": "chatgpt-web — ChatGPT Web browser bridge",
+                        }}
+                      />
                       {lockedType ? (
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="mt-1 block text-[11px] text-kumo-subtle">
                           Set by the {lockedBy} credential source.
                         </span>
                       ) : null}
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="billing">Billing</Label>
+                    <div>
                       <Select
+                        label="Billing"
                         value={billing}
                         onValueChange={(value) => setBilling(value as ProviderBillingView)}
-                      >
-                        <SelectTrigger id="billing" className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="api">api (pay per token)</SelectItem>
-                          <SelectItem value="subscription">subscription</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <span className="text-[11px] text-muted-foreground">
-                        Subscription unlocks optional quota caps below.
-                      </span>
+                        description="Subscription unlocks optional quota caps below."
+                        items={{
+                          api: "api (pay per token)",
+                          subscription: "subscription",
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1529,7 +1458,7 @@ export function ProvidersPage({
                     added.
                   </label>
                 ) : null}
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-kumo-subtle">
                   {selected.length} models selected.{" "}
                   {canSaveWithoutModels && selected.length === 0
                     ? "Save will sign in and discover models."
@@ -1550,6 +1479,7 @@ export function ProvidersPage({
               ) : null}
               {step < 3 ? (
                 <Button
+                  variant="primary"
                   disabled={
                     busy ||
                     !name ||
@@ -1562,6 +1492,7 @@ export function ProvidersPage({
                 </Button>
               ) : (
                 <Button
+                  variant="primary"
                   onClick={() => void save()}
                   disabled={
                     busy || !name || !baseUrl || (selected.length === 0 && !canSaveWithoutModels)
@@ -1579,12 +1510,13 @@ export function ProvidersPage({
                   Cancel
                 </Button>
               ) : null}
-              {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
-              {error ? <span className="text-xs text-destructive">{error}</span> : null}
+              {message ? <span className="text-xs text-kumo-subtle">{message}</span> : null}
+              {error ? <span className="text-xs text-kumo-danger">{error}</span> : null}
             </div>
           </div>
-        </SheetContent>
-      </Sheet>
+        </LayerDialog.Body>
+      </LayerDialog.Content>
+    </LayerDialog.Root>
     </div>
   );
 }

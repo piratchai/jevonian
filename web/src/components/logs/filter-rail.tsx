@@ -1,4 +1,5 @@
-import { ListFilterIcon } from "lucide-react";
+import { Button, Input } from "@cloudflare/kumo";
+import { FunnelSimple } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { FacetGroup, type FacetRow } from "@/components/logs/facet-group";
@@ -10,8 +11,6 @@ import {
   type FilterGroupKey,
   type LogFilters,
 } from "@/components/logs/filter-types";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import type { LogFacets } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +29,7 @@ function ModelAddInput({ onAdd }: { onAdd: (value: string) => void }) {
   };
   return (
     <Input
+      size="sm"
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onKeyDown={(event) => {
@@ -74,12 +74,12 @@ export function FilterRail({
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-2.5 py-2">
-        <span className="min-w-0 flex-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <div className="flex shrink-0 items-center gap-1 border-b border-kumo-hairline px-2.5 py-2">
+        <span className="min-w-0 flex-1 text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase">
           Filters
         </span>
         {filtersActive(filters) ? (
-          <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onClear}>
+          <Button variant="ghost" size="xs" className="text-kumo-subtle" onClick={onClear}>
             Clear all
           </Button>
         ) : null}
@@ -115,9 +115,9 @@ export function FilterTriggerFace({ filters }: { filters: LogFilters }) {
   const count = activeFilterCount(filters);
   return (
     <span className="relative inline-flex">
-      <ListFilterIcon className="size-4" />
+      <FunnelSimple size={16} aria-hidden />
       {count > 0 ? (
-        <span className="absolute -top-1.5 -right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-mono text-[9px] font-semibold text-primary-foreground">
+        <span className="absolute -top-1.5 -right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-kumo-brand px-0.5 font-mono text-[9px] font-semibold text-white">
           {count}
         </span>
       ) : null}

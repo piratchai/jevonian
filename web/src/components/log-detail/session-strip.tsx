@@ -1,8 +1,7 @@
+import { LayerCard, SkeletonLine, Text } from "@cloudflare/kumo";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { api, type LogRecord } from "@/lib/api";
 import { cn, formatTime } from "@/lib/utils";
 
@@ -39,30 +38,30 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
   }, [session]);
 
   return (
-    <Card className="min-w-0 overflow-hidden">
-      <CardHeader className="flex-row items-baseline justify-between gap-2 p-4 pb-2">
-        <CardTitle>Session</CardTitle>
+    <LayerCard className="min-w-0">
+      <LayerCard.Secondary>
+        <Text variant="heading">Session</Text>
         {total !== null ? (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="ml-auto text-[11px] text-kumo-subtle">
             {total} turn{total === 1 ? "" : "s"}
           </span>
         ) : null}
-      </CardHeader>
-      <CardContent className="p-4 pt-0">
+      </LayerCard.Secondary>
+      <LayerCard.Primary>
         {!session ? (
-          <p className="text-xs text-muted-foreground">No session id was recorded for this turn.</p>
+          <p className="text-xs text-kumo-subtle">No session id was recorded for this turn.</p>
         ) : error ? (
-          <p className="text-xs text-muted-foreground">Session turns are unavailable right now.</p>
+          <p className="text-xs text-kumo-subtle">Session turns are unavailable right now.</p>
         ) : logs === null ? (
           <div className="flex flex-col gap-1.5">
             {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className="h-8 w-full" />
+              <SkeletonLine key={index} blockHeight={32} />
             ))}
           </div>
         ) : logs.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No other turns in this session.</p>
+          <p className="text-xs text-kumo-subtle">No other turns in this session.</p>
         ) : (
-          <ul className="flex min-w-0 flex-col divide-y divide-border/40">
+          <ul className="flex min-w-0 flex-col divide-y divide-kumo-hairline">
             {logs.map((log) => {
               const current = Boolean(currentId) && log.id === currentId;
               const failed = log.status >= 400;
@@ -71,15 +70,15 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
                   <span
                     className={cn(
                       "size-1.5 shrink-0 rounded-full",
-                      failed ? "bg-destructive" : "bg-emerald-500",
+                      failed ? "bg-kumo-danger" : "bg-kumo-success",
                     )}
                     aria-hidden
                   />
-                  <span className="shrink-0 font-mono text-muted-foreground">
+                  <span className="shrink-0 font-mono text-kumo-subtle">
                     {formatTime(log.ts)}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{log.model}</span>
-                  <span className="shrink-0 font-mono text-muted-foreground">
+                  <span className="shrink-0 font-mono text-kumo-subtle">
                     {log.latencyMs}ms
                   </span>
                 </span>
@@ -90,8 +89,8 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
                     <Link
                       to={`/logs/${log.id}`}
                       className={cn(
-                        "block min-w-0 rounded-sm px-1 transition-colors hover:bg-muted/60",
-                        current ? "bg-muted/60 font-medium" : "",
+                        "block min-w-0 rounded-sm px-1 transition-colors hover:bg-kumo-tint/60",
+                        current ? "bg-kumo-tint/60 font-medium" : "",
                       )}
                       title={current ? "This turn" : "Open this turn"}
                     >
@@ -105,7 +104,7 @@ export function SessionStrip({ session, currentId }: { session: string; currentI
             })}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </LayerCard.Primary>
+    </LayerCard>
   );
 }

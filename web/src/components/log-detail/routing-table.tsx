@@ -1,8 +1,7 @@
+import { Badge, LayerCard, Text } from "@cloudflare/kumo";
 import { Link } from "react-router";
 
 import { RawBlock, Json } from "@/components/log-detail/raw";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LogDetailResponse, LogRecord } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -43,12 +42,12 @@ function KeyValues({ record }: { record: LogRecord }) {
       {rows.map((row) => (
         <div
           key={row.label}
-          className="flex min-w-0 items-start justify-between gap-4 border-b py-1.5 text-xs last:border-b-0"
+          className="flex min-w-0 items-start justify-between gap-4 border-b border-kumo-hairline py-1.5 text-xs last:border-b-0"
         >
-          <span className="shrink-0 text-muted-foreground">{row.label}</span>
+          <span className="shrink-0 text-kumo-subtle">{row.label}</span>
           <span className="min-w-0 flex-1 text-right break-words">
             {row.value}
-            {row.note ? <span className="text-muted-foreground"> · {row.note}</span> : null}
+            {row.note ? <span className="text-kumo-subtle"> · {row.note}</span> : null}
           </span>
         </div>
       ))}
@@ -58,9 +57,9 @@ function KeyValues({ record }: { record: LogRecord }) {
 
 function ScoreBar({ score }: { score: number }) {
   return (
-    <div className="h-1 w-full min-w-8 overflow-hidden rounded-full bg-muted">
+    <div className="h-1 w-full min-w-8 overflow-hidden rounded-full bg-kumo-fill">
       <div
-        className="h-full rounded-full bg-foreground/40"
+        className="h-full rounded-full bg-kumo-contrast/40"
         style={{ width: `${Math.min(100, Math.max(0, score * 100))}%` }}
       />
     </div>
@@ -73,8 +72,8 @@ function RoutingTableRow({ row, max }: { row: RoutingRow; max: number }) {
   return (
     <div
       className={cn(
-        "grid min-w-0 grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 border-b py-2 text-xs last:border-b-0",
-        row.chosen ? "bg-emerald-500/5" : "",
+        "grid min-w-0 grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-1 border-b border-kumo-hairline py-2 text-xs last:border-b-0",
+        row.chosen ? "bg-kumo-success-tint" : "",
       )}
     >
       <span className="flex min-w-0 items-center gap-2">
@@ -83,20 +82,20 @@ function RoutingTableRow({ row, max }: { row: RoutingRow; max: number }) {
             chosen
           </Badge>
         ) : row.withheld ? (
-          <Badge variant="destructive" className="px-1 py-0 text-[10px]">
+          <Badge variant="error" className="px-1 py-0 text-[10px]">
             withheld
           </Badge>
         ) : (
-          <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40" />
+          <span className="size-1.5 shrink-0 rounded-full bg-kumo-interact/60" />
         )}
       </span>
       <span className="min-w-0">
         <span className="block break-all font-medium">{row.model}</span>
         {row.provider ? (
-          <span className="block break-all text-[11px] text-muted-foreground">{row.provider}</span>
+          <span className="block break-all text-[11px] text-kumo-subtle">{row.provider}</span>
         ) : null}
         {row.withheld ? (
-          <span className="block text-[11px] text-muted-foreground">
+          <span className="block text-[11px] text-kumo-subtle">
             {row.withheld.reason}: {row.withheld.detail}
           </span>
         ) : null}
@@ -105,7 +104,7 @@ function RoutingTableRow({ row, max }: { row: RoutingRow; max: number }) {
         {row.withheld || score === undefined ? null : (
           <>
             <ScoreBar score={barWidth / 100} />
-            <span className="w-10 shrink-0 text-right font-mono text-muted-foreground">
+            <span className="w-10 shrink-0 text-right font-mono text-kumo-subtle">
               {formatPercent(score)}
             </span>
           </>
@@ -130,26 +129,26 @@ function BrainCallDetails({ detail }: { detail: LogDetailResponse }) {
           return (
             <div
               key={call.id ?? call.ts}
-              className="flex min-w-0 flex-col gap-2 rounded-md border p-3"
+              className="flex min-w-0 flex-col gap-2 rounded-md border border-kumo-hairline p-3"
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
                 <Badge
-                  variant={call.status === 200 ? "secondary" : "destructive"}
+                  variant={call.status === 200 ? "secondary" : "error"}
                   className="text-[10px]"
                 >
                   {call.status}
                 </Badge>
                 <span className="font-medium">{call.provider}</span>
-                <span className="min-w-0 break-all text-muted-foreground">{call.model}</span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
+                <span className="min-w-0 break-all text-kumo-subtle">{call.model}</span>
+                <span className="ml-auto text-[11px] text-kumo-subtle">
                   {call.latencyMs}ms · {call.promptTokens} in / {call.completionTokens} out
                 </span>
               </div>
               <p className="break-words text-xs">
-                <span className="text-muted-foreground">Verdict: </span>
+                <span className="text-kumo-subtle">Verdict: </span>
                 {verdict ? verdictSummary(verdict) : "No verdict was captured for this call."}
               </p>
-              <p className="break-words text-xs text-muted-foreground">
+              <p className="break-words text-xs text-kumo-subtle">
                 {state ? stateSummary(state) : "No brain state was captured for this call."}
               </p>
               <RawBlock summary="Raw state and verdict for this call">
@@ -161,7 +160,7 @@ function BrainCallDetails({ detail }: { detail: LogDetailResponse }) {
               {call.id ? (
                 <Link
                   to={`/logs/${call.id}`}
-                  className="self-start text-xs text-muted-foreground underline underline-offset-4"
+                  className="self-start text-xs text-kumo-subtle underline underline-offset-4"
                 >
                   Open this brain call
                 </Link>
@@ -192,25 +191,25 @@ export function RoutingTable({ detail }: { detail: LogDetailResponse }) {
   const noBrain = !isBrain && detail.brainCalls.length === 0;
 
   return (
-    <Card className="min-w-0 overflow-hidden">
-      <CardHeader>
-        <CardTitle>Routing decision</CardTitle>
-        <CardDescription>
+    <LayerCard className="min-w-0">
+      <LayerCard.Secondary>
+        <Text variant="heading">Routing decision</Text>
+      </LayerCard.Secondary>
+      <LayerCard.Primary className="gap-4">
+        <Text variant="secondary" size="sm">
           {isBrain
             ? "Why the router asked the brain, and what it answered."
             : "Why this model, and what the router considered instead."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-w-0 flex-col gap-4">
+        </Text>
         <KeyValues record={record} />
 
         {isBrain ? (
           <div className="flex min-w-0 flex-col gap-2 text-xs">
             <p className="break-words">
-              <span className="text-muted-foreground">Verdict: </span>
+              <span className="text-kumo-subtle">Verdict: </span>
               {verdict ? verdictSummary(verdict) : "No verdict was captured for this call."}
             </p>
-            <p className="break-words text-muted-foreground">
+            <p className="break-words text-kumo-subtle">
               {state ? stateSummary(state) : "No brain state was captured for this call."}
             </p>
           </div>
@@ -224,7 +223,7 @@ export function RoutingTable({ detail }: { detail: LogDetailResponse }) {
 
         {effortRanking.length > 0 ? (
           <div className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] tracking-[0.12em] text-muted-foreground uppercase">
+            <span className="text-[11px] tracking-[0.12em] text-kumo-subtle uppercase">
               Effort options
             </span>
             <ul className="list-none space-y-0.5 font-mono text-xs">
@@ -238,20 +237,20 @@ export function RoutingTable({ detail }: { detail: LogDetailResponse }) {
         ) : null}
 
         {textOf(verdict?.model) && ranking.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-kumo-subtle">
             The brain named a model but returned no probability ranking.
           </p>
         ) : null}
 
         {noBrain ? (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-kumo-subtle">
             The router decided without asking the brain for this turn, so there is no ranked
             alternative list.
           </p>
         ) : null}
 
         <BrainCallDetails detail={detail} />
-      </CardContent>
-    </Card>
+      </LayerCard.Primary>
+    </LayerCard>
   );
 }

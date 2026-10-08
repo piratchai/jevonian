@@ -51,6 +51,7 @@ export function applyThemeClass(theme: Theme): "dark" | "light" {
   const resolved = theme === "system" ? systemTheme() : theme;
   root.classList.remove("light", "dark");
   root.classList.add(resolved);
+  root.setAttribute("data-mode", resolved);
   // Keeps native scrollbars, form controls and the canvas in sync.
   root.style.colorScheme = resolved;
   return resolved;

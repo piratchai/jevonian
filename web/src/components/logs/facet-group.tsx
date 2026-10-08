@@ -1,4 +1,4 @@
-import { ChevronDownIcon } from "lucide-react";
+import { CaretDown } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 
 import { facetLabel, type FilterGroupKey } from "@/components/logs/filter-types";
@@ -14,9 +14,8 @@ export interface FacetRow {
 }
 
 /**
- * A small styled checkbox — there is no shared checkbox primitive in
- * web/src/components/ui, so the rail keeps a local one. The visual box is a
- * span; the input is visually hidden but focusable and toggled via the label.
+ * A small styled checkbox. The visual box is a span; the input is visually
+ * hidden but focusable and toggled through the label.
  */
 function Checkbox({ checked }: { checked: boolean }) {
   return (
@@ -25,8 +24,8 @@ function Checkbox({ checked }: { checked: boolean }) {
       className={cn(
         "flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
         checked
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-input bg-transparent",
+          ? "border-kumo-brand bg-kumo-brand text-white"
+          : "border-kumo-hairline bg-kumo-control",
       )}
     >
       {checked ? (
@@ -56,8 +55,8 @@ export function FacetRowButton({
   return (
     <label
       className={cn(
-        "flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-xs transition-colors hover:bg-muted/60",
-        checked ? "text-foreground" : "text-muted-foreground",
+        "flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1 text-xs transition-colors hover:bg-kumo-tint/60",
+        checked ? "text-kumo-default" : "text-kumo-subtle",
         dimmed ? "opacity-60" : "",
       )}
       title={`${checked ? "Remove" : "Add"} the ${row.label ?? facetLabel(group, row.value)} filter`}
@@ -74,12 +73,12 @@ export function FacetRowButton({
           aria-hidden
           className={cn(
             "size-1.5 shrink-0 rounded-full",
-            row.value === "error" ? "bg-destructive" : "bg-emerald-500",
+            row.value === "error" ? "bg-kumo-danger" : "bg-kumo-success",
           )}
         />
       ) : null}
       <span className="min-w-0 flex-1 truncate">{row.label ?? facetLabel(group, row.value)}</span>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground/80 tabular-nums">
+      <span className="shrink-0 font-mono text-[10px] text-kumo-subtle/80 tabular-nums">
         {row.count ?? 0}
       </span>
     </label>
@@ -118,20 +117,22 @@ export function FacetGroup({
   const allRows: FacetRow[] = [...rows, ...extras.map((value) => ({ value }))];
 
   return (
-    <section className="flex min-h-0 shrink-0 flex-col border-b border-border/60 last:border-b-0">
+    <section className="flex min-h-0 shrink-0 flex-col border-b border-kumo-hairline last:border-b-0">
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] font-semibold tracking-wider text-muted-foreground uppercase hover:text-foreground"
+        className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase hover:text-kumo-default"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((current) => !current)}
       >
-        <ChevronDownIcon
-          className={cn("size-3 shrink-0 transition-transform", open ? "" : "-rotate-90")}
+        <CaretDown
+          size={12}
+          aria-hidden
+          className={cn("shrink-0 transition-transform", open ? "" : "-rotate-90")}
         />
         <span className="min-w-0 flex-1 truncate">{title}</span>
         {selected.length > 0 ? (
-          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px font-mono text-[10px] font-medium text-primary normal-case">
+          <span className="shrink-0 rounded-full bg-kumo-brand/10 px-1.5 py-px font-mono text-[10px] font-medium text-kumo-brand normal-case">
             {selected.length}
           </span>
         ) : null}
@@ -139,7 +140,7 @@ export function FacetGroup({
       {open ? (
         <div id={listId} className="max-h-48 overflow-y-auto px-1.5 pb-2">
           {allRows.length === 0 ? (
-            <p className="px-1.5 py-1 text-[11px] text-muted-foreground/70">No values yet.</p>
+            <p className="px-1.5 py-1 text-[11px] text-kumo-subtle/70">No values yet.</p>
           ) : (
             allRows.map((row) => (
               <FacetRowButton

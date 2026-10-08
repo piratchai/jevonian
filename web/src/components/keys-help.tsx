@@ -17,14 +17,14 @@ export function KeysHelp({
   if (!url && !text) return null;
 
   return (
-    <p className="text-[11px] text-muted-foreground">
+    <p className="text-[11px] text-kumo-subtle">
       {url ? (
         <>
           <a
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+            className="font-medium text-kumo-default underline underline-offset-2 hover:text-kumo-brand"
           >
             {linkLabel}
           </a>

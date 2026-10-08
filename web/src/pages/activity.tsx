@@ -1,26 +1,9 @@
+import { Banner, Button, LayerCard, Select, SkeletonLine, Table, Tabs, Text } from "@cloudflare/kumo";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import { RequestsChart, SpendChart, TokensChart } from "@/components/activity-charts";
 import { ActivitySkeleton } from "@/components/page-skeletons";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { api, type ActivityReportView, type ActivityTimeRangeView, type KeyView } from "@/lib/api";
 import { money } from "@/lib/utils";
 
@@ -44,6 +27,11 @@ export function ActivitySection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [chartTab, setChartTab] = useState<"spend" | "tokens" | "requests">("spend");
+
+  const keyItems: Record<string, string> = {
+    all: "All keys",
+    ...Object.fromEntries(keysList.map((k) => [k.id, `${k.name} (${k.prefix}…)`])),
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -83,48 +71,41 @@ export function ActivitySection() {
       className="flex flex-col gap-6 scroll-mt-20"
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold tracking-[0.16em] text-primary uppercase">
+        <div className="flex flex-col gap-1">
+          <p className="text-[11px] font-semibold tracking-[0.16em] text-kumo-brand uppercase">
             Usage trends
           </p>
-          <h2 id="activity-heading" className="mt-1 text-xl font-semibold tracking-tight">
+          <Text variant="heading" size="lg" as="h2" id="activity-heading">
             Activity
-          </h2>
-          <p className="text-sm text-muted-foreground">
+          </Text>
+          <Text variant="secondary" size="sm">
             Spend, token usage, and request volume trends across your API keys.
-          </p>
+          </Text>
         </div>
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="w-48">
-            <Select value={keyId} onValueChange={(val) => setKeyId(String(val))}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All keys</SelectItem>
-                {keysList.map((k) => (
-                  <SelectItem key={k.id} value={k.id}>
-                    {k.name} ({k.prefix}…)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Select
+              aria-label="API key"
+              value={keyId}
+              onValueChange={(val) => setKeyId(String(val))}
+              items={keyItems}
+            />
           </div>
 
           <div className="w-36">
-            <Select value={range} onValueChange={(val) => setRange(val as ActivityTimeRangeView)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
+            <Select
+              aria-label="Time range"
+              value={range}
+              onValueChange={(val) => setRange(val as ActivityTimeRangeView)}
+              items={{
+                "24h": "Last 24 hours",
+                "7d": "Last 7 days",
+                "30d": "Last 30 days",
+                all: "All time",
+              }}
+            />
           </div>
 
           <Button variant="outline" size="sm" onClick={() => void loadData()} disabled={loading}>
@@ -133,126 +114,114 @@ export function ActivitySection() {
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      {error ? <Banner variant="error" title="Could not load activity" description={error} size="sm" /> : null}
 
       {/* Totals for the selected time range and API key, distinct from the all-time overview. */}
       {report ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider">
-                Total Spend
-              </CardDescription>
-              <CardTitle className="text-2xl font-bold font-mono">
-                {money(report.summary.totalSpendUsd)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {money(report.summary.apiSpendUsd)}
-                </span>{" "}
-                API spend ·{" "}
-                <span className="font-medium text-foreground">
-                  {money(report.summary.subscriptionValueUsd)}
-                </span>{" "}
-                sub value
-              </p>
-            </CardContent>
-          </Card>
+          <LayerCard className="p-5">
+            <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total spend</p>
+            <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
+              {money(report.summary.totalSpendUsd)}
+            </p>
+            <p className="mt-2 text-xs text-kumo-subtle">
+              <span className="font-medium text-kumo-default">
+                {money(report.summary.apiSpendUsd)}
+              </span>{" "}
+              API spend ·{" "}
+              <span className="font-medium text-kumo-default">
+                {money(report.summary.subscriptionValueUsd)}
+              </span>{" "}
+              sub value
+            </p>
+          </LayerCard>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider">
-                Total Tokens
-              </CardDescription>
-              <CardTitle className="text-2xl font-bold font-mono">
-                {formatCompactNumber(report.summary.totalTokens)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                {formatCompactNumber(report.summary.promptTokens)} prompt ·{" "}
-                {formatCompactNumber(report.summary.completionTokens)} out ·{" "}
-                {formatCompactNumber(report.summary.cacheReadTokens)} cache
-              </p>
-            </CardContent>
-          </Card>
+          <LayerCard className="p-5">
+            <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total tokens</p>
+            <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
+              {formatCompactNumber(report.summary.totalTokens)}
+            </p>
+            <p className="mt-2 text-xs text-kumo-subtle">
+              {formatCompactNumber(report.summary.promptTokens)} prompt ·{" "}
+              {formatCompactNumber(report.summary.completionTokens)} out ·{" "}
+              {formatCompactNumber(report.summary.cacheReadTokens)} cache
+            </p>
+          </LayerCard>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription className="text-xs uppercase tracking-wider">
-                Total Requests
-              </CardDescription>
-              <CardTitle className="text-2xl font-bold font-mono">
-                {formatNumber(report.summary.totalRequests)}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs text-muted-foreground">
-                {formatNumber(report.summary.successfulRequests)} ok ·{" "}
-                <span
-                  className={report.summary.errorRequests > 0 ? "text-destructive font-medium" : ""}
-                >
-                  {formatNumber(report.summary.errorRequests)} err
-                </span>{" "}
-                · avg {report.summary.avgLatencyMs}ms
-              </p>
-            </CardContent>
-          </Card>
+          <LayerCard className="p-5">
+            <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total requests</p>
+            <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
+              {formatNumber(report.summary.totalRequests)}
+            </p>
+            <p className="mt-2 text-xs text-kumo-subtle">
+              {formatNumber(report.summary.successfulRequests)} ok ·{" "}
+              <span
+                className={
+                  report.summary.errorRequests > 0 ? "font-medium text-kumo-danger" : undefined
+                }
+              >
+                {formatNumber(report.summary.errorRequests)} err
+              </span>{" "}
+              · avg {report.summary.avgLatencyMs}ms
+            </p>
+          </LayerCard>
         </div>
       ) : null}
 
       {/* Top lists */}
       {report ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Top models</CardTitle>
-              <CardDescription className="text-xs">
-                By estimated spend in this window
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
+          <LayerCard>
+            <LayerCard.Secondary>
+              <div className="flex flex-col gap-1">
+                <Text variant="heading" as="h3">
+                  Top models
+                </Text>
+                <Text variant="secondary" size="xs">
+                  By estimated spend in this window
+                </Text>
+              </div>
+            </LayerCard.Secondary>
+            <LayerCard.Primary className="flex flex-col gap-2">
               {report.models.slice(0, 5).map((m, index) => (
                 <div key={m.model} className="flex items-center justify-between gap-3 text-sm">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="w-4 shrink-0 text-xs text-muted-foreground">{index + 1}</span>
+                    <span className="w-4 shrink-0 text-xs text-kumo-subtle">{index + 1}</span>
                     <span
-                      className="truncate font-medium"
+                      className="truncate font-medium text-kumo-default"
                       title={m.variants?.join(", ") ?? m.model}
                     >
                       {m.label ?? m.model}
                     </span>
                     {(m.variants?.length ?? 0) > 1 ? (
-                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                      <span className="shrink-0 rounded-full bg-kumo-fill px-1.5 py-0.5 text-[9px] text-kumo-subtle">
                         ×{m.variants!.length}
                       </span>
                     ) : null}
                   </div>
-                  <div className="shrink-0 text-right font-mono text-xs text-muted-foreground">
+                  <div className="shrink-0 text-right font-mono text-xs text-kumo-subtle">
                     {formatCompactNumber(m.totalTokens)} tok ·{" "}
                     {money(m.spendUsd + m.subscriptionUsd)}
                   </div>
                 </div>
               ))}
               {report.models.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">
-                  No model traffic yet.
-                </p>
+                <p className="py-4 text-center text-xs text-kumo-subtle">No model traffic yet.</p>
               ) : null}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Top API keys</CardTitle>
-              <CardDescription className="text-xs">Attributed spend across keys</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
+            </LayerCard.Primary>
+          </LayerCard>
+          <LayerCard>
+            <LayerCard.Secondary>
+              <div className="flex flex-col gap-1">
+                <Text variant="heading" as="h3">
+                  Top API keys
+                </Text>
+                <Text variant="secondary" size="xs">
+                  Attributed spend across keys
+                </Text>
+              </div>
+            </LayerCard.Secondary>
+            <LayerCard.Primary className="flex flex-col gap-2">
               {report.keys.slice(0, 5).map((k, index) => (
                 <button
                   key={k.id}
@@ -261,66 +230,40 @@ export function ActivitySection() {
                   onClick={() => setKeyId(k.id)}
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="w-4 shrink-0 text-xs text-muted-foreground">{index + 1}</span>
-                    <span className="truncate font-medium">{k.name}</span>
+                    <span className="w-4 shrink-0 text-xs text-kumo-subtle">{index + 1}</span>
+                    <span className="truncate font-medium text-kumo-default">{k.name}</span>
                   </div>
-                  <div className="shrink-0 text-right font-mono text-xs text-muted-foreground">
+                  <div className="shrink-0 text-right font-mono text-xs text-kumo-subtle">
                     {formatNumber(k.requests)} req · {money(k.spendUsd)}
                   </div>
                 </button>
               ))}
               {report.keys.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">
-                  No key traffic yet.
-                </p>
+                <p className="py-4 text-center text-xs text-kumo-subtle">No key traffic yet.</p>
               ) : null}
-            </CardContent>
-          </Card>
+            </LayerCard.Primary>
+          </LayerCard>
         </div>
       ) : null}
 
       {/* Chart Section with Tabs */}
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
-            <button
-              type="button"
-              onClick={() => setChartTab("spend")}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                chartTab === "spend"
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Spend
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartTab("tokens")}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                chartTab === "tokens"
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Tokens
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartTab("requests")}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                chartTab === "requests"
-                  ? "bg-background text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Requests
-            </button>
-          </div>
+          <Tabs
+            variant="segmented"
+            size="sm"
+            tabs={[
+              { value: "spend", label: "Spend" },
+              { value: "tokens", label: "Tokens" },
+              { value: "requests", label: "Requests" },
+            ]}
+            value={chartTab}
+            onValueChange={(value) => setChartTab(value as "spend" | "tokens" | "requests")}
+          />
 
           <Link
             to="/logs"
-            className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            className="text-xs text-kumo-subtle hover:text-kumo-default hover:underline"
           >
             Inspect generation logs →
           </Link>
@@ -335,157 +278,168 @@ export function ActivitySection() {
             <RequestsChart series={report.series} loading={loading} />
           )
         ) : (
-          <Card className="overflow-hidden border bg-card/70">
-            <CardHeader className="pb-2">
-              <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-3 w-56" />
-            </CardHeader>
-            <CardContent className="pt-2">
-              <Skeleton className="h-44 w-full rounded-md" />
-            </CardContent>
-          </Card>
+          <LayerCard className="p-4">
+            <div className="flex flex-col gap-2">
+              <SkeletonLine blockHeight={16} minWidth={30} maxWidth={40} />
+              <SkeletonLine blockHeight={12} minWidth={45} maxWidth={60} />
+              <SkeletonLine blockHeight={176} minWidth={100} maxWidth={100} className="mt-2" />
+            </div>
+          </LayerCard>
         )}
       </div>
 
       {/* Model Breakdown */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Model breakdown</CardTitle>
-          <CardDescription>Tokens and cost by model for the selected period</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
+      <LayerCard>
+        <LayerCard.Secondary>
+          <div className="flex flex-col gap-1">
+            <Text variant="heading" as="h3">
+              Model breakdown
+            </Text>
+            <Text variant="secondary" size="xs">
+              Tokens and cost by model for the selected period
+            </Text>
+          </div>
+        </LayerCard.Secondary>
+        <LayerCard.Primary>
           {report && report.models.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Model</TableHead>
-                  <TableHead className="text-right">Requests</TableHead>
-                  <TableHead className="text-right">Prompt</TableHead>
-                  <TableHead className="text-right">Completion</TableHead>
-                  <TableHead className="text-right">Cache Read</TableHead>
-                  <TableHead className="text-right">Total Tokens</TableHead>
-                  <TableHead className="text-right">API Spend</TableHead>
-                  <TableHead className="text-right">Sub Value</TableHead>
-                  <TableHead className="text-right w-28">Share</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {report.models.map((m) => (
-                  <TableRow key={m.model}>
-                    <TableCell className="font-medium">
-                      <div className="flex min-w-0 flex-col">
-                        <span className="truncate" title={m.variants?.join(", ") ?? m.model}>
-                          {m.label ?? m.model}
-                        </span>
-                        {m.label && m.label !== m.model ? (
-                          <span
-                            className="truncate font-mono text-[10px] text-muted-foreground"
-                            title={m.variants?.join(", ") ?? m.model}
-                          >
-                            {m.model}
-                            {(m.variants?.length ?? 0) > 1 ? ` · ${m.variants!.length} ids` : ""}
+            <div className="overflow-x-auto">
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Head>Model</Table.Head>
+                    <Table.Head className="text-right">Requests</Table.Head>
+                    <Table.Head className="text-right">Prompt</Table.Head>
+                    <Table.Head className="text-right">Completion</Table.Head>
+                    <Table.Head className="text-right">Cache Read</Table.Head>
+                    <Table.Head className="text-right">Total Tokens</Table.Head>
+                    <Table.Head className="text-right">API Spend</Table.Head>
+                    <Table.Head className="text-right">Sub Value</Table.Head>
+                    <Table.Head className="text-right w-28">Share</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {report.models.map((m) => (
+                    <Table.Row key={m.model}>
+                      <Table.Cell className="font-medium">
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate" title={m.variants?.join(", ") ?? m.model}>
+                            {m.label ?? m.model}
                           </span>
-                        ) : (m.variants?.length ?? 0) > 1 ? (
-                          <span
-                            className="truncate font-mono text-[10px] text-muted-foreground"
-                            title={m.variants?.join(", ")}
-                          >
-                            {m.variants!.length} ids
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
-                      {formatNumber(m.requests)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {formatCompactNumber(m.promptTokens)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {formatCompactNumber(m.completionTokens)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {formatCompactNumber(m.cacheReadTokens)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs font-semibold">
-                      {formatCompactNumber(m.totalTokens)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs font-medium">
-                      {money(m.spendUsd)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {m.subscriptionUsd > 0 ? money(m.subscriptionUsd) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full bg-primary rounded-full"
-                            style={{ width: `${Math.min(100, m.percentSpend)}%` }}
-                          />
+                          {m.label && m.label !== m.model ? (
+                            <span
+                              className="truncate font-mono text-[10px] text-kumo-subtle"
+                              title={m.variants?.join(", ") ?? m.model}
+                            >
+                              {m.model}
+                              {(m.variants?.length ?? 0) > 1 ? ` · ${m.variants!.length} ids` : ""}
+                            </span>
+                          ) : (m.variants?.length ?? 0) > 1 ? (
+                            <span
+                              className="truncate font-mono text-[10px] text-kumo-subtle"
+                              title={m.variants?.join(", ")}
+                            >
+                              {m.variants!.length} ids
+                            </span>
+                          ) : null}
                         </div>
-                        <span className="font-mono text-xs w-10 text-right">{m.percentSpend}%</span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs">
+                        {formatNumber(m.requests)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs text-kumo-subtle">
+                        {formatCompactNumber(m.promptTokens)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs text-kumo-subtle">
+                        {formatCompactNumber(m.completionTokens)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs text-kumo-subtle">
+                        {formatCompactNumber(m.cacheReadTokens)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs font-semibold">
+                        {formatCompactNumber(m.totalTokens)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs font-medium">
+                        {money(m.spendUsd)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs text-kumo-subtle">
+                        {m.subscriptionUsd > 0 ? money(m.subscriptionUsd) : "—"}
+                      </Table.Cell>
+                      <Table.Cell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="h-1.5 w-14 rounded-full bg-kumo-fill overflow-hidden">
+                            <div
+                              className="h-full bg-kumo-brand rounded-full"
+                              style={{ width: `${Math.min(100, m.percentSpend)}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-xs w-10 text-right">
+                            {m.percentSpend}%
+                          </span>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground py-6 text-center">
+            <p className="text-sm text-kumo-subtle py-6 text-center">
               No model usage recorded in this time range.
             </p>
           )}
-        </CardContent>
-      </Card>
+        </LayerCard.Primary>
+      </LayerCard>
 
       {/* Key Breakdown (when All keys is selected) */}
       {keyId === "all" && report && report.keys.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Key breakdown</CardTitle>
-            <CardDescription>Spend and activity attributed to each API key</CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Key Name</TableHead>
-                  <TableHead className="text-right">Requests</TableHead>
-                  <TableHead className="text-right">API Spend</TableHead>
-                  <TableHead className="text-right">Subscription Value</TableHead>
-                  <TableHead className="text-right">Filter</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {report.keys.map((k) => (
-                  <TableRow key={k.id}>
-                    <TableCell className="font-medium">{k.name}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">
-                      {formatNumber(k.requests)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs font-semibold">
-                      {money(k.spendUsd)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                      {k.subscriptionUsd > 0 ? money(k.subscriptionUsd) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs h-7"
-                        onClick={() => setKeyId(k.id)}
-                      >
-                        View Key →
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <LayerCard>
+          <LayerCard.Secondary>
+            <div className="flex flex-col gap-1">
+              <Text variant="heading" as="h3">
+                Key breakdown
+              </Text>
+              <Text variant="secondary" size="xs">
+                Spend and activity attributed to each API key
+              </Text>
+            </div>
+          </LayerCard.Secondary>
+          <LayerCard.Primary>
+            <div className="overflow-x-auto">
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Head>Key Name</Table.Head>
+                    <Table.Head className="text-right">Requests</Table.Head>
+                    <Table.Head className="text-right">API Spend</Table.Head>
+                    <Table.Head className="text-right">Subscription Value</Table.Head>
+                    <Table.Head className="text-right">Filter</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {report.keys.map((k) => (
+                    <Table.Row key={k.id}>
+                      <Table.Cell className="font-medium">{k.name}</Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs">
+                        {formatNumber(k.requests)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs font-semibold">
+                        {money(k.spendUsd)}
+                      </Table.Cell>
+                      <Table.Cell className="text-right font-mono text-xs text-kumo-subtle">
+                        {k.subscriptionUsd > 0 ? money(k.subscriptionUsd) : "—"}
+                      </Table.Cell>
+                      <Table.Cell className="text-right">
+                        <Button variant="ghost" size="xs" onClick={() => setKeyId(k.id)}>
+                          View Key →
+                        </Button>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            </div>
+          </LayerCard.Primary>
+        </LayerCard>
       ) : null}
     </section>
   );

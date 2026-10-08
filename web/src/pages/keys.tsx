@@ -1,20 +1,8 @@
+import { Badge, Button, Input, LayerCard, Table, Text } from "@cloudflare/kumo";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { KeysSkeleton } from "@/components/page-skeletons";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { api, type KeyView } from "@/lib/api";
 import { money } from "@/lib/utils";
 
@@ -152,54 +140,64 @@ export function KeysPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-lg font-semibold">Jevonian access keys</h1>
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-col gap-1">
+        <Text variant="heading" size="lg" as="h1">
+          Jevonian access keys
+        </Text>
+        <Text variant="secondary" size="sm">
           Keys Jevonian issues so agents can call this router. They are not upstream provider
           secrets — those live in Providers and stay on this machine.
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">
+        </Text>
+        <Text variant="secondary" size="sm">
           While at least one key exists, every request to <code>/v1</code> must send it as{" "}
           <code>authorization: Bearer …</code> or <code>x-api-key</code>. With none, local{" "}
           <code>/v1</code> requests are accepted unauthenticated and the tunnel stays disabled.
-        </p>
+        </Text>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Create key</CardTitle>
-          <CardDescription>
-            Give it a name so you can revoke it later. An optional credit limit stops requests once
-            estimated pay-as-you-go spend reaches that amount.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
+      <LayerCard>
+        <LayerCard.Secondary className="block">
+          <span className="flex flex-col gap-1">
+            <Text variant="heading" as="h2">
+              Create key
+            </Text>
+            <Text variant="secondary" size="sm">
+              Give it a name so you can revoke it later. An optional credit limit stops requests
+              once estimated pay-as-you-go spend reaches that amount.
+            </Text>
+          </span>
+        </LayerCard.Secondary>
+        <LayerCard.Primary className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
-            <div className="flex w-64 flex-col gap-1.5">
-              <Label htmlFor="keyName">Name</Label>
-              <Input id="keyName" value={name} onChange={(event) => setName(event.target.value)} />
+            <div className="w-64">
+              <Input
+                id="keyName"
+                label="Name"
+                value={name}
+                onValueChange={setName}
+              />
             </div>
-            <div className="flex w-40 flex-col gap-1.5">
-              <Label htmlFor="keyLimit">Credit limit (USD)</Label>
+            <div className="w-40">
               <Input
                 id="keyLimit"
+                label="Credit limit (USD)"
                 inputMode="decimal"
                 placeholder="unlimited"
                 value={newLimit}
-                onChange={(event) => setNewLimit(event.target.value)}
+                onValueChange={setNewLimit}
               />
             </div>
-            <Button onClick={() => void create()} disabled={busy || !name}>
+            <Button variant="primary" onClick={() => void create()} disabled={busy || !name}>
               Generate key
             </Button>
           </div>
           {createdKey ? (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40">
-              <p className="mb-2 text-xs text-muted-foreground">
+            <div className="rounded-lg border border-kumo-warning/40 bg-kumo-warning-tint p-3 text-sm">
+              <p className="mb-2 text-xs text-kumo-subtle">
                 Copy it now — it is shown only once.
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 break-all rounded-md bg-background px-2 py-1 text-xs">
+                <code className="flex-1 break-all rounded-md bg-kumo-base px-2 py-1 text-xs">
                   {createdKey}
                 </code>
                 <Button size="sm" variant="outline" onClick={() => void copyCreatedKey()}>
@@ -207,39 +205,43 @@ export function KeysPage() {
                 </Button>
               </div>
               {copied ? (
-                <p className="mt-2 text-xs text-muted-foreground">Copied to clipboard.</p>
+                <p className="mt-2 text-xs text-kumo-subtle">Copied to clipboard.</p>
               ) : null}
-              {copyError ? <p className="mt-2 text-xs text-destructive">{copyError}</p> : null}
+              {copyError ? <p className="mt-2 text-xs text-kumo-danger">{copyError}</p> : null}
             </div>
           ) : null}
-          {message ? <span className="text-xs text-muted-foreground">{message}</span> : null}
-          {error ? <span className="text-xs text-destructive">{error}</span> : null}
-        </CardContent>
-      </Card>
+          {message ? <span className="text-xs text-kumo-subtle">{message}</span> : null}
+          {error ? <span className="text-xs text-kumo-danger">{error}</span> : null}
+        </LayerCard.Primary>
+      </LayerCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Active keys</CardTitle>
-          <CardDescription>
-            {keys.length === 0
-              ? "No keys yet"
-              : `${keys.length} key${keys.length === 1 ? "" : "s"} · usage is estimated from the local ledger`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <LayerCard>
+        <LayerCard.Secondary className="block">
+          <span className="flex flex-col gap-1">
+            <Text variant="heading" as="h2">
+              Active keys
+            </Text>
+            <Text variant="secondary" size="sm">
+              {keys.length === 0
+                ? "No keys yet"
+                : `${keys.length} key${keys.length === 1 ? "" : "s"} · usage is estimated from the local ledger`}
+            </Text>
+          </span>
+        </LayerCard.Secondary>
+        <LayerCard.Primary className="overflow-x-auto">
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>name</TableHead>
-                <TableHead>prefix</TableHead>
-                <TableHead className="text-right">key usage</TableHead>
-                <TableHead>key limit</TableHead>
-                <TableHead>last used</TableHead>
-                <TableHead className="text-right">requests</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+            <Table.Header>
+              <Table.Row>
+                <Table.Head>name</Table.Head>
+                <Table.Head>prefix</Table.Head>
+                <Table.Head className="text-right">key usage</Table.Head>
+                <Table.Head>key limit</Table.Head>
+                <Table.Head>last used</Table.Head>
+                <Table.Head className="text-right">requests</Table.Head>
+                <Table.Head />
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
               {keys.map((key) => {
                 const spend = key.spendUsd ?? 0;
                 const subscription = key.subscriptionUsd ?? 0;
@@ -248,37 +250,38 @@ export function KeysPage() {
                 const overLimit = limit !== null && spend >= limit;
                 const nearLimit = limit !== null && !overLimit && pct >= 80;
                 return (
-                  <TableRow key={key.id}>
-                    <TableCell className="font-medium">
+                  <Table.Row key={key.id}>
+                    <Table.Cell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{key.name}</span>
                         {overLimit ? (
-                          <Badge variant="destructive" className="text-[10px]">
+                          <Badge variant="error" className="text-[10px]">
                             limit reached
                           </Badge>
                         ) : null}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{key.prefix}…</TableCell>
-                    <TableCell className="text-right">
+                    </Table.Cell>
+                    <Table.Cell className="text-xs text-kumo-subtle">{key.prefix}…</Table.Cell>
+                    <Table.Cell className="text-right">
                       <span className="font-mono text-xs font-medium">{money(spend)}</span>
                       {subscription > 0 ? (
-                        <span className="ml-1 text-[10px] text-muted-foreground">
+                        <span className="ml-1 text-[10px] text-kumo-subtle">
                           +{money(subscription)} sub
                         </span>
                       ) : null}
-                    </TableCell>
-                    <TableCell className="min-w-[190px]">
+                    </Table.Cell>
+                    <Table.Cell className="min-w-[190px]">
                       {editingLimitId === key.id ? (
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1.5">
                             <Input
                               autoFocus
+                              aria-label="Credit limit (USD)"
                               inputMode="decimal"
                               placeholder="unlimited"
                               className="h-8 w-28 text-xs"
                               value={limitDraft}
-                              onChange={(event) => setLimitDraft(event.target.value)}
+                              onValueChange={setLimitDraft}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") void saveLimit(key);
                                 if (event.key === "Escape") {
@@ -311,7 +314,7 @@ export function KeysPage() {
                             </Button>
                           </div>
                           {limitError ? (
-                            <span className="text-[10px] text-destructive">{limitError}</span>
+                            <span className="text-[10px] text-kumo-danger">{limitError}</span>
                           ) : null}
                         </div>
                       ) : (
@@ -326,7 +329,7 @@ export function KeysPage() {
                           title="Click to edit the credit limit"
                         >
                           <span className="flex items-center gap-2">
-                            <span className="border-b border-dotted border-muted-foreground/60 font-mono text-xs">
+                            <span className="border-b border-dotted border-kumo-subtle/60 font-mono text-xs">
                               {limit === null
                                 ? "unlimited"
                                 : `$${limit.toFixed(limit % 1 === 0 ? 0 : 2)}`}
@@ -338,14 +341,14 @@ export function KeysPage() {
                               TOTAL
                             </Badge>
                           </span>
-                          <span className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                          <span className="h-1 w-full overflow-hidden rounded-full bg-kumo-tint">
                             <span
                               className={`block h-full rounded-full ${
                                 overLimit
-                                  ? "bg-destructive"
+                                  ? "bg-kumo-danger"
                                   : nearLimit
-                                    ? "bg-amber-500"
-                                    : "bg-foreground"
+                                    ? "bg-kumo-warning"
+                                    : "bg-kumo-contrast"
                               }`}
                               style={{
                                 width: `${limit === null ? 0 : Math.max(pct, spend > 0 ? 2 : 0)}%`,
@@ -354,15 +357,15 @@ export function KeysPage() {
                           </span>
                         </button>
                       )}
-                    </TableCell>
-                    <TableCell className="text-xs">
+                    </Table.Cell>
+                    <Table.Cell className="text-xs">
                       {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "never"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs">{key.requests}</TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
+                    </Table.Cell>
+                    <Table.Cell className="text-right text-xs">{key.requests}</Table.Cell>
+                    <Table.Cell className="whitespace-nowrap text-right">
                       {confirmingId === key.id ? (
                         <span className="flex items-center justify-end gap-2 text-xs">
-                          <span className="text-muted-foreground">
+                          <span className="text-kumo-subtle">
                             {keys.length <= 1
                               ? "Revoke? Local /v1 requests become unauthenticated again."
                               : "Revoke this key? Requests using it start failing with 401."}
@@ -396,28 +399,28 @@ export function KeysPage() {
                           </Button>
                         </span>
                       )}
-                    </TableCell>
-                  </TableRow>
+                    </Table.Cell>
+                  </Table.Row>
                 );
               })}
               {keys.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                <Table.Row>
+                  <Table.Cell colSpan={7} className="text-sm text-kumo-subtle">
                     No keys yet — requests are currently accepted without authentication.
-                  </TableCell>
-                </TableRow>
+                  </Table.Cell>
+                </Table.Row>
               ) : null}
-            </TableBody>
+            </Table.Body>
           </Table>
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className="mt-3 text-xs text-kumo-subtle">
             Usage is estimated from ledger records attributed to each key. See{" "}
-            <Link to="/#activity" className="underline hover:text-foreground">
+            <Link to="/#activity" className="underline hover:text-kumo-default">
               Activity
             </Link>{" "}
             for per-model and time-series breakdowns.
           </p>
-        </CardContent>
-      </Card>
+        </LayerCard.Primary>
+      </LayerCard>
     </div>
   );
 }

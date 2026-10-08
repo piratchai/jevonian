@@ -1,6 +1,6 @@
+import { LayerCard, Text } from "@cloudflare/kumo";
 import { useState } from "react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ActivitySeriesPointView } from "@/lib/api";
 import { cn, money } from "@/lib/utils";
 
@@ -37,35 +37,41 @@ export function SpendChart({ series }: ChartBaseProps) {
   const hovered = hoverIndex !== null ? series[hoverIndex] : null;
 
   return (
-    <Card className="overflow-hidden border bg-card/70">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+    <LayerCard className="overflow-hidden p-4">
+      <div className="flex flex-row items-center justify-between gap-3 pb-2">
         <div>
-          <CardTitle className="text-sm font-semibold tracking-tight">Spend over time</CardTitle>
-          <CardDescription className="text-xs">
+          <Text variant="heading" as="h3">
+            Spend over time
+          </Text>
+          <Text variant="secondary" size="xs">
             Pay-as-you-go API costs and subscription equivalent value
-          </CardDescription>
+          </Text>
         </div>
         {hovered ? (
-          <div className="flex items-center gap-3 text-xs bg-muted/60 px-2.5 py-1 rounded-md border font-mono">
-            <span className="font-sans font-medium text-foreground">{hovered.label}:</span>
-            <span className="text-primary font-medium">{money(hovered.spendUsd)} API</span>
+          <div className="flex items-center gap-3 rounded-md border border-kumo-hairline bg-kumo-tint px-2.5 py-1 font-mono text-xs">
+            <span className="font-sans font-medium text-kumo-default">{hovered.label}:</span>
+            <span className="font-medium text-kumo-brand">{money(hovered.spendUsd)} API</span>
             {hovered.subscriptionUsd > 0 ? (
-              <span className="text-muted-foreground">· {money(hovered.subscriptionUsd)} sub</span>
+              <span className="text-kumo-subtle">· {money(hovered.subscriptionUsd)} sub</span>
             ) : null}
-            <span className="text-muted-foreground font-sans">({hovered.requests} reqs)</span>
+            <span className="font-sans text-kumo-subtle">({hovered.requests} reqs)</span>
           </div>
         ) : (
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4 text-xs text-kumo-subtle">
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-primary" /> API spend
+              <span className="size-2 rounded-sm bg-kumo-brand" /> API spend
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-muted-foreground/40" /> Subscription value
+              <span
+                className="size-2 rounded-sm"
+                style={{ backgroundColor: "var(--text-color-kumo-subtle)", opacity: 0.4 }}
+              />{" "}
+              Subscription value
             </span>
           </div>
         )}
-      </CardHeader>
-      <CardContent className="pt-2">
+      </div>
+      <div className="pt-2">
         <div className="relative w-full">
           <svg
             viewBox={`0 0 ${width} ${height}`}
@@ -76,8 +82,8 @@ export function SpendChart({ series }: ChartBaseProps) {
           >
             <defs>
               <linearGradient id="spend-api-gradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.4" />
+                <stop offset="0%" stopColor="var(--color-kumo-brand)" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="var(--color-kumo-brand)" stopOpacity="0.4" />
               </linearGradient>
             </defs>
 
@@ -87,7 +93,7 @@ export function SpendChart({ series }: ChartBaseProps) {
               y1={padTop + chartHeight}
               x2={width}
               y2={padTop + chartHeight}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="1"
             />
             <line
@@ -95,7 +101,7 @@ export function SpendChart({ series }: ChartBaseProps) {
               y1={padTop + chartHeight / 2}
               x2={width}
               y2={padTop + chartHeight / 2}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="0.5"
               strokeDasharray="4 4"
             />
@@ -138,7 +144,7 @@ export function SpendChart({ series }: ChartBaseProps) {
                       y={padTop}
                       width={barWidth + 4}
                       height={chartHeight}
-                      fill="var(--accent)"
+                      fill="var(--color-kumo-tint)"
                       opacity="0.5"
                       rx="2"
                     />
@@ -151,7 +157,7 @@ export function SpendChart({ series }: ChartBaseProps) {
                       width={barWidth}
                       height={subH}
                       rx="1"
-                      fill="var(--muted-foreground)"
+                      fill="var(--text-color-kumo-subtle)"
                       opacity={isHovered ? "0.6" : "0.35"}
                     />
                   ) : null}
@@ -171,7 +177,7 @@ export function SpendChart({ series }: ChartBaseProps) {
                       cx={x + barWidth / 2}
                       cy={padTop + chartHeight - 1}
                       r="1"
-                      fill="var(--muted-foreground)"
+                      fill="var(--text-color-kumo-subtle)"
                       opacity="0.3"
                     />
                   ) : null}
@@ -181,7 +187,9 @@ export function SpendChart({ series }: ChartBaseProps) {
                       x={x + barWidth / 2}
                       y={height - 6}
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[10px] select-none"
+                      fill="var(--text-color-kumo-subtle)"
+                      fontSize="10"
+                      className="select-none"
                     >
                       {pt.label}
                     </text>
@@ -191,8 +199,8 @@ export function SpendChart({ series }: ChartBaseProps) {
             })}
           </svg>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -216,41 +224,43 @@ export function TokensChart({ series }: ChartBaseProps) {
   const hovered = hoverIndex !== null ? series[hoverIndex] : null;
 
   return (
-    <Card className="overflow-hidden border bg-card/70">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
+    <LayerCard className="overflow-hidden p-4">
+      <div className="flex flex-row items-center justify-between gap-3 pb-2">
         <div>
-          <CardTitle className="text-sm font-semibold tracking-tight">Tokens over time</CardTitle>
-          <CardDescription className="text-xs">
+          <Text variant="heading" as="h3">
+            Tokens over time
+          </Text>
+          <Text variant="secondary" size="xs">
             Prompt, completion, and cache read volume breakdown
-          </CardDescription>
+          </Text>
         </div>
         {hovered ? (
-          <div className="flex items-center gap-2 text-xs bg-muted/60 px-2.5 py-1 rounded-md border font-mono">
-            <span className="font-sans font-medium text-foreground">{hovered.label}:</span>
-            <span className="text-foreground font-medium">
+          <div className="flex items-center gap-2 rounded-md border border-kumo-hairline bg-kumo-tint px-2.5 py-1 font-mono text-xs">
+            <span className="font-sans font-medium text-kumo-default">{hovered.label}:</span>
+            <span className="font-medium text-kumo-default">
               {formatCompactNumber(hovered.totalTokens)} total
             </span>
-            <span className="text-muted-foreground">
+            <span className="text-kumo-subtle">
               ({formatCompactNumber(hovered.promptTokens)} prompt ·{" "}
               {formatCompactNumber(hovered.completionTokens)} out ·{" "}
               {formatCompactNumber(hovered.cacheReadTokens)} cache)
             </span>
           </div>
         ) : (
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-4 text-xs text-kumo-subtle">
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-primary" /> Prompt
+              <span className="size-2 rounded-sm bg-kumo-brand" /> Prompt
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-emerald-500" /> Completion
+              <span className="size-2 rounded-sm bg-kumo-success" /> Completion
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-indigo-400" /> Cache Read
+              <span className="size-2 rounded-sm bg-kumo-info" /> Cache Read
             </span>
           </div>
         )}
-      </CardHeader>
-      <CardContent className="pt-2">
+      </div>
+      <div className="pt-2">
         <div className="relative w-full">
           <svg
             viewBox={`0 0 ${width} ${height}`}
@@ -264,7 +274,7 @@ export function TokensChart({ series }: ChartBaseProps) {
               y1={padTop + chartHeight}
               x2={width}
               y2={padTop + chartHeight}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="1"
             />
             <line
@@ -272,7 +282,7 @@ export function TokensChart({ series }: ChartBaseProps) {
               y1={padTop + chartHeight / 2}
               x2={width}
               y2={padTop + chartHeight / 2}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="0.5"
               strokeDasharray="4 4"
             />
@@ -315,7 +325,7 @@ export function TokensChart({ series }: ChartBaseProps) {
                       y={padTop}
                       width={barWidth + 4}
                       height={chartHeight}
-                      fill="var(--accent)"
+                      fill="var(--color-kumo-tint)"
                       opacity="0.5"
                       rx="2"
                     />
@@ -327,7 +337,7 @@ export function TokensChart({ series }: ChartBaseProps) {
                       y={yCache}
                       width={barWidth}
                       height={cacheH}
-                      fill="#818cf8"
+                      fill="var(--color-kumo-info)"
                       opacity={isHovered ? "0.9" : "0.7"}
                     />
                   ) : null}
@@ -337,7 +347,7 @@ export function TokensChart({ series }: ChartBaseProps) {
                       y={yComp}
                       width={barWidth}
                       height={compH}
-                      fill="#10b981"
+                      fill="var(--color-kumo-success)"
                       opacity={isHovered ? "0.95" : "0.8"}
                     />
                   ) : null}
@@ -348,7 +358,7 @@ export function TokensChart({ series }: ChartBaseProps) {
                       width={barWidth}
                       height={promptH}
                       rx="1"
-                      fill="var(--primary)"
+                      fill="var(--color-kumo-brand)"
                       className={isHovered ? "brightness-125" : ""}
                     />
                   ) : null}
@@ -358,7 +368,7 @@ export function TokensChart({ series }: ChartBaseProps) {
                       cx={x + barWidth / 2}
                       cy={padTop + chartHeight - 1}
                       r="1"
-                      fill="var(--muted-foreground)"
+                      fill="var(--text-color-kumo-subtle)"
                       opacity="0.3"
                     />
                   ) : null}
@@ -368,7 +378,9 @@ export function TokensChart({ series }: ChartBaseProps) {
                       x={x + barWidth / 2}
                       y={height - 6}
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[10px] select-none"
+                      fill="var(--text-color-kumo-subtle)"
+                      fontSize="10"
+                      className="select-none"
                     >
                       {pt.label}
                     </text>
@@ -378,8 +390,8 @@ export function TokensChart({ series }: ChartBaseProps) {
             })}
           </svg>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }
 
@@ -415,50 +427,52 @@ export function RequestsChart({
   const hovered = hoverIndex !== null ? series[hoverIndex] : null;
 
   return (
-    <Card className="overflow-hidden border bg-card/70">
-      <CardHeader
+    <LayerCard className="overflow-hidden p-4">
+      <div
         className={cn(
-          "flex flex-row items-center justify-between",
-          compact ? "gap-2 p-4 pb-1" : "pb-2",
+          "flex flex-row items-center justify-between gap-3",
+          compact ? "pb-1" : "pb-2",
         )}
       >
         <div className="min-w-0">
-          <CardTitle className="text-sm font-semibold tracking-tight">{title}</CardTitle>
-          <CardDescription className={cn("text-xs", compact && "line-clamp-1")}>
+          <Text variant="heading" as="h3">
+            {title}
+          </Text>
+          <Text variant="secondary" size="xs" truncate={compact}>
             {description}
-          </CardDescription>
+          </Text>
         </div>
         {hovered ? (
-          <div className="flex shrink-0 items-center gap-2 rounded-md border bg-muted/60 px-2.5 py-1 font-mono text-xs">
-            <span className="font-sans font-medium text-foreground">{hovered.label}:</span>
-            <span className="font-medium text-foreground">{hovered.requests} requests</span>
+          <div className="flex shrink-0 items-center gap-2 rounded-md border border-kumo-hairline bg-kumo-tint px-2.5 py-1 font-mono text-xs">
+            <span className="font-sans font-medium text-kumo-default">{hovered.label}:</span>
+            <span className="font-medium text-kumo-default">{hovered.requests} requests</span>
             {hovered.errorRequests > 0 ? (
-              <span className="font-semibold text-destructive">
+              <span className="font-semibold text-kumo-danger">
                 ({hovered.errorRequests} errors)
               </span>
             ) : null}
           </div>
         ) : (
-          <div className="flex shrink-0 items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-4 text-xs text-kumo-subtle">
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-primary" /> Requests
+              <span className="size-2 rounded-sm bg-kumo-brand" /> Requests
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-destructive" /> Errors
+              <span className="size-2 rounded-sm bg-kumo-danger" /> Errors
             </span>
             {coverage !== null && coverage !== undefined ? (
               <span
-                className="flex items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-0.5 font-mono"
+                className="flex items-center gap-1.5 rounded-md border border-kumo-hairline bg-kumo-tint px-2 py-0.5 font-mono"
                 title="Share of input tokens served from the prompt cache in this window"
               >
                 <span className="font-sans">Cache</span>
-                <span className="font-medium text-foreground">{Math.round(coverage * 100)}%</span>
+                <span className="font-medium text-kumo-default">{Math.round(coverage * 100)}%</span>
               </span>
             ) : null}
           </div>
         )}
-      </CardHeader>
-      <CardContent className={compact ? "px-4 pt-1 pb-3" : "pt-2"}>
+      </div>
+      <div className={compact ? "pt-1 pb-1" : "pt-2"}>
         <div className="relative w-full">
           <svg
             viewBox={`0 0 ${width} ${height}`}
@@ -472,7 +486,7 @@ export function RequestsChart({
               y1={padTop + chartHeight}
               x2={width}
               y2={padTop + chartHeight}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="1"
             />
             <line
@@ -480,7 +494,7 @@ export function RequestsChart({
               y1={padTop + chartHeight / 2}
               x2={width}
               y2={padTop + chartHeight / 2}
-              stroke="var(--border)"
+              stroke="var(--color-kumo-hairline)"
               strokeWidth="0.5"
               strokeDasharray="4 4"
             />
@@ -516,7 +530,7 @@ export function RequestsChart({
                       y={padTop}
                       width={barWidth + 4}
                       height={chartHeight}
-                      fill="var(--accent)"
+                      fill="var(--color-kumo-tint)"
                       opacity="0.5"
                       rx="2"
                     />
@@ -529,7 +543,9 @@ export function RequestsChart({
                       width={barWidth}
                       height={reqH}
                       rx="1"
-                      fill={hasErrors ? "var(--destructive)" : "var(--primary)"}
+                      fill={
+                        hasErrors ? "var(--color-kumo-danger)" : "var(--color-kumo-brand)"
+                      }
                       opacity={isHovered ? "1" : "0.75"}
                     />
                   ) : (
@@ -537,7 +553,7 @@ export function RequestsChart({
                       cx={x + barWidth / 2}
                       cy={padTop + chartHeight - 1}
                       r="1"
-                      fill="var(--muted-foreground)"
+                      fill="var(--text-color-kumo-subtle)"
                       opacity="0.3"
                     />
                   )}
@@ -547,7 +563,9 @@ export function RequestsChart({
                       x={x + barWidth / 2}
                       y={height - 4}
                       textAnchor="middle"
-                      className="fill-muted-foreground text-[10px] select-none"
+                      fill="var(--text-color-kumo-subtle)"
+                      fontSize="10"
+                      className="select-none"
                     >
                       {pt.label}
                     </text>
@@ -557,7 +575,7 @@ export function RequestsChart({
             })}
           </svg>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </LayerCard>
   );
 }

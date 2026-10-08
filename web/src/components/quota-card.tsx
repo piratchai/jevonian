@@ -1,9 +1,7 @@
+import { Badge, Button, LayerCard, Text } from "@cloudflare/kumo";
 import { useEffect, useState } from "react";
 
 import { ProviderIdentity } from "@/components/provider-identity";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
   ModelQuotaHealthView,
   ProviderQuotaView,
@@ -70,7 +68,7 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
   const now = useResetClock();
   const used = window.usedPercent ?? 0;
   const width = Math.min(100, Math.max(0, used));
-  const tone = used >= 90 ? "bg-destructive" : used >= 70 ? "bg-amber-500" : "bg-emerald-500";
+  const tone = used >= 90 ? "bg-kumo-danger" : used >= 70 ? "bg-kumo-warning" : "bg-kumo-success";
   const reset = resetLabel(window.resetsAt, now);
   return (
     <div className="flex flex-col gap-1">
@@ -78,22 +76,22 @@ export function QuotaWindowRow({ window }: { window: QuotaWindow }) {
         <span className="flex items-baseline gap-1.5">
           <span className="font-medium">{window.label}</span>
           {window.model ? (
-            <span className="text-[10px] tracking-wide text-muted-foreground uppercase">model</span>
+            <span className="text-[10px] tracking-wide text-kumo-subtle uppercase">model</span>
           ) : null}
         </span>
-        <span className="text-muted-foreground">
+        <span className="text-kumo-subtle">
           {usedLabel(window)}
           {remainingLabel(window) ? ` · ${remainingLabel(window)}` : ""}
         </span>
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-kumo-fill">
         <div
           className={cn("h-full rounded-full transition-all", tone)}
           style={{ width: `${width}%` }}
         />
       </div>
       {reset || window.status ? (
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-[11px] text-kumo-subtle">
           {[reset, window.status && window.status !== "ok" ? window.status : undefined]
             .filter(Boolean)
             .join(" · ")}
@@ -109,13 +107,13 @@ function ModelCooldownRow({ model, now }: { model: ModelQuotaHealthView; now: nu
   const exhausted =
     status.includes("exhaust") || status.includes("cooldown") || status.includes("rate");
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+    <div className="flex flex-col gap-1 rounded-md border border-kumo-warning/40 bg-kumo-warning-tint px-3 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <code className="break-all text-xs font-medium">{model.model}</code>
-        <Badge variant={exhausted ? "destructive" : "secondary"}>{model.status}</Badge>
+        <Badge variant={exhausted ? "error" : "secondary"}>{model.status}</Badge>
       </div>
-      {model.reason ? <p className="text-xs text-muted-foreground">{model.reason}</p> : null}
-      {reset ? <p className="text-[11px] text-muted-foreground">{reset}</p> : null}
+      {model.reason ? <p className="text-xs text-kumo-subtle">{model.reason}</p> : null}
+      {reset ? <p className="text-[11px] text-kumo-subtle">{reset}</p> : null}
     </div>
   );
 }
@@ -147,13 +145,13 @@ export function ProviderQuotaCard({
   const windows = quota?.windows ?? [];
   const payPerToken = billing === "api" && windows.length === 0;
   return (
-    <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-xs">
+    <LayerCard className="flex flex-col gap-4 p-5">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">
             <ProviderIdentity provider={provider ?? name} />
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-kumo-subtle">
             {billing === "subscription" ? "subscription" : "pay per token"}
             {quota?.plan ? ` · ${quota.plan}` : ""}
             {quota?.note ? ` · ${quota.note}` : ""}
@@ -164,7 +162,7 @@ export function ProviderQuotaCard({
         ) : payPerToken ? (
           <Badge variant="outline">no quota windows</Badge>
         ) : (
-          <Badge variant={quota.source === "live" ? "default" : "secondary"}>
+          <Badge variant={quota.source === "live" ? "primary" : "secondary"}>
             {SOURCE_LABEL[quota.source]}
           </Badge>
         )}
@@ -178,11 +176,11 @@ export function ProviderQuotaCard({
         </div>
       ) : quota?.balance ? (
         <p className="text-sm">
-          <span className="text-muted-foreground">remaining balance </span>
+          <span className="text-kumo-subtle">remaining balance </span>
           <span className="font-medium">{balanceLabel(quota.balance)}</span>
         </p>
       ) : (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-kumo-subtle">
           {!quota
             ? "No quota source for this provider."
             : billing === "api"
@@ -192,11 +190,14 @@ export function ProviderQuotaCard({
       )}
 
       {windows.length > 0 && quota?.error ? (
-        <p className="text-[11px] text-muted-foreground">{quota.error}</p>
+        <p className="text-[11px] text-kumo-subtle">{quota.error}</p>
       ) : null}
 
       {quota?.resets && quota.resets.count > 0 ? (
-        <section className="flex flex-col gap-1 border-t pt-3" aria-label="Available resets">
+        <section
+          className="flex flex-col gap-1 border-t border-kumo-hairline pt-3"
+          aria-label="Available resets"
+        >
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-medium">
               {quota.resets.count} reset{quota.resets.count === 1 ? "" : "s"} available
@@ -216,14 +217,14 @@ export function ProviderQuotaCard({
           {quota.resets.each?.map((reset, index) => (
             <p
               key={`${reset.expiresAt ?? "never"}-${index}`}
-              className="text-[11px] text-muted-foreground"
+              className="text-[11px] text-kumo-subtle"
             >
               Reset {index + 1}:{" "}
               {reset.expiresAt ? resetLabel(reset.expiresAt, now) : "no expiry reported"}
             </p>
           ))}
           {!quota.resets.each?.length && quota.resets.until ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-kumo-subtle">
               Next expiry: {resetLabel(quota.resets.until, now)}
             </p>
           ) : null}
@@ -231,10 +232,13 @@ export function ProviderQuotaCard({
       ) : null}
 
       {health?.modelHealth && health.modelHealth.length > 0 ? (
-        <section className="flex flex-col gap-2 border-t pt-3" aria-label="Model cooldowns">
+        <section
+          className="flex flex-col gap-2 border-t border-kumo-hairline pt-3"
+          aria-label="Model cooldowns"
+        >
           <div>
             <p className="text-xs font-medium">Model-specific limits</p>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-kumo-subtle">
               Account quota can be OK while an individual model is rate-limited.
             </p>
           </div>
@@ -245,7 +249,7 @@ export function ProviderQuotaCard({
       ) : null}
 
       {health?.remainingUsd !== undefined ? (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[11px] text-kumo-subtle">
           {money(health.remainingUsd)} left in the {health.window ?? "current"} window
           {health.avgRequestUsd === undefined
             ? ""
@@ -254,16 +258,16 @@ export function ProviderQuotaCard({
       ) : null}
 
       {quota && spend ? (
-        <details className="border-t pt-2">
-          <summary className="cursor-pointer text-[11px] text-muted-foreground">
+        <details className="border-t border-kumo-hairline pt-2">
+          <summary className="cursor-pointer text-[11px] text-kumo-subtle">
             Periods &amp; source
           </summary>
           <div className="mt-2 flex flex-col gap-2">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[11px] text-kumo-subtle">
               Read {SOURCE_LABEL[quota.source]} · fetched {formatTime(quota.fetchedAt)}
               {payPerToken ? " · pay per token, no window" : ""}
             </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-kumo-subtle">
               <span>5h {money(spend.fiveHourUsd)}</span>
               <span>24h {money(spend.dayUsd)}</span>
               <span>7d {money(spend.weekUsd)}</span>
@@ -276,8 +280,8 @@ export function ProviderQuotaCard({
       ) : null}
 
       {provider ? (
-        <div className="flex items-center justify-between gap-2 border-t pt-3">
-          <span className="truncate font-mono text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 border-t border-kumo-hairline pt-3">
+          <span className="truncate font-mono text-[11px] text-kumo-subtle">
             {provider.name}
             {" · "}
             {provider.models.length} model{provider.models.length === 1 ? "" : "s"}
@@ -299,7 +303,7 @@ export function ProviderQuotaCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                className="h-7 px-2 text-xs text-kumo-danger hover:text-kumo-danger"
                 onClick={() => onRemove(provider.name)}
                 disabled={resetDisabled}
               >
@@ -309,7 +313,7 @@ export function ProviderQuotaCard({
           </span>
         </div>
       ) : null}
-    </div>
+    </LayerCard>
   );
 }
 
@@ -335,7 +339,7 @@ export function QuotaGrid({
   const byProvider = new Map(health.map((item) => [item.provider, item]));
   const grid =
     quotas.length === 0 ? (
-      <p className="text-sm text-muted-foreground">No providers configured.</p>
+      <p className="text-sm text-kumo-subtle">No providers configured.</p>
     ) : (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {quotas.map((quota) => (
@@ -351,15 +355,19 @@ export function QuotaGrid({
     );
   if (bare) return grid;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>
-          {description ??
-            "Remaining quota, reset times, and per-provider spend. Estimates use models.dev rates."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>{grid}</CardContent>
-    </Card>
+    <LayerCard>
+      <LayerCard.Secondary className="block">
+        <span className="flex flex-col gap-1">
+          <Text variant="heading" as="h2">
+            {title}
+          </Text>
+          <Text variant="secondary" size="sm">
+            {description ??
+              "Remaining quota, reset times, and per-provider spend. Estimates use models.dev rates."}
+          </Text>
+        </span>
+      </LayerCard.Secondary>
+      <LayerCard.Primary>{grid}</LayerCard.Primary>
+    </LayerCard>
   );
 }
