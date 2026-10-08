@@ -41,7 +41,7 @@ export function ModelsPage() {
   const onChanged = useCallback(() => setRevision((value) => value + 1), []);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <Text variant="heading" size="lg" as="h1">
           Models &amp; Routing
@@ -50,15 +50,15 @@ export function ModelsPage() {
           Choose models for each task. Connect the providers that supply them.
         </Text>
       </header>
-      <section id="task-routes" className="scroll-mt-20" aria-label="Task routes">
+      <section id="task-routes" className="scroll-mt-24" aria-label="Task routes">
         <RoutingPage embedded refreshKey={revision} onChanged={onChanged} />
       </section>
-      <section id="providers" className="scroll-mt-20" aria-label="Connected sources">
+      <section id="providers" className="scroll-mt-24" aria-label="Connected sources">
         <ProvidersPage embedded refreshKey={revision} onChanged={onChanged} />
       </section>
       <details
         id="routing-brain"
-        className="scroll-mt-20 rounded-lg border border-kumo-hairline"
+        className="scroll-mt-24 rounded-lg border border-kumo-hairline"
         open={brainOpen}
         onToggle={(event) => setBrainOpen(event.currentTarget.open)}
       >

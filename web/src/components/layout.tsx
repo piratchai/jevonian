@@ -61,23 +61,23 @@ export function Layout() {
   return (
     <Sidebar.Provider defaultOpen resizable>
       <div className="flex min-h-svh w-full bg-kumo-canvas text-kumo-default">
-        <Sidebar className="border-r border-kumo-hairline bg-kumo-base">
-          <Sidebar.Header className="px-3 py-3">
+        <Sidebar className="bg-kumo-base">
+          <Sidebar.Header className="border-b-0 px-3">
             <NavLink
               to="/"
-              className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-kumo-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-line"
+              className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-kumo-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-line group-data-[state=collapsed]/sidebar:px-0"
             >
               <span className="relative flex size-8 shrink-0 overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
                 <img src="/jevonian-logo.png" alt="" className="size-full object-cover" />
               </span>
-              <span className="grid min-w-0 flex-1 text-left leading-tight">
+              <span className="grid min-w-0 flex-1 text-left leading-tight group-data-[state=collapsed]/sidebar:hidden">
                 <span className="truncate text-sm font-semibold">jevonian</span>
                 <span className="truncate text-[11px] text-kumo-subtle">Local model router</span>
               </span>
             </NavLink>
           </Sidebar.Header>
 
-          <Sidebar.Content className="px-2 py-4">
+          <Sidebar.Content>
             {linkGroups.map((group) => (
               <Sidebar.Group key={group.label}>
                 <Sidebar.GroupLabel>{group.label}</Sidebar.GroupLabel>
@@ -90,7 +90,7 @@ export function Layout() {
                     return (
                       <Sidebar.MenuButton
                         key={link.to}
-                        icon={<Icon size={18} />}
+                        icon={Icon}
                         active={isActive}
                         href={link.to}
                         tooltip={link.label}
@@ -104,8 +104,8 @@ export function Layout() {
             ))}
           </Sidebar.Content>
 
-          <Sidebar.Footer className="border-t border-kumo-hairline px-3 py-2.5">
-            <div className="flex items-center justify-between gap-2">
+          <Sidebar.Footer className="h-auto flex-col items-stretch gap-2 border-t border-kumo-hairline px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2 group-data-[state=collapsed]/sidebar:justify-center">
               <a
                 href={GITHUB_REPO}
                 target="_blank"
@@ -114,11 +114,11 @@ export function Layout() {
                 title="Star on GitHub"
               >
                 <GithubLogo size={16} />
-                <span>GitHub</span>
+                <span className="group-data-[state=collapsed]/sidebar:hidden">GitHub</span>
               </a>
               <ModeToggle />
             </div>
-            <div className="mt-2 text-[11px] text-kumo-subtle">
+            <div className="text-[11px] text-kumo-subtle group-data-[state=collapsed]/sidebar:hidden">
               v{version} · running locally
             </div>
           </Sidebar.Footer>
@@ -126,7 +126,7 @@ export function Layout() {
         </Sidebar>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-kumo-hairline bg-kumo-base/90 px-5 backdrop-blur-sm md:px-10">
+          <header className="sticky top-0 z-10 flex h-[58px] shrink-0 items-center justify-between gap-3 border-b border-kumo-hairline bg-kumo-base/90 px-5 backdrop-blur-sm md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <Sidebar.Trigger className="md:hidden" />
               <span className="text-[11px] font-semibold tracking-wider text-kumo-subtle uppercase">
@@ -141,8 +141,8 @@ export function Layout() {
             </span>
           </header>
 
-          <main className="min-w-0 flex-1 px-5 py-8 md:px-10 md:py-10">
-            <div className="mx-auto max-w-6xl">
+          <main className="min-w-0 flex-1 px-5 py-6 md:px-8 md:py-8">
+            <div className="mx-auto max-w-7xl">
               <ErrorBoundary>
                 <Outlet />
               </ErrorBoundary>

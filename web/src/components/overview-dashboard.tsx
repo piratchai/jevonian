@@ -182,7 +182,7 @@ export function TodayTokensCard({
 
   return (
     <LayerCard className="flex min-h-0 flex-col overflow-hidden shadow-none">
-      <div className="flex flex-row items-start justify-between gap-3 px-5 pt-5 pb-2">
+      <div className="flex flex-row items-start justify-between gap-3 px-4 pt-4 pb-2">
         <div>
           <Text variant="secondary" size="xs">
             Today tokens
@@ -195,7 +195,7 @@ export function TodayTokensCard({
           {dateLabel}
         </span>
       </div>
-      <div className="flex flex-1 flex-col justify-between gap-4 px-5 pb-5">
+      <div className="flex flex-1 flex-col justify-between gap-4 px-4 pb-4">
         <MiniBars
           series={today.series}
           valueOf={(pt) => pt.totalTokens}
@@ -250,7 +250,7 @@ export function ModelsCard({ models }: { models: ActivityModelStatView[] }) {
 
   return (
     <LayerCard className="flex min-h-0 flex-col overflow-hidden shadow-none">
-      <div className="flex flex-row items-center justify-between px-5 pt-5 pb-2">
+      <div className="flex flex-row items-center justify-between px-4 pt-4 pb-2">
         <Text variant="heading" as="h3">
           Models
         </Text>
@@ -372,7 +372,7 @@ export function UsageHeatmapCard({
 
   return (
     <LayerCard className="overflow-hidden shadow-none">
-      <div className="flex flex-row items-start justify-between gap-3 px-5 pt-5 pb-2">
+      <div className="flex flex-row items-start justify-between gap-3 px-4 pt-4 pb-2">
         <div>
           <Text variant="heading" as="h3">
             Usage
@@ -396,7 +396,7 @@ export function UsageHeatmapCard({
           </p>
         </div>
       </div>
-      <div className="px-5 pb-5">
+      <div className="px-4 pb-4">
         {weeks.length === 0 ? (
           <p className="py-6 text-center text-xs text-kumo-subtle">No usage yet.</p>
         ) : (
@@ -501,7 +501,7 @@ export function SpendCard({
 }) {
   return (
     <LayerCard className="overflow-hidden shadow-none">
-      <div className="space-y-1 px-5 pt-5 pb-2">
+      <div className="space-y-1 px-4 pt-4 pb-2">
         <Text variant="secondary" size="xs">
           Cost · 30 days
         </Text>
@@ -512,7 +512,7 @@ export function SpendCard({
           api {usd(summary.apiSpendUsd)} · sub {usd(summary.subscriptionValueUsd)}
         </p>
       </div>
-      <div className="px-5 pb-5">
+      <div className="px-4 pb-4">
         <MiniBars
           series={series}
           valueOf={(pt) => pt.spendUsd + pt.subscriptionUsd}
@@ -536,7 +536,7 @@ export function TokensCard({
 }) {
   return (
     <LayerCard className="overflow-hidden shadow-none">
-      <div className="space-y-1 px-5 pt-5 pb-2">
+      <div className="space-y-1 px-4 pt-4 pb-2">
         <Text variant="secondary" size="xs">
           Tokens · 30 days
         </Text>
@@ -549,7 +549,7 @@ export function TokensCard({
           · hit {(cacheHitRate * 100).toFixed(0)}%
         </p>
       </div>
-      <div className="px-5 pb-5">
+      <div className="px-4 pb-4">
         <MiniBars
           series={series}
           valueOf={(pt) => pt.totalTokens}

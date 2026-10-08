@@ -145,7 +145,7 @@ export function ProviderQuotaCard({
   const windows = quota?.windows ?? [];
   const payPerToken = billing === "api" && windows.length === 0;
   return (
-    <LayerCard className="flex flex-col gap-4 p-5">
+    <LayerCard className="flex flex-col gap-4 p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-medium">

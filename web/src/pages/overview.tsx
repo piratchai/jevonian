@@ -34,7 +34,7 @@ function Panel({
 }) {
   return (
     <LayerCard>
-      <details className="group p-5" open={defaultOpen || undefined}>
+      <details className="group p-4" open={defaultOpen || undefined}>
         <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold tracking-tight text-kumo-default">
           <CaretDown
             size={14}
@@ -271,7 +271,7 @@ export function OverviewPage() {
       />
 
       <LayerCard>
-        <details className="group p-5" open={hash === "#activity" || undefined}>
+        <details className="group p-4" open={hash === "#activity" || undefined}>
           <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-semibold tracking-tight text-kumo-default">
             <CaretDown
               size={14}

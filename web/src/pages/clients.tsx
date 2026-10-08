@@ -121,7 +121,7 @@ export function ClientsPage() {
 
   if (error && !data) {
     return (
-      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <Text variant="heading" size="lg" as="h1">
           Clients
         </Text>
@@ -134,7 +134,7 @@ export function ClientsPage() {
   const clients = data.clients;
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
           <Text variant="heading" size="lg" as="h1">

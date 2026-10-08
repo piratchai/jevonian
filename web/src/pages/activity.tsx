@@ -68,7 +68,7 @@ export function ActivitySection() {
     <section
       id="activity"
       aria-labelledby="activity-heading"
-      className="flex flex-col gap-6 scroll-mt-20"
+      className="flex flex-col gap-6 scroll-mt-24"
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
@@ -119,7 +119,7 @@ export function ActivitySection() {
       {/* Totals for the selected time range and API key, distinct from the all-time overview. */}
       {report ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <LayerCard className="p-5">
+          <LayerCard className="p-4">
             <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total spend</p>
             <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
               {money(report.summary.totalSpendUsd)}
@@ -136,7 +136,7 @@ export function ActivitySection() {
             </p>
           </LayerCard>
 
-          <LayerCard className="p-5">
+          <LayerCard className="p-4">
             <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total tokens</p>
             <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
               {formatCompactNumber(report.summary.totalTokens)}
@@ -148,7 +148,7 @@ export function ActivitySection() {
             </p>
           </LayerCard>
 
-          <LayerCard className="p-5">
+          <LayerCard className="p-4">
             <p className="text-xs uppercase tracking-wider text-kumo-subtle">Total requests</p>
             <p className="mt-1 font-mono text-2xl font-semibold text-kumo-default">
               {formatNumber(report.summary.totalRequests)}

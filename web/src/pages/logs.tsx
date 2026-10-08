@@ -235,7 +235,7 @@ export function LogsPage() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100svh-6rem)] gap-3 md:h-[calc(100svh-3rem)]">
+    <div className="flex h-[calc(100svh-58px-3rem)] gap-3 md:h-[calc(100svh-58px-4rem)]">
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex shrink-0 items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-2">
