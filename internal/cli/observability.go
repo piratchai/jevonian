@@ -22,6 +22,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/quota"
 	"github.com/xinyao27/jevonian/internal/routing"
 	"github.com/xinyao27/jevonian/internal/service"
+	"github.com/xinyao27/jevonian/internal/upstream"
 )
 
 // printServiceDoctor reports LaunchAgent health on macOS (stale Node entry after
@@ -75,7 +76,24 @@ func openLedger() (*ledger.DB, error) {
 			}
 		}
 	}
+	backfillConventions(db)
 	return db, nil
+}
+
+// backfillConventions labels rows written before exclusive_input existed, so
+// the dashboard divides cache coverage by each wire's real denominator. The
+// call is idempotent: only NULL rows change. A failure is not fatal — the UI
+// keeps the historical reading.
+func backfillConventions(db *ledger.DB) {
+	cfg, _, err := config.Load()
+	if err != nil {
+		return
+	}
+	updated, err := db.BackfillExclusiveInput(upstream.ConventionClassifierFor(&cfg))
+	if err != nil || updated == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "jevonian (go): backfilled %d ledger rows with their cache convention\n", updated)
 }
 
 type reportRow struct {

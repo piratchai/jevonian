@@ -36,6 +36,7 @@ import (
 	"github.com/xinyao27/jevonian/internal/service"
 	"github.com/xinyao27/jevonian/internal/tunnel"
 	"github.com/xinyao27/jevonian/internal/update"
+	"github.com/xinyao27/jevonian/internal/upstream"
 )
 
 func runServe(args []string) int {
@@ -111,6 +112,14 @@ func runServe(args []string) int {
 					imported, jsonl, time.Since(started).Round(time.Millisecond))
 			}
 		}
+	}
+	// Label rows written before exclusive_input existed so the dashboard divides
+	// cache coverage by each serving wire's real denominator. Idempotent: only
+	// NULL rows change, so this is a one-time pass after an upgrade.
+	if updated, err := db.BackfillExclusiveInput(upstream.ConventionClassifierFor(&cfg)); err != nil {
+		fmt.Fprintf(stderr, "ledger: backfill cache convention: %v\n", err)
+	} else if updated > 0 {
+		fmt.Fprintf(stderr, "jevonian (go): labeled %d ledger rows with their cache convention\n", updated)
 	}
 
 	fmt.Fprintf(stderr, "jevonian (go): config %s (%d providers)\n", cfgPath, len(cfg.Providers))
