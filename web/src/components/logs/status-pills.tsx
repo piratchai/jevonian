@@ -17,7 +17,7 @@ export function StatusPills({
     cn(
       "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
       active
-        ? "border-kumo-brand/40 bg-kumo-brand/10 text-kumo-brand"
+        ? "border-kumo-brand/40 bg-kumo-brand/10 text-kumo-default"
         : "border-transparent text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default",
     );
   return (
