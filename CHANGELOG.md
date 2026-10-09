@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.1] - 2026-10-09
+
+### Fixed
+
+- **Devin keeps its prompt cache across turns.** The Devin egress stopped sending the routing session id, so every turn looked like a new conversation and Devin reset its cache (hit rate fell from ~93% to ~30%). The session id now rides the Connect-RPC request again.
+- **Antigravity reports its cache reads.** The Gemini fold dropped `cachedContentTokenCount`, so Antigravity logged zero cache reads on every turn. It now surfaces as `prompt_tokens_details.cached_tokens` on both the streaming and non-streaming paths.
+- **Cache coverage is no longer understated.** The Connect-RPC hosts changed their usage convention at the Go engine cutover: the legacy runtime stored an exclusive (uncached) prompt count, while the Go egress stores an OpenAI-shaped count that includes the cache reads. Every row was still labeled exclusive, so the dashboard divided by the wrong denominator. The router now derives each row's convention from the translator that produced it, and a per-startup reconcile labels legacy rows and corrects rows the cutover mislabeled. Devin's reported coverage rises from 70.5% to 91.1%.
+- **Non-streaming Anthropic clients see cache reads.** Folding a Chat completion back into a Messages reply reported an inclusive `input_tokens` and dropped the cached share. It now splits `input_tokens` (uncached) from `cache_read_input_tokens`, matching the streaming path.
+- **Active status pill uses the default text color.**
+
 ## [0.7.0] - 2026-10-08
 
 ### Added
