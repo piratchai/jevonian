@@ -18,7 +18,12 @@ import { ArrowDown, ArrowUp, DotsSixVertical, Plus, Warning, X } from "@phosphor
 import { Badge, Banner, Button, Input, LayerCard, LayerDialog, Text } from "@cloudflare/kumo";
 import { useMemo, useState, type ReactNode } from "react";
 
-import type { RoutingEntryView, ScheduleStatusView, ScheduleView } from "@/lib/api";
+import type {
+  RoutingEntryView,
+  ScheduleStatusView,
+  ScheduleView,
+  ScheduleWindowView,
+} from "@/lib/api";
 import {
   browserZone,
   firstScheduleError,
@@ -66,6 +71,11 @@ function chainText(models: string[], names: Map<string, string | undefined>): st
     .map((id) => names.get(id) || id)
     .join(" → ");
   return models.length > 2 ? `${shown} → +${models.length - 2} more` : shown;
+}
+
+/** A window's name, with a fallback for one that has no label yet. */
+function windowName(window: Pick<ScheduleWindowView, "label">): string {
+  return window.label.trim() || "An unnamed window";
 }
 
 /** One draggable window in the editor: a drag handle, up/down buttons, and its fields. */
@@ -279,14 +289,14 @@ export function ScheduleSection({
               icon={<Warning size={16} aria-hidden />}
               title={
                 shadows.length === 1
-                  ? `${shadows[0].window.label} never runs`
+                  ? `${windowName(shadows[0].window)} never runs`
                   : `${shadows.length} windows never run`
               }
               description={
                 shadows.length === 1
-                  ? `${shadows[0].by.label} covers the whole ${shadows[0].window.label} range and comes first, so ${shadows[0].window.label} is never active.`
+                  ? `${windowName(shadows[0].by)} covers the whole ${windowName(shadows[0].window)} range and comes first, so it is never active.`
                   : shadows
-                      .map((entry) => `${entry.window.label} (covered by ${entry.by.label})`)
+                      .map((entry) => `${windowName(entry.window)} (covered by ${windowName(entry.by)})`)
                       .join(", ")
               }
               action={
@@ -462,13 +472,13 @@ export function ScheduleSection({
                     icon={<Warning size={16} aria-hidden />}
                     title={
                       draftShadows.length === 1
-                        ? `${draftShadows[0].window.label} never runs`
+                        ? `${windowName(draftShadows[0].window)} never runs`
                         : `${draftShadows.length} windows never run`
                     }
                     description={draftShadows
                       .map(
                         (entry) =>
-                          `${entry.by.label} covers the whole ${entry.window.label} range and comes first.`,
+                          `${windowName(entry.by)} covers the whole ${windowName(entry.window)} range and comes first.`,
                       )
                       .join(" ")}
                   />
@@ -477,7 +487,10 @@ export function ScheduleSection({
                     variant="default"
                     title="These windows overlap"
                     description={`${draftOverlaps
-                      .map(([later, earlier]) => `${later.label} overlaps ${earlier.label}`)
+                      .map(
+                        ([later, earlier]) =>
+                          `${windowName(later)} overlaps ${windowName(earlier)}`,
+                      )
                       .join(", ")}. The first one wins in the overlap.`}
                   />
                 ) : null}
@@ -591,25 +604,25 @@ export function ScheduleSection({
                   }
                 />
               ) : null}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-kumo-hairline pt-3">
+                {schedule ? (
+                  <Button variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
+                    Remove schedule
+                  </Button>
+                ) : (
+                  <span className="text-xs text-kumo-subtle">New schedule</span>
+                )}
+                <div className="flex gap-2">
+                  <Button variant="outline" disabled={busy} onClick={closeEditor}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" disabled={busy} onClick={commit}>
+                    {busy ? "Saving…" : "Save schedule"}
+                  </Button>
+                </div>
+              </div>
             </div>
           </LayerDialog.Body>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-kumo-hairline px-6 py-3">
-            {schedule ? (
-              <Button variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
-                Remove schedule
-              </Button>
-            ) : (
-              <span className="text-xs text-kumo-subtle">New schedule</span>
-            )}
-            <div className="flex gap-2">
-              <Button variant="outline" disabled={busy} onClick={closeEditor}>
-                Cancel
-              </Button>
-              <Button variant="primary" disabled={busy} onClick={commit}>
-                {busy ? "Saving…" : "Save schedule"}
-              </Button>
-            </div>
-          </div>
         </LayerDialog.Content>
       </LayerDialog.Root>
     </>

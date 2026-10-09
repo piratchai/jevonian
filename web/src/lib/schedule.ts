@@ -118,7 +118,7 @@ export function firstScheduleError(errors: ScheduleErrors, windows: ScheduleWind
   for (const window of windows) {
     const entry = errors.windows[window.id];
     if (!entry) continue;
-    const name = window.label.trim() || "This window";
+    const name = window.label.trim() || "An unnamed window";
     const message = entry.label ?? entry.start ?? entry.end;
     if (message) return `${name}: ${message}`;
   }
