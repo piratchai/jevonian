@@ -64,6 +64,32 @@ func TestToChatRequestRoundTrip(t *testing.T) {
 	}
 }
 
+// A Chat body's prompt_tokens includes the cache reads, but Anthropic reports
+// the uncached share in input_tokens plus a separate cache_read count. The fold
+// must split them so a Messages client sees the same accounting as the stream.
+func TestChatToMessageSplitsCachedInput(t *testing.T) {
+	response := ChatToMessage(wire.Body{
+		"id":    "chatcmpl-1",
+		"model": "swe-2-max",
+		"choices": []any{wire.Body{
+			"message":       wire.Body{"role": "assistant", "content": "hello"},
+			"finish_reason": "stop",
+		}},
+		"usage": wire.Body{
+			"prompt_tokens":         float64(18519),
+			"completion_tokens":     float64(16),
+			"prompt_tokens_details": wire.Body{"cached_tokens": float64(9473)},
+		},
+	}, "swe-2-max")
+	usage := response["usage"].(wire.Body)
+	if usage["input_tokens"] != float64(9046) || usage["output_tokens"] != float64(16) {
+		t.Fatalf("usage = %v", usage)
+	}
+	if usage["cache_read_input_tokens"] != float64(9473) {
+		t.Fatalf("cache_read_input_tokens = %v", usage["cache_read_input_tokens"])
+	}
+}
+
 func TestChatToAnthropicMapsMessagesToolsAndResults(t *testing.T) {
 	request := ChatToAnthropic(wire.Body{
 		"model": "ignored",

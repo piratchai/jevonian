@@ -380,17 +380,6 @@ type concurrencyLimiter interface{ MaxConcurrent() int }
 // tokenSaverOptOut skips tool-result compression for hosts outside parity.
 type tokenSaverOptOut interface{ SkipsTokenSaver() bool }
 
-// exclusiveInputUsage marks usage whose input count already excludes cache
-// reads (Anthropic Messages, Connect-RPC hosts).
-type exclusiveInputUsage interface{ ExclusiveInput() bool }
-
-// ExclusiveInput reports whether an adapter's usage input already excludes
-// cache reads, so cache observations must not subtract them again.
-func ExclusiveInput(a Adapter) bool {
-	e, ok := a.(exclusiveInputUsage)
-	return ok && e.ExclusiveInput()
-}
-
 // AdapterFunc selects an adapter for one runner. No mutable process registry is
 // shared across independent servers or tests.
 type AdapterFunc func(provider config.Provider, clientKind ClientKind, plan WirePlan) (Adapter, bool)
@@ -579,7 +568,6 @@ func (a *anthropicAdapter) UsageFrom(body []byte) wire.Usage {
 	_ = json.Unmarshal(body, &raw)
 	return anthropicwire.Usage(raw["usage"])
 }
-func (a *anthropicAdapter) ExclusiveInput() bool                 { return true }
 func (a *anthropicAdapter) EndpointURL(p config.Provider) string { return "" }
 func (a *anthropicAdapter) Headers(p config.Provider, base http.Header) http.Header {
 	base.Set("anthropic-version", "2023-06-01")

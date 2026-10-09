@@ -604,6 +604,22 @@ func ChatToMessage(response wire.Body, model string) wire.Body {
 	if m == "" {
 		m = model
 	}
+	// A Chat body carries an inclusive prompt count, but Anthropic reports the
+	// uncached input in input_tokens and the cached share separately. Split them
+	// so a Messages client sees the same accounting the stream path emits.
+	prompt := wire.Number(usage["prompt_tokens"])
+	cached := wire.Number(wire.AsRecord(usage["prompt_tokens_details"])["cached_tokens"])
+	uncached := prompt - cached
+	if uncached < 0 {
+		uncached = 0
+	}
+	usageOut := wire.Body{
+		"input_tokens":  uncached,
+		"output_tokens": wire.Number(usage["completion_tokens"]),
+	}
+	if cached > 0 {
+		usageOut["cache_read_input_tokens"] = cached
+	}
 	return wire.Body{
 		"id":            id,
 		"type":          "message",
@@ -612,10 +628,7 @@ func ChatToMessage(response wire.Body, model string) wire.Body {
 		"content":       content,
 		"stop_reason":   stop,
 		"stop_sequence": nil,
-		"usage": wire.Body{
-			"input_tokens":  wire.Number(usage["prompt_tokens"]),
-			"output_tokens": wire.Number(usage["completion_tokens"]),
-		},
+		"usage":         usageOut,
 	}
 }
 

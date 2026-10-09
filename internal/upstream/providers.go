@@ -31,8 +31,7 @@ type rpcAdapter struct {
 	chat rpcChat
 }
 
-func (*rpcAdapter) AlwaysStreams() bool  { return false }
-func (*rpcAdapter) ExclusiveInput() bool { return true }
+func (*rpcAdapter) AlwaysStreams() bool { return false }
 func (a *rpcAdapter) runAttempt(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, body wire.Body, auth oauth.AuthResolution) {
 	r.rpcAttempt(ctx, req, at, a.chat, body, auth.Token)
 }

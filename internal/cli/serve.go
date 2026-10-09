@@ -113,11 +113,12 @@ func runServe(args []string) int {
 			}
 		}
 	}
-	// Label rows written before exclusive_input existed so the dashboard divides
-	// cache coverage by each serving wire's real denominator. Idempotent: only
-	// NULL rows change, so this is a one-time pass after an upgrade.
-	if updated, err := db.BackfillExclusiveInput(upstream.ConventionClassifierFor(&cfg)); err != nil {
-		fmt.Fprintf(stderr, "ledger: backfill cache convention: %v\n", err)
+	// Label rows written before exclusive_input existed, and correct Connect-RPC
+	// rows the Go cutover mislabeled, so the dashboard divides cache coverage by
+	// each serving wire's real denominator. Idempotent: only rows whose label
+	// disagrees with the derived convention change.
+	if updated, err := db.ReconcileExclusiveInput(upstream.GoEngineCutover, upstream.ConventionClassifierFor(&cfg)); err != nil {
+		fmt.Fprintf(stderr, "ledger: reconcile cache convention: %v\n", err)
 	} else if updated > 0 {
 		fmt.Fprintf(stderr, "jevonian (go): labeled %d ledger rows with their cache convention\n", updated)
 	}

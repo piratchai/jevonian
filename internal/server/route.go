@@ -494,7 +494,11 @@ func (t *turn) failover() bool {
 // marked spent and the turn should fail over instead of answering.
 func (t *turn) deliver(w http.ResponseWriter, r *http.Request, attempt upstream.Attempt) bool {
 	d := t.decision
-	t.exclusiveInput = attempt.Adapter != nil && upstream.ExclusiveInput(attempt.Adapter)
+	// The convention follows the translator that produced the usage, not the
+	// provider: a streaming Chat upstream bridged to an Anthropic client is
+	// re-split to exclusive input, while a folded non-stream reply keeps the
+	// upstream's inclusive OpenAI count.
+	t.exclusiveInput = upstream.LedgerExclusive(attempt.Plan, t.kind, t.stream)
 	headers := t.decisionHeaders(attempt.Retries)
 	upstreamWire := attempt.Plan.Wire
 	bridge := attempt.Plan.Bridge

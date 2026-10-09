@@ -10,58 +10,79 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// A row written before exclusive_input existed (NULL) must be labeled from the
-// provider's serving wire, without touching rows that already recorded theirs.
-func TestBackfillExclusiveInputLabelsLegacyRows(t *testing.T) {
+// Rows written before exclusive_input existed (NULL) must be labeled from the
+// provider's serving wire, and rows the Go cutover mislabeled must be corrected,
+// without touching rows that are already right.
+func TestReconcileExclusiveInputLabelsAndCorrectsRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	db, err := ledger.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ts := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	cutover := time.Date(2026, 10, 6, 0, 0, 0, 0, time.UTC)
+	legacy := cutover.Add(-time.Hour)
+	modern := cutover.Add(time.Hour)
 
 	rows := []ledger.Record{
-		{ID: "openai-1", TS: ts, Session: "s", Provider: "chatgpt-subscription", Model: "gpt-6.1-sol", Status: 200, PromptTokens: 1000, CacheReadTokens: 800},
-		{ID: "openai-2", TS: ts, Session: "s", Provider: "chatgpt-subscription", Model: "gpt-6.1-sol", Status: 200, PromptTokens: 500, CacheReadTokens: 100},
-		{ID: "anthropic-1", TS: ts, Session: "s", Provider: "claude-subscription", Model: "claude-opus-5-5", Status: 200, PromptTokens: 300, CacheReadTokens: 900},
-		{ID: "brain", TS: ts, Session: "s", Provider: "chatgpt-subscription", Model: "gpt-6.1-sol", Status: 200, Kind: "brain", PromptTokens: 10},
+		// OpenAI wire counts cache reads inside prompt_tokens: inclusive.
+		{ID: "openai-legacy", TS: legacy, Session: "s", Provider: "chatgpt-subscription", Model: "gpt-6.1-sol", Path: "/chat/completions", Stream: true, Status: 200, PromptTokens: 1000, CacheReadTokens: 800},
+		// Anthropic Messages input_tokens is the uncached share: exclusive.
+		{ID: "anthropic-legacy", TS: legacy, Session: "s", Provider: "claude-subscription", Model: "claude-opus-5-5", Path: "/messages", Stream: true, Status: 200, PromptTokens: 300, CacheReadTokens: 900},
+		// A brain row carries no usage convention.
+		{ID: "brain", TS: legacy, Session: "s", Provider: "chatgpt-subscription", Model: "gpt-6.1-sol", Path: "/responses", Status: 200, Kind: "brain", PromptTokens: 10},
+		// The Go engine labeled this Connect-RPC row exclusive, but its egress
+		// renders an inclusive prompt count: it must be corrected to inclusive.
+		{ID: "devin-go", TS: modern, Session: "s", Provider: "devin-subscription", Model: "swe-2-max", Path: "/chat/completions", Stream: true, Status: 200, PromptTokens: 36223, CacheReadTokens: 24128},
+		// A legacy Connect-RPC row was exclusive and must stay exclusive.
+		{ID: "devin-legacy", TS: legacy, Session: "s", Provider: "devin-subscription", Model: "swe-2-max", Path: "/chat/completions", Stream: true, Status: 200, PromptTokens: 685, CacheReadTokens: 118497},
 	}
 	for _, r := range rows {
 		if err := db.Append(r); err != nil {
 			t.Fatalf("Append(%s): %v", r.ID, err)
 		}
 	}
-	// Pre-existing labels are authoritative: the openai-2 row already recorded
-	// its own convention.
+	// Seed the wrong Go-era label the old code wrote, and an already-correct row.
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer raw.Close()
-	if _, err := raw.Exec(`UPDATE records SET exclusive_input = 1 WHERE id = 'openai-2'`); err != nil {
-		t.Fatalf("seed label: %v", err)
+	if _, err := raw.Exec(`UPDATE records SET exclusive_input = 1 WHERE id = 'devin-go'`); err != nil {
+		t.Fatalf("seed devin-go: %v", err)
+	}
+	if _, err := raw.Exec(`UPDATE records SET exclusive_input = 0 WHERE id = 'openai-legacy'`); err != nil {
+		t.Fatalf("seed openai-legacy: %v", err)
 	}
 
-	classify := func(provider, model string) (bool, bool) {
+	classify := func(provider, model, path string, stream bool, at time.Time) (bool, bool) {
 		switch provider {
 		case "chatgpt-subscription":
 			return false, true
 		case "claude-subscription":
 			return true, true
+		case "devin-subscription":
+			return at.Before(cutover), true
 		default:
 			return false, false
 		}
 	}
-	updated, err := db.BackfillExclusiveInput(classify)
+	updated, err := db.ReconcileExclusiveInput(cutover, classify)
 	if err != nil {
-		t.Fatalf("BackfillExclusiveInput: %v", err)
+		t.Fatalf("ReconcileExclusiveInput: %v", err)
 	}
-	if updated != 2 {
-		t.Fatalf("updated = %d, want 2 (openai-1 + anthropic-1)", updated)
+	// anthropic-legacy (NULL->1), devin-go (1->0), devin-legacy (NULL->1).
+	if updated != 3 {
+		t.Fatalf("updated = %d, want 3", updated)
 	}
 
-	want := map[string]*int{"openai-1": intPtr(0), "anthropic-1": intPtr(1), "openai-2": intPtr(1), "brain": nil}
+	want := map[string]*int{
+		"openai-legacy":    intPtr(0),
+		"anthropic-legacy": intPtr(1),
+		"devin-go":         intPtr(0),
+		"devin-legacy":     intPtr(1),
+		"brain":            nil,
+	}
 	for id, label := range want {
 		got := readExclusive(t, raw, id)
 		if (label == nil) != (got == nil) || (label != nil && *got != *label) {
@@ -70,18 +91,18 @@ func TestBackfillExclusiveInputLabelsLegacyRows(t *testing.T) {
 	}
 
 	// Idempotent: a second pass changes nothing.
-	again, err := db.BackfillExclusiveInput(classify)
+	again, err := db.ReconcileExclusiveInput(cutover, classify)
 	if err != nil {
-		t.Fatalf("second BackfillExclusiveInput: %v", err)
+		t.Fatalf("second ReconcileExclusiveInput: %v", err)
 	}
 	if again != 0 {
 		t.Fatalf("second pass updated = %d, want 0", again)
 	}
 }
 
-func TestBackfillExclusiveInputNilClassifier(t *testing.T) {
+func TestReconcileExclusiveInputNilClassifier(t *testing.T) {
 	db := openTemp(t)
-	n, err := db.BackfillExclusiveInput(nil)
+	n, err := db.ReconcileExclusiveInput(time.Now(), nil)
 	if err != nil || n != 0 {
 		t.Fatalf("nil classifier = (%d,%v), want (0,nil)", n, err)
 	}
