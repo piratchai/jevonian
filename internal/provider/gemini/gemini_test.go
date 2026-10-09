@@ -106,6 +106,12 @@ func TestChatCompletionCollectsTextCallsUsageAndFinish(t *testing.T) {
 	if u := wire.AsRecord(chat["usage"]); u["prompt_tokens"] != 10 || u["completion_tokens"] != 5 {
 		t.Fatalf("usage %v", u)
 	}
+	// A cache read must survive the fold into Chat Completions: Gemini counts it
+	// inside promptTokenCount, so it rides as prompt_tokens_details.cached_tokens
+	// (without this, Antigravity turns read as cache misses in the ledger).
+	if cached := wire.Number(wire.AsRecord(wire.AsRecord(chat["usage"])["prompt_tokens_details"])["cached_tokens"]); cached != 4 {
+		t.Fatalf("cached_tokens = %v, want 4 (usage %v)", cached, chat["usage"])
+	}
 	// The signature on the thought part is replayed on the next turn.
 	if sig, ok := ThoughtSignatureFor("f", wire.Body{"x": float64(1)}); !ok || sig != "sig-1" {
 		t.Fatalf("signature %q %v", sig, ok)
@@ -121,10 +127,10 @@ func TestToChatStreamTranslatesChunks(t *testing.T) {
 	st := NewToChatStream("m", func(u wire.Usage) { finished = u }, nil)
 	sink := &wire.Collector{}
 	st.Handle(parse(t, `{"response":{"candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}}`), sink)
-	st.Handle(parse(t, `{"response":{"candidates":[{"content":{"parts":[{"text":"lo"},{"functionCall":{"name":"g","args":{}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":2}}}`), sink)
+	st.Handle(parse(t, `{"response":{"candidates":[{"content":{"parts":[{"text":"lo"},{"functionCall":{"name":"g","args":{}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":2,"cachedContentTokenCount":5}}}`), sink)
 	st.Finish(sink)
 	out := sink.String()
-	for _, want := range []string{`"role":"assistant"`, `"content":"Hel"`, `"content":"lo"`, `"tool_calls"`, `"finish_reason":"tool_calls"`, `"prompt_tokens":7`, "data: [DONE]"} {
+	for _, want := range []string{`"role":"assistant"`, `"content":"Hel"`, `"content":"lo"`, `"tool_calls"`, `"finish_reason":"tool_calls"`, `"prompt_tokens":7`, `"cached_tokens":5`, "data: [DONE]"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %s in %s", want, out)
 		}

@@ -456,10 +456,17 @@ func ChatCompletion(resp wire.Body, model string) wire.Body {
 	if mv := wire.AsString(resp["modelVersion"]); mv != "" {
 		model = mv
 	}
+	usage := wire.Body{"prompt_tokens": u.Input, "completion_tokens": u.Output, "total_tokens": u.Input + u.Output}
+	if u.CacheRead > 0 {
+		// Gemini counts cached content inside promptTokenCount (inclusive, like
+		// OpenAI), so the folded usage must advertise the reads or the ledger
+		// records zero cache hits.
+		usage["prompt_tokens_details"] = wire.Body{"cached_tokens": u.CacheRead}
+	}
 	return wire.Body{
 		"id": id, "object": "chat.completion", "created": float64(time.Now().Unix()), "model": model,
 		"choices": []any{wire.Body{"index": 0, "message": msg, "finish_reason": finishOf(rawFinish(resp), len(calls) > 0)}},
-		"usage":   wire.Body{"prompt_tokens": u.Input, "completion_tokens": u.Output, "total_tokens": u.Input + u.Output},
+		"usage":   usage,
 	}
 }
 
@@ -498,7 +505,13 @@ func (s *ToChatStream) event(e wire.StreamEvent) {
 
 func (s *ToChatStream) finalChunk(reason string) wire.Body {
 	c := s.chunk(wire.Body{}, reason)
-	c["usage"] = wire.Body{"prompt_tokens": s.usage.Input, "completion_tokens": s.usage.Output, "total_tokens": s.usage.Input + s.usage.Output}
+	usage := wire.Body{"prompt_tokens": s.usage.Input, "completion_tokens": s.usage.Output, "total_tokens": s.usage.Input + s.usage.Output}
+	if s.usage.CacheRead > 0 {
+		// Gemini counts cached content inside promptTokenCount (inclusive, like
+		// OpenAI); without this the ledger reads every Antigravity turn as a miss.
+		usage["prompt_tokens_details"] = wire.Body{"cached_tokens": s.usage.CacheRead}
+	}
+	c["usage"] = usage
 	return c
 }
 

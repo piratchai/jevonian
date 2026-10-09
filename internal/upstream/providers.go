@@ -58,14 +58,24 @@ func devinChat(r *Runner, ctx context.Context, req AttemptRequest, at *Attempt, 
 	var out rpcTurn
 	p := devin.NewProvider(at.Entry.Provider, r.deps.HTTP)
 	p.Token = func(context.Context) (string, error) { return token, nil }
-	result, err := p.Chat(ctx, devin.ChatRequest{Body: body, Model: at.Entry.Model, Stream: req.Stream})
+	// The session id makes Devin's prompt cache keep hitting across turns; the
+	// max-output ceiling and the builtins policy mirror the client's turn.
+	// src/upstream.ts buildDevinChatRequest options.
+	options := devin.ChatOptions{
+		SessionID:  req.ExtraHeaders.Get("x-jevonian-session"),
+		NoBuiltins: !req.PromptPolicy.Builtins,
+	}
+	if req.MaxOutput != nil {
+		options.MaxOutput = req.MaxOutput(at.Entry.Model)
+	}
+	result, err := p.Chat(ctx, devin.ChatRequest{Body: body, Model: at.Entry.Model, Stream: req.Stream, Options: options})
 	if err == nil && result.Status == http.StatusUnauthorized && at.Entry.Provider.Auth == config.AuthOAuth &&
 		at.Entry.Provider.OAuthSource != "" && at.Entry.Provider.OAuthSource != config.OAuthStatic {
 		r.deps.Auth.Invalidate(string(at.Entry.Provider.OAuthSource), at.Entry.Provider.Login)
 		if fresh, refreshErr := r.deps.Auth.ResolveProviderAuth(ctx, at.Entry.Provider, oauth.WireKind(at.Plan.Wire), req.ExtraHeaders.Get("x-jevonian-session")); refreshErr == nil && fresh.Token != "" {
 			token = fresh.Token
 			out.retries++
-			result, err = p.Chat(ctx, devin.ChatRequest{Body: body, Model: at.Entry.Model, Stream: req.Stream})
+			result, err = p.Chat(ctx, devin.ChatRequest{Body: body, Model: at.Entry.Model, Stream: req.Stream, Options: options})
 		}
 	}
 	out.status, out.completion, out.stream = result.Status, result.Completion, result.Stream
