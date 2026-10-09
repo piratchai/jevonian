@@ -1,38 +1,43 @@
-import { Plus, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ArrowDown, ArrowUp, DotsSixVertical, Plus, Warning, X } from "@phosphor-icons/react";
+import { Badge, Banner, Button, Input, LayerCard, LayerDialog, Text } from "@cloudflare/kumo";
+import { useMemo, useState, type ReactNode } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import type { RoutingEntryView, ScheduleStatusView, ScheduleView } from "@/lib/api";
 import {
   browserZone,
+  firstScheduleError,
+  hasScheduleErrors,
   knownZones,
   MAX_SCHEDULE_WINDOWS,
+  moveWindow,
+  partialOverlaps,
   runsPastMidnight,
-  scheduleError,
+  scheduleErrors,
+  scheduleIsIdle,
   scheduleSummary,
+  shadowedWindows,
   windowRange,
   windowSlug,
+  type ScheduleErrors,
 } from "@/lib/schedule";
+
+const EMPTY: ScheduleView = { timezone: "", windows: [] };
 
 export interface ScheduleSectionProps {
   routes: RoutingEntryView[];
@@ -47,11 +52,11 @@ export interface ScheduleSectionProps {
   effective?: Record<string, string[]>;
   names: Map<string, string | undefined>;
   disabled: boolean;
+  /** Opens the task editor for one routing, so an idle schedule can point at the next step. */
+  onCustomize: (id: string) => void;
   /** Saves the schedule (null removes it). Returns an error message, or null on success. */
   onSave: (next: ScheduleView | null) => Promise<string | null>;
 }
-
-const EMPTY: ScheduleView = { timezone: "", windows: [] };
 
 /** First two model names, then a count. */
 function chainText(models: string[], names: Map<string, string | undefined>): string {
@@ -63,10 +68,66 @@ function chainText(models: string[], names: Map<string, string | undefined>): st
   return models.length > 2 ? `${shown} → +${models.length - 2} more` : shown;
 }
 
+/** One draggable window in the editor: a drag handle, up/down buttons, and its fields. */
+function WindowRow({
+  id,
+  index,
+  count,
+  onMove,
+  children,
+}: {
+  id: string;
+  index: number;
+  count: number;
+  onMove: (from: number, to: number) => void;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition } =
+    useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className="flex items-start gap-2 rounded-lg border border-kumo-hairline bg-kumo-base p-3"
+    >
+      <div className="flex shrink-0 flex-col gap-1">
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${id}`}
+          className="touch-none rounded p-1 hover:bg-kumo-tint"
+        >
+          <DotsSixVertical size={16} aria-hidden />
+        </button>
+        <button
+          type="button"
+          aria-label={`Move ${id} up`}
+          disabled={index === 0}
+          onClick={() => onMove(index, index - 1)}
+          className="rounded p-1 hover:bg-kumo-tint disabled:opacity-30"
+        >
+          <ArrowUp size={16} aria-hidden />
+        </button>
+        <button
+          type="button"
+          aria-label={`Move ${id} down`}
+          disabled={index === count - 1}
+          onClick={() => onMove(index, index + 1)}
+          className="rounded p-1 hover:bg-kumo-tint disabled:opacity-30"
+        >
+          <ArrowDown size={16} aria-hidden />
+        </button>
+      </div>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
 /**
  * Which models each task uses at which time of day. The table answers "what runs when"; the
- * sheet edits the time zone and the windows. Models for a window are set per task, in
- * Customize.
+ * dialog edits the time zone and the windows. Models for a window are set per task, in Customize.
  */
 export function ScheduleSection({
   routes,
@@ -76,6 +137,7 @@ export function ScheduleSection({
   effective,
   names,
   disabled,
+  onCustomize,
   onSave,
 }: ScheduleSectionProps) {
   const [open, setOpen] = useState(false);
@@ -85,6 +147,21 @@ export function ScheduleSection({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const zones = useMemo(() => knownZones(), []);
   const windows = schedule?.windows ?? [];
+
+  // Validation runs on the draft, so errors appear while editing rather than only on save.
+  const draftErrors: ScheduleErrors = useMemo(() => scheduleErrors(draft), [draft]);
+  const draftShadows = useMemo(() => shadowedWindows(draft.windows), [draft.windows]);
+  const draftOverlaps = useMemo(() => partialOverlaps(draft.windows), [draft.windows]);
+
+  // The card warns about windows that can never apply, even before the editor is opened.
+  const shadows = useMemo(() => shadowedWindows(windows), [windows]);
+  const idle = scheduleIsIdle(routes, schedule);
+  const firstUnconfigured = routes.find((route) => !Object.keys(route.windows ?? {}).length);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   function openEditor() {
     setDraft(
@@ -107,6 +184,15 @@ export function ScheduleSection({
       ...current,
       windows: current.windows.map((window, i) => (i === index ? { ...window, ...patch } : window)),
     }));
+  }
+  function moveDraftWindow(from: number, to: number) {
+    setDraft((current) => ({ ...current, windows: moveWindow(current.windows, from, to) }));
+  }
+  function dropWindow({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const from = draft.windows.findIndex((window) => window.id === String(active.id));
+    const to = draft.windows.findIndex((window) => window.id === String(over.id));
+    if (from >= 0 && to >= 0) moveDraftWindow(from, to);
   }
   function addWindow() {
     setDraft((current) => {
@@ -131,9 +217,9 @@ export function ScheduleSection({
   }
   async function save(next: ScheduleView | null) {
     if (next) {
-      const message = scheduleError(next);
-      if (message) {
-        setError(message);
+      const errors = scheduleErrors(next);
+      if (hasScheduleErrors(errors)) {
+        setError(firstScheduleError(errors, next.windows));
         return;
       }
     }
@@ -146,8 +232,20 @@ export function ScheduleSection({
   }
   function commit() {
     const timezone = draft.timezone.trim();
-    // A zone alone does nothing, so an empty draft means "no schedule".
-    if (draft.windows.length === 0 && !timezone) return void save(null);
+    // An empty name is an error, not a silent removal: the editor has Remove schedule for that.
+    setDraft((current) => ({
+      ...current,
+      timezone,
+      windows: current.windows.map((window) => ({ ...window, label: window.label.trim() })),
+    }));
+    const errors = scheduleErrors({
+      timezone,
+      windows: draft.windows.map((window) => ({ ...window, label: window.label.trim() })),
+    });
+    if (hasScheduleErrors(errors)) {
+      setError(firstScheduleError(errors, draft.windows));
+      return;
+    }
     void save({
       timezone,
       windows: draft.windows.map((window) => ({ ...window, label: window.label.trim() })),
@@ -156,114 +254,176 @@ export function ScheduleSection({
 
   return (
     <>
-      <Card aria-label="Schedule">
-        <CardHeader>
+      <LayerCard aria-label="Schedule">
+        <LayerCard.Secondary className="block">
           <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1.5">
-              <CardTitle>Schedule</CardTitle>
-              <CardDescription>
+            <span className="flex flex-col gap-1">
+              <Text variant="heading" as="h3">
+                Schedule
+              </Text>
+              <Text variant="secondary" size="sm">
                 {schedule && status
                   ? scheduleSummary(status, windows)
                   : "Use different models at different times of day, for example cheaper models during an off-peak discount."}
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" disabled={disabled} onClick={openEditor}>
+              </Text>
+            </span>
+            <Button variant="secondary" size="sm" disabled={disabled} onClick={openEditor}>
               {schedule ? "Edit schedule" : "Set up a schedule"}
             </Button>
           </div>
-        </CardHeader>
+        </LayerCard.Secondary>
+        {shadows.length > 0 ? (
+          <LayerCard.Primary className="block pt-0">
+            <Banner
+              variant="alert"
+              icon={<Warning size={16} aria-hidden />}
+              title={
+                shadows.length === 1
+                  ? `${shadows[0].window.label} never runs`
+                  : `${shadows.length} windows never run`
+              }
+              description={
+                shadows.length === 1
+                  ? `${shadows[0].by.label} covers the whole ${shadows[0].window.label} range and comes first, so ${shadows[0].window.label} is never active.`
+                  : shadows
+                      .map((entry) => `${entry.window.label} (covered by ${entry.by.label})`)
+                      .join(", ")
+              }
+              action={
+                <Banner.Action onClick={openEditor}>Reorder</Banner.Action>
+              }
+            />
+          </LayerCard.Primary>
+        ) : null}
         {windows.length > 0 ? (
-          <CardContent>
-            <Table aria-label="Models by time">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Task</TableHead>
-                  {windows.map((window) => (
-                    <TableHead key={window.id}>
-                      <span className="text-foreground">{window.label}</span>{" "}
-                      {status?.active === window.id ? <Badge variant="default">now</Badge> : null}
-                      <br />
-                      <span className="font-normal">{windowRange(window)}</span>
-                      {runsPastMidnight(window) ? (
-                        <span className="font-normal"> · past midnight</span>
+          <LayerCard.Primary className="block">
+            <div className="w-full overflow-x-auto">
+              <table className="w-full caption-bottom text-sm">
+                <thead>
+                  <tr className="border-b border-kumo-hairline">
+                    <th className="h-10 px-2 text-left align-bottom font-medium text-kumo-subtle">
+                      Task
+                    </th>
+                    {windows.map((window) => (
+                      <th
+                        key={window.id}
+                        className="h-10 px-2 text-left align-bottom font-medium text-kumo-subtle"
+                      >
+                        <span className="text-kumo-default">{window.label}</span>{" "}
+                        {status?.active === window.id ? (
+                          <Badge variant="info" className="text-xs">
+                            now
+                          </Badge>
+                        ) : null}
+                        <br />
+                        <span className="font-normal">{windowRange(window)}</span>
+                        {runsPastMidnight(window) ? (
+                          <span className="font-normal"> · past midnight</span>
+                        ) : null}
+                      </th>
+                    ))}
+                    <th className="h-10 px-2 text-left align-bottom font-medium text-kumo-subtle">
+                      <span className="text-kumo-default">Other times</span>{" "}
+                      {status && !status.active ? (
+                        <Badge variant="info" className="text-xs">
+                          now
+                        </Badge>
                       ) : null}
-                    </TableHead>
-                  ))}
-                  <TableHead>
-                    <span className="text-foreground">Other times</span>{" "}
-                    {status && !status.active ? <Badge variant="default">now</Badge> : null}
-                    <br />
-                    <span className="font-normal">Default models</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {routes.map((route) => {
-                  const fallback = route.models.length
-                    ? route.models
-                    : (derived.get(route.id) ?? []);
-                  // In the active window, a task with no list of its own can still run on other
-                  // models than at other times, when it picks automatically.
-                  const now = effective?.[route.id];
-                  const shifted = Boolean(now && now.join("\n") !== fallback.join("\n"));
-                  return (
-                    <TableRow key={route.id}>
-                      <TableCell className="whitespace-nowrap font-medium">{route.label}</TableCell>
-                      {windows.map((window) => {
-                        const own = route.windows?.[window.id];
-                        return (
-                          <TableCell
-                            key={window.id}
-                            className={status?.active === window.id ? "bg-muted/60" : undefined}
-                          >
-                            {own?.length ? (
-                              chainText(own, names)
-                            ) : status?.active === window.id && shifted && now ? (
-                              chainText(now, names)
-                            ) : (
-                              <span className="text-muted-foreground">Same as other times</span>
-                            )}
-                          </TableCell>
-                        );
-                      })}
-                      <TableCell className={status && !status.active ? "bg-muted/60" : undefined}>
-                        {chainText(fallback, names)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            <p className="mt-3 text-xs text-muted-foreground">
+                      <br />
+                      <span className="font-normal">Default models</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {routes.map((route) => {
+                    const fallback = route.models.length
+                      ? route.models
+                      : (derived.get(route.id) ?? []);
+                    // In the active window, a task with no list of its own can still run on other
+                    // models than at other times, when it picks automatically.
+                    const now = effective?.[route.id];
+                    const shifted = Boolean(now && now.join("\n") !== fallback.join("\n"));
+                    return (
+                      <tr key={route.id} className="border-b border-kumo-hairline last:border-b-0">
+                        <td className="whitespace-nowrap p-2 font-medium">{route.label}</td>
+                        {windows.map((window) => {
+                          const own = route.windows?.[window.id];
+                          return (
+                            <td
+                              key={window.id}
+                              className={`p-2 align-top ${
+                                status?.active === window.id ? "bg-kumo-tint" : ""
+                              }`}
+                            >
+                              {own?.length ? (
+                                chainText(own, names)
+                              ) : status?.active === window.id && shifted && now ? (
+                                chainText(now, names)
+                              ) : (
+                                <span className="text-kumo-subtle">Same as other times</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td
+                          className={`p-2 align-top ${status && !status.active ? "bg-kumo-tint" : ""}`}
+                        >
+                          {chainText(fallback, names)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {idle ? (
+              <div className="pt-3">
+                <Banner
+                  variant="default"
+                  title="No task uses these windows yet"
+                  description="A window only changes a task once that task lists models for it. Open a task's Customize and turn on Models by time."
+                  action={
+                    firstUnconfigured ? (
+                      <Banner.Action onClick={() => onCustomize(firstUnconfigured.id)}>
+                        Configure {firstUnconfigured.label}
+                      </Banner.Action>
+                    ) : undefined
+                  }
+                />
+              </div>
+            ) : null}
+            <p className="pt-3 text-xs text-kumo-subtle">
               Windows repeat every day
               {schedule?.timezone ? ` in ${schedule.timezone}` : " in this machine's time zone"}.
               The first window that contains the time wins. Choose Customize on a task to set its
               models for each window.
             </p>
-          </CardContent>
+          </LayerCard.Primary>
         ) : null}
-      </Card>
-      <Sheet
+      </LayerCard>
+
+      <LayerDialog.Root
         open={open}
         onOpenChange={(next) => {
           if (!next) closeEditor();
         }}
+        dismissDisabled={busy}
       >
-        <SheetContent className="w-full sm:w-full sm:max-w-xl" showCloseButton={!busy}>
-          <SheetHeader>
-            <SheetTitle>Schedule</SheetTitle>
-            <SheetDescription>
-              Name the time ranges. Then set each task's models for a range with Customize.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
-            <div className="space-y-2">
-              <Label htmlFor="schedule-timezone">Time zone</Label>
+        <LayerDialog.Content size="lg" verticalAlign="top">
+          <LayerDialog.Title>Schedule</LayerDialog.Title>
+          <LayerDialog.Description>
+            Name the time ranges. Then set each task's models for a range with Customize.
+          </LayerDialog.Description>
+          <LayerDialog.Body>
+            <div className="flex min-h-0 flex-1 flex-col gap-5 pb-4">
               <Input
                 id="schedule-timezone"
-                list="schedule-zones"
+                label="Time zone"
                 value={draft.timezone}
                 disabled={busy}
+                list="schedule-zones"
+                error={draftErrors.timezone}
+                description="Leave empty to use the time zone of the machine that runs Jevonian."
                 placeholder="Asia/Singapore"
                 onChange={(event) => setDraft({ ...draft, timezone: event.target.value })}
               />
@@ -272,132 +432,186 @@ export function ScheduleSection({
                   <option key={zone} value={zone} />
                 ))}
               </datalist>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>Leave empty to use the time zone of the machine that runs Jevonian.</span>
-                {browserZone() && draft.timezone !== browserZone() ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setDraft({ ...draft, timezone: browserZone() })}
-                  >
-                    Use {browserZone()}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <fieldset disabled={busy} className="space-y-3">
-              <legend className="mb-2 text-sm font-medium">Time windows</legend>
-              {draft.windows.length === 0 ? (
-                <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-                  No windows yet. A window is a daily time range, such as 22:00 to 08:00 for an
-                  off-peak discount.
-                </p>
+              {browserZone() && draft.timezone !== browserZone() ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="self-start"
+                  disabled={busy}
+                  onClick={() => setDraft({ ...draft, timezone: browserZone() })}
+                >
+                  Use {browserZone()}
+                </Button>
               ) : null}
-              {draft.windows.map((window, index) => (
-                <div key={window.id} className="space-y-3 rounded-lg border p-3">
-                  <div className="flex items-end gap-2">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Label htmlFor={`schedule-label-${window.id}`}>Name</Label>
-                      <Input
-                        id={`schedule-label-${window.id}`}
-                        value={window.label}
-                        onChange={(event) => updateWindow(index, { label: event.target.value })}
-                      />
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove ${window.label || "window"}`}
-                      onClick={() =>
-                        setDraft({
-                          ...draft,
-                          windows: draft.windows.filter((_, i) => i !== index),
-                        })
-                      }
-                    >
-                      <X />
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor={`schedule-start-${window.id}`}>From</Label>
-                      <Input
-                        id={`schedule-start-${window.id}`}
-                        type="time"
-                        value={window.start}
-                        onChange={(event) => updateWindow(index, { start: event.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`schedule-end-${window.id}`}>Until</Label>
-                      <Input
-                        id={`schedule-end-${window.id}`}
-                        type="time"
-                        value={window.end}
-                        onChange={(event) => updateWindow(index, { end: event.target.value })}
-                      />
-                    </div>
-                  </div>
-                  {runsPastMidnight(window) ? (
-                    <p className="text-xs text-muted-foreground">
-                      This window runs past midnight: it ends the next day.
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={draft.windows.length >= MAX_SCHEDULE_WINDOWS}
-                onClick={addWindow}
-              >
-                <Plus /> Add window
-              </Button>
-            </fieldset>
-            {error ? (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-            {confirmRemove ? (
-              <div role="alert" className="space-y-3 rounded-lg border p-3 text-sm">
-                <p>
-                  Remove the schedule? Every task goes back to its default models. The models you
-                  set for each window are deleted.
+
+              <fieldset disabled={busy} className="space-y-3">
+                <legend className="mb-2 text-sm font-medium">Time windows</legend>
+                <p className="text-xs text-kumo-subtle">
+                  A window is a daily time range. The first window that contains the time wins, so
+                  the order sets the priority.
                 </p>
-                <div className="flex gap-2">
-                  <Button variant="destructive" disabled={busy} onClick={() => void save(null)}>
-                    Remove schedule
-                  </Button>
-                  <Button variant="outline" disabled={busy} onClick={() => setConfirmRemove(false)}>
-                    Keep schedule
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <SheetFooter className="border-t">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              {schedule ? (
-                <Button variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
-                  Remove schedule
+                {draft.windows.length === 0 ? (
+                  <p className="rounded-lg bg-kumo-tint p-3 text-sm text-kumo-subtle">
+                    No windows yet. A window is a daily time range, such as 22:00 to 08:00 for an
+                    off-peak discount.
+                  </p>
+                ) : null}
+                {draftShadows.length > 0 ? (
+                  <Banner
+                    variant="alert"
+                    icon={<Warning size={16} aria-hidden />}
+                    title={
+                      draftShadows.length === 1
+                        ? `${draftShadows[0].window.label} never runs`
+                        : `${draftShadows.length} windows never run`
+                    }
+                    description={draftShadows
+                      .map(
+                        (entry) =>
+                          `${entry.by.label} covers the whole ${entry.window.label} range and comes first.`,
+                      )
+                      .join(" ")}
+                  />
+                ) : draftOverlaps.length > 0 ? (
+                  <Banner
+                    variant="default"
+                    title="These windows overlap"
+                    description={`${draftOverlaps
+                      .map(([later, earlier]) => `${later.label} overlaps ${earlier.label}`)
+                      .join(", ")}. The first one wins in the overlap.`}
+                  />
+                ) : null}
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={dropWindow}
+                >
+                  <SortableContext
+                    items={draft.windows.map((window) => window.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="flex flex-col gap-2">
+                      {draft.windows.map((window, index) => {
+                        const entry = draftErrors.windows[window.id];
+                        return (
+                          <WindowRow
+                            key={window.id}
+                            id={window.id}
+                            index={index}
+                            count={draft.windows.length}
+                            onMove={moveDraftWindow}
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-end gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <Input
+                                    id={`schedule-label-${window.id}`}
+                                    label="Name"
+                                    value={window.label}
+                                    error={entry?.label}
+                                    onChange={(event) =>
+                                      updateWindow(index, { label: event.target.value })
+                                    }
+                                  />
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Remove ${window.label || "window"}`}
+                                  onClick={() =>
+                                    setDraft({
+                                      ...draft,
+                                      windows: draft.windows.filter((_, i) => i !== index),
+                                    })
+                                  }
+                                >
+                                  <X size={16} aria-hidden />
+                                </Button>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <Input
+                                  id={`schedule-start-${window.id}`}
+                                  label="From"
+                                  type="time"
+                                  value={window.start}
+                                  error={entry?.start}
+                                  onChange={(event) =>
+                                    updateWindow(index, { start: event.target.value })
+                                  }
+                                />
+                                <Input
+                                  id={`schedule-end-${window.id}`}
+                                  label="Until"
+                                  type="time"
+                                  value={window.end}
+                                  error={entry?.end}
+                                  onChange={(event) =>
+                                    updateWindow(index, { end: event.target.value })
+                                  }
+                                />
+                              </div>
+                              {runsPastMidnight(window) ? (
+                                <p className="text-xs text-kumo-subtle">
+                                  This window runs past midnight: it ends the next day.
+                                </p>
+                              ) : null}
+                            </div>
+                          </WindowRow>
+                        );
+                      })}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={draft.windows.length >= MAX_SCHEDULE_WINDOWS}
+                  onClick={addWindow}
+                >
+                  <Plus size={16} aria-hidden /> Add window
                 </Button>
-              ) : (
-                <span className="text-xs text-muted-foreground">New schedule</span>
-              )}
-              <div className="flex gap-2">
-                <Button variant="outline" disabled={busy} onClick={closeEditor}>
-                  Cancel
-                </Button>
-                <Button disabled={busy} onClick={commit}>
-                  {busy ? "Saving…" : "Save schedule"}
-                </Button>
-              </div>
+              </fieldset>
+
+              {error ? (
+                <Banner variant="error" title="Cannot save the schedule" description={error} />
+              ) : null}
+
+              {confirmRemove ? (
+                <Banner
+                  variant="alert"
+                  title="Remove the schedule?"
+                  description="Every task goes back to its default models. The models you set for each window are deleted."
+                  action={
+                    <>
+                      <Banner.Action variant="primary" onClick={() => void save(null)}>
+                        Remove schedule
+                      </Banner.Action>
+                      <Banner.Action onClick={() => setConfirmRemove(false)}>Keep</Banner.Action>
+                    </>
+                  }
+                />
+              ) : null}
             </div>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+          </LayerDialog.Body>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-kumo-hairline px-6 py-3">
+            {schedule ? (
+              <Button variant="ghost" disabled={busy} onClick={() => setConfirmRemove(true)}>
+                Remove schedule
+              </Button>
+            ) : (
+              <span className="text-xs text-kumo-subtle">New schedule</span>
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" disabled={busy} onClick={closeEditor}>
+                Cancel
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={commit}>
+                {busy ? "Saving…" : "Save schedule"}
+              </Button>
+            </div>
+          </div>
+        </LayerDialog.Content>
+      </LayerDialog.Root>
     </>
   );
 }
