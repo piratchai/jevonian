@@ -385,9 +385,11 @@ func (h *Handler) routingPayload(c *config.Config) map[string]any {
 	out := map[string]any{"tiers": tiers(entries), "routings": entries}
 	// With a schedule, also say which window applies now and which models each
 	// routing uses at this moment, so the dashboard can show both.
-	if status := routing.Status(c.Routing.Schedule, h.deps.Now()); status != nil {
+	// One timestamp for both, so a window change between the calls cannot name one
+	// window and return another window's models.
+	now := h.deps.Now()
+	if status := routing.Status(c.Routing.Schedule, now); status != nil {
 		out["schedule"] = status
-		now := h.deps.Now()
 		effective := map[string][]string{}
 		for _, entry := range routing.EffectiveRoutings(c, routing.Deps{Prices: h.deps.Prices, Now: func() int64 { return now.UnixMilli() }}) {
 			effective[entry.ID] = entry.Models
