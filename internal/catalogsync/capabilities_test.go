@@ -267,3 +267,4 @@ func TestXaiGrokCapabilities(t *testing.T) {
 		t.Fatalf("expected grok-build-0.1 context window 256000, got %d", gb.ContextWindow)
 	}
 }
+

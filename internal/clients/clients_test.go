@@ -298,7 +298,7 @@ func TestCodexLostStateRestoreManagedKeysOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustRestore(t, m, ChatGPT)
-	assertContains(t, get(t, path), "# keep", `model = \"jevonian/auto\"`)
+	assertContains(t, get(t, path), "# keep", `model = "jevonian/auto"`)
 	if strings.Contains(get(t, path), "openai_base_url") || strings.Contains(get(t, path), "model_catalog_json") {
 		t.Fatal(get(t, path))
 	}
@@ -376,3 +376,4 @@ func TestGrokApplyAndRestore(t *testing.T) {
 	}
 	assertContains(t, restored, `default = "grok-4.7"`)
 }
+
